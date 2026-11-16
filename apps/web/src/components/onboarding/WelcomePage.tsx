@@ -146,7 +146,8 @@ export function WelcomePage({
     canShare: canReadRelay && canWriteRelay,
     policy: useManagedPolicy(environmentId),
   });
-  const scans = useProjectScans([environmentId]);
+  // Exploro: coding-agent history holds code repos, not QA work, so the welcome page scans nothing.
+  const scans = useProjectScans([]);
   const [storedSelection, storeSelection] = useLocalStorage(
     welcomeImportSelectionKey(environmentId),
     null,
