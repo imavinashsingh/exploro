@@ -22,6 +22,7 @@ import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import type { SidebarProjectGroupMember } from "../../sidebarProjectGrouping";
 import { Badge } from "../ui/badge";
+import { Input } from "../ui/input";
 import { Button } from "../ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
@@ -133,6 +134,7 @@ function FactRow(props: {
               {fact.route}
             </span>
             <span>{fact.kind}</span>
+            {fact.appVersion ? <span>App {fact.appVersion}</span> : null}
             {fact.status === "current" ? null : <Badge variant="outline">{fact.status}</Badge>}
             <span>
               {fact.author}, {fact.observedAt.slice(0, 10)}
@@ -426,6 +428,9 @@ export function ProjectMemorySettings(props: {
   const navigate = useNavigate();
   const enabled = useScopedSettings((settings) => settings.qaMemoryEnabled);
   const updateSettings = useUpdateScopedSettings();
+  const [versionEnvironment, setVersionEnvironment] = useState("");
+  const [appVersion, setAppVersion] = useState("");
+  const [savingVersion, setSavingVersion] = useState(false);
   const [memberKey, setMemberKey] = useState<string | null>(null);
   const [tab, setTab] = useState<"facts" | "understanding">("facts");
   const member =
@@ -443,6 +448,12 @@ export function ProjectMemorySettings(props: {
   });
   const deleteItem = useAtomCommand(serverEnvironment.deleteMemoryItem, {
     label: "delete memory item",
+  });
+  const canSetVersion = useAtomValue(
+    serverEnvironment.setMemoryAppVersion.permissionAtom(environmentId),
+  );
+  const setVersion = useAtomCommand(serverEnvironment.setMemoryAppVersion, {
+    label: "set tested app version",
   });
   const retry = useAtomCommand(serverEnvironment.retryMemoryExtraction, {
     label: "retry memory extraction",
@@ -518,6 +529,70 @@ export function ProjectMemorySettings(props: {
           </div>
         }
       />
+      <form
+        className="flex flex-col gap-2 py-3"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          setSavingVersion(true);
+          try {
+            const result = await setVersion({
+              environmentId,
+              input: {
+                projectId,
+                environment: versionEnvironment.trim(),
+                appVersion: appVersion.trim(),
+              },
+            });
+            if (after("Could not save the app version")(result)) {
+              setAppVersion("");
+              toastManager.add({ type: "success", title: "App version saved" });
+            }
+          } catch (error) {
+            toastManager.add({
+              type: "error",
+              title: "Could not save the app version",
+              description: error instanceof Error ? error.message : String(error),
+            });
+          }
+          setSavingVersion(false);
+        }}
+      >
+        <p className="m-0 text-sm text-muted-foreground">
+          Set the version of the app under test. Earlier facts from this site become stale; new
+          observations use this version.
+        </p>
+        <Input
+          aria-label="Test site"
+          placeholder="https://app.example.com"
+          value={versionEnvironment}
+          onChange={(event) => setVersionEnvironment(event.target.value)}
+          disabled={!canSetVersion || savingVersion}
+          required
+          type="url"
+          maxLength={2048}
+        />
+        <Input
+          aria-label="Tested app version"
+          placeholder="App version, e.g. 2.1"
+          value={appVersion}
+          onChange={(event) => setAppVersion(event.target.value)}
+          disabled={!canSetVersion || savingVersion}
+          required
+          maxLength={100}
+        />
+        <div>
+          <Button
+            type="submit"
+            variant="outline"
+            size="sm"
+            disabled={
+              !canSetVersion || savingVersion || !versionEnvironment.trim() || !appVersion.trim()
+            }
+          >
+            {savingVersion ? "Saving…" : "Set app version"}
+          </Button>
+        </div>
+      </form>
       <SettingsRow
         title="Contents"
         control={

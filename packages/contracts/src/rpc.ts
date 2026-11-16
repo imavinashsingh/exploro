@@ -4,6 +4,8 @@ import {
   ProjectMemoryMap,
   ProjectMemoryMapInput,
   ProjectMemoryRetryInput,
+  ProjectMemorySaveThreadInput,
+  ProjectMemoryVersionInput,
   ProjectMemorySnapshot,
   ProjectMemorySnapshotInput,
   ProjectUnderstandingDeleteInput,
@@ -576,6 +578,8 @@ export const WS_METHODS = {
   scheduledTasksSubscribe: "scheduledTasks.subscribe",
   projectMemoryMap: "projectMemory.map",
   projectMemorySnapshot: "projectMemory.snapshot",
+  projectMemorySaveThread: "projectMemory.saveThread",
+  projectMemorySetAppVersion: "projectMemory.setAppVersion",
   projectMemoryDeleteFact: "projectMemory.deleteFact",
   projectMemoryItemHistory: "projectMemory.itemHistory",
   projectMemoryUpdateItem: "projectMemory.updateItem",
@@ -2059,6 +2063,14 @@ const WsProjectMemoryMapRpc = Rpc.make(WS_METHODS.projectMemoryMap, {
 });
 
 const memoryError = Schema.Union([ProjectMemoryError, EnvironmentAuthorizationError]);
+const WsProjectMemorySaveThreadRpc = Rpc.make(WS_METHODS.projectMemorySaveThread, {
+  payload: ProjectMemorySaveThreadInput,
+  error: memoryError,
+});
+const WsProjectMemorySetAppVersionRpc = Rpc.make(WS_METHODS.projectMemorySetAppVersion, {
+  payload: ProjectMemoryVersionInput,
+  error: memoryError,
+});
 const WsProjectMemorySnapshotRpc = Rpc.make(WS_METHODS.projectMemorySnapshot, {
   payload: ProjectMemorySnapshotInput,
   success: ProjectMemorySnapshot,
@@ -2253,6 +2265,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsScheduledTasksSubscribeRpc,
   WsProjectMemoryMapRpc,
   WsProjectMemorySnapshotRpc,
+  WsProjectMemorySaveThreadRpc,
+  WsProjectMemorySetAppVersionRpc,
   WsProjectMemoryDeleteFactRpc,
   WsProjectMemoryItemHistoryRpc,
   WsProjectMemoryUpdateItemRpc,

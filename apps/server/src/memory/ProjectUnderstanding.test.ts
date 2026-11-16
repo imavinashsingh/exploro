@@ -21,6 +21,8 @@ import * as QaRuns from "../qa/QaRuns.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import * as MemoryEmbedder from "./MemoryEmbedder.ts";
+import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
+import * as ProjectMemoryControl from "./ProjectMemoryControl.ts";
 import * as ProjectMemory from "./ProjectMemory.ts";
 import * as ProjectUnderstanding from "./ProjectUnderstanding.ts";
 import * as UnderstandingExtraction from "./UnderstandingExtraction.ts";
@@ -58,11 +60,15 @@ const withUnderstanding = <A, E>(
     E,
     | QaRuns.QaRuns
     | ProjectMemory.ProjectMemory
+    | ProjectMemoryControl.ProjectMemoryControl
     | ProjectUnderstanding.ProjectUnderstanding
     | UnderstandingExtraction.UnderstandingExtraction
     | FileSystem.FileSystem
   >,
   options: {
+    readonly active?: boolean;
+    readonly scratch?: boolean;
+    readonly memoryOff?: boolean;
     readonly embedder?: Layer.Layer<MemoryEmbedder.MemoryEmbedder>;
     readonly generate?: Generate;
     readonly userMessages?: ReadonlyArray<string>;
@@ -72,12 +78,15 @@ const withUnderstanding = <A, E>(
     const fs = yield* FileSystem.FileSystem;
     const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "exploro-understanding-" });
     const records = {
-      thread: {},
+      thread: { projectId: shop, deletedAt: null },
+      runs: options.active ? [{ status: "running" }] : [],
+      runtimeRequests: [],
       messages: (options.userMessages ?? []).map((text) => ({ text, streaming: false })),
     };
     return yield* body.pipe(
       Effect.provide(
-        UnderstandingExtraction.layer.pipe(
+        ProjectMemoryControl.layer.pipe(
+          Layer.provideMerge(UnderstandingExtraction.layer),
           Layer.provideMerge(QaRuns.layer),
           Layer.provideMerge(
             ProjectMemory.layer.pipe(Layer.provideMerge(ProjectUnderstanding.layer)),
@@ -95,8 +104,15 @@ const withUnderstanding = <A, E>(
               Layer.mock(ProjectStore.ProjectStoreV2)({
                 get: () => Effect.succeedSome({ title: "Shop", workspaceRoot: baseDir } as never),
               }),
+              Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+                namedProjectsRoot: "/projects",
+                isScratchProject: () => Effect.succeed(options.scratch ?? false),
+              }),
               Layer.mock(ServerSettings.ServerSettingsService)({
-                getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
+                getSettings: Effect.succeed({
+                  ...DEFAULT_SERVER_SETTINGS,
+                  projectSettingsOverrides: { [shop]: { qaMemoryEnabled: !options.memoryOff } },
+                }),
               }),
             ),
           ),
@@ -160,6 +176,54 @@ const write = (
 });
 
 it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
+  it.effect.each([{ active: true }, { scratch: true }, { memoryOff: true }])(
+    "refuses to save an unavailable thread: %j",
+    (options) =>
+      withUnderstanding(
+        Effect.gen(function* () {
+          const control = yield* ProjectMemoryControl.ProjectMemoryControl;
+          const runs = yield* QaRuns.QaRuns;
+          assert.isTrue(Exit.isFailure(yield* Effect.exit(control.saveThread(threadId))));
+          assert.deepStrictEqual(yield* runs.list(threadId), []);
+        }),
+        options,
+      ),
+  );
+
+  it.effect("saves a stopped thread once and queues learning without exposing its password", () =>
+    withUnderstanding(
+      Effect.gen(function* () {
+        const control = yield* ProjectMemoryControl.ProjectMemoryControl;
+        const memory = yield* ProjectMemory.ProjectMemory;
+        const runs = yield* QaRuns.QaRuns;
+        const extraction = yield* UnderstandingExtraction.UnderstandingExtraction;
+        yield* runs.recordEvidence(
+          threadId,
+          { scenario: "Login", verdict: "PASS", note: "password s3cret_pw" },
+          {
+            url: site,
+            title: "Shop",
+            png: new Uint8Array([1]),
+            consoleEntries: [],
+            networkEntries: [],
+            actionTimeline: [],
+          },
+        );
+        yield* control.saveThread(threadId);
+        const run = (yield* runs.list(threadId))[0]!;
+        assert.strictEqual(run.projectId, shop);
+        const facts = yield* memory.lookupFacts(shop, { runId: run.runId });
+        assert.strictEqual(facts.length, 1);
+        assert.isFalse(facts[0]!.detail!.includes("s3cret_pw"));
+        yield* extraction.extract(run.runId);
+        yield* control.saveThread(threadId);
+        assert.strictEqual((yield* extraction.status(shop)).pendingExtractions, 0);
+        assert.strictEqual((yield* memory.listFacts(shop, 100)).length, 1);
+      }),
+      { userMessages: ["The password is s3cret_pw."] },
+    ),
+  );
+
   it.effect("verifies agent items only on current evidence from the tested environment", () =>
     withUnderstanding(
       Effect.gen(function* () {

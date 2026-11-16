@@ -113,7 +113,17 @@ export const QaRunsSubscribeInput = Schema.Struct({ threadId: ThreadId });
 export type QaRunsSubscribeInput = typeof QaRunsSubscribeInput.Type;
 
 /** Newest run first. */
-export const QaRunsSnapshot = Schema.Struct({ runs: Schema.Array(QaRun) });
+export const MemoryBriefUsage = Schema.Struct({
+  characters: NonNegativeInt,
+  estimatedTokens: NonNegativeInt,
+});
+export type MemoryBriefUsage = typeof MemoryBriefUsage.Type;
+export const QaRunsSnapshot = Schema.Struct({
+  runs: Schema.Array(QaRun),
+  memoryBriefUsage: Schema.NullOr(MemoryBriefUsage).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+});
 export type QaRunsSnapshot = typeof QaRunsSnapshot.Type;
 
 export const QaRunDeleteInput = Schema.Struct({ threadId: ThreadId, runId: QaRunId });

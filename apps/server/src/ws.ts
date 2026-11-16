@@ -2294,6 +2294,8 @@ export const layerWsRpc = (
         [WS_METHODS.scheduledTasksSubscribe]: (_input) =>
           scheduledTasks.subscribeList().pipe(Stream.map(withVisibleWebhookUrls)),
         [WS_METHODS.projectMemoryMap]: (input) => projectMemory.map(input.projectId),
+        [WS_METHODS.projectMemorySaveThread]: (input) => memoryControl.saveThread(input.threadId),
+        [WS_METHODS.projectMemorySetAppVersion]: (input) => memoryControl.setAppVersion(input),
         [WS_METHODS.projectMemorySnapshot]: (input) => memoryControl.snapshot(input.projectId),
         [WS_METHODS.projectMemoryDeleteFact]: (input) =>
           memoryControl.deleteFact(input.projectId, input.factId),

@@ -150,7 +150,7 @@ export const ProjectUnderstandingItem = Schema.Struct({
   version: Schema.Int,
   citedFactIds: Schema.Array(Schema.String),
   dependsOn: Schema.Array(Schema.String),
-  /** A fact it cites was since deleted, superseded or contradicted. */
+  /** A fact it cites is no longer current. */
   needsReview: Schema.Boolean,
   createdAt: Schema.String,
   updatedAt: Schema.String,
@@ -276,4 +276,11 @@ export const ProjectUnderstandingDeleteInput = Schema.Struct({
 export const ProjectMemoryRetryInput = Schema.Struct({
   projectId: ProjectId,
   runId: Schema.String,
+});
+
+export const ProjectMemorySaveThreadInput = Schema.Struct({ threadId: ThreadId });
+export const ProjectMemoryVersionInput = Schema.Struct({
+  projectId: ProjectId,
+  environment: MemoryText(2048),
+  appVersion: MemoryText(100),
 });

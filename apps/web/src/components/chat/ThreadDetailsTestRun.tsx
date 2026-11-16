@@ -27,6 +27,7 @@ import { useAssetUrlState } from "../../assets/assetUrls";
 import { cn } from "../../lib/utils";
 import { useRightPanelStore } from "../../rightPanelStore";
 import { useEnvironmentQuery } from "../../state/query";
+import { projectEnvironment } from "../../state/projects";
 import { serverEnvironment } from "../../state/server";
 import { readEnvironmentScope } from "../../state/session";
 import { shellEnvironment } from "../../state/shell";
@@ -62,6 +63,9 @@ interface ThreadDetailsTestRunProps {
   readonly threadId: ThreadId;
   /** Why this run will not use or grow project memory; null while it does. */
   readonly memoryNote?: string | null;
+  readonly scratchProject?: boolean;
+  readonly memoryEnabled?: boolean;
+  readonly contextMaxTokens?: number | null;
 }
 
 const reportFailure = (title: string, error: unknown) =>
@@ -267,6 +271,43 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
   );
   const config = useAtomValue(serverEnvironment.configValueAtom(props.environmentId));
   const canDelete = useAtomValue(serverEnvironment.deleteQaRun.permissionAtom(props.environmentId));
+  const canSaveMemory = useAtomValue(
+    serverEnvironment.saveThreadMemory.permissionAtom(props.environmentId),
+  );
+  const canPromote = useAtomValue(
+    projectEnvironment.createFromThread.permissionAtom(props.environmentId),
+  );
+  const saveMemory = useAtomCommand(serverEnvironment.saveThreadMemory, {
+    label: "save test to memory",
+  });
+  const promote = useAtomCommand(projectEnvironment.createFromThread, {
+    label: "create project for test",
+  });
+  const [savingMemory, setSavingMemory] = useState(false);
+  const saveThread = async () => {
+    setSavingMemory(true);
+    try {
+      const input = { environmentId: props.environmentId, input: { threadId: props.threadId } };
+      if (props.scratchProject) {
+        const promoted = await promote(input);
+        if (promoted._tag === "Failure") {
+          setSavingMemory(false);
+          return;
+        }
+      }
+      const result = await saveMemory(input);
+      if (result._tag !== "Failure") {
+        toastManager.add({
+          type: "success",
+          title: "Test saved to memory",
+          description: "Review learning status in the project’s Memory settings.",
+        });
+      }
+    } catch (error) {
+      reportFailure("Could not save the test to memory", error);
+    }
+    setSavingMemory(false);
+  };
   const deleteRun = useAtomCommand(serverEnvironment.deleteQaRun, { label: "delete QA run" });
   const openInEditor = useAtomCommand(shellEnvironment.openInEditor, { reportFailure: false });
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
@@ -320,6 +361,40 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
           >
             {props.memoryNote}
           </p>
+        ) : null}
+        {runsQuery.data?.memoryBriefUsage ? (
+          <p
+            className={cn(
+              "m-0 py-1 text-2xs text-muted-foreground",
+              THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS,
+            )}
+          >
+            Initial memory brief: ~
+            {runsQuery.data.memoryBriefUsage.estimatedTokens.toLocaleString()} tokens
+            {props.contextMaxTokens && props.contextMaxTokens > 0
+              ? ` (${((100 * runsQuery.data.memoryBriefUsage.estimatedTokens) / props.contextMaxTokens).toFixed(1)}% of context)`
+              : " (estimated)"}
+            .
+          </p>
+        ) : null}
+        {(props.memoryEnabled || props.scratchProject) &&
+        canSaveMemory &&
+        (!props.scratchProject || canPromote) ? (
+          <div className="px-1.5 py-1">
+            <ThreadDetailsControl
+              size="xs"
+              variant="ghost"
+              part="meta"
+              disabled={savingMemory}
+              onClick={() => void saveThread()}
+            >
+              {savingMemory
+                ? "Saving…"
+                : props.scratchProject
+                  ? "Create project and save to memory"
+                  : "Save test to memory"}
+            </ThreadDetailsControl>
+          </div>
         ) : null}
         {run === null ? (
           <div className={cn(THREAD_DETAILS_PANEL_LOCKED_ROW_CLASS, "flex items-center")}>

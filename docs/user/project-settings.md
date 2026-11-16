@@ -77,6 +77,15 @@ one is not saved again. Edit or **Confirm** an item to mark it as right; agents 
 item you confirmed. To stop a project remembering, turn **Project memory** off. What is already
 saved stays until you delete it. On mobile, memory is shown read-only.
 
+To remember an interrupted test, stop it and choose **Save test to memory** in its test-run panel.
+For a test with **No project**, choose **Create project and save to memory** first. Learning runs in
+the background; failures can be retried in the project's Memory settings.
+
+Set the tested site's app version in **Settings → Projects → Memory** when its release changes.
+Earlier facts on that site become stale and are left out of the next brief until observed again.
+The test-run panel shows the brief's estimated token count and share of the model's context when
+its context size is known.
+
 ## Pin and archive projects
 
 Pinned projects come first in the project pickers: the project picker on a new thread, the

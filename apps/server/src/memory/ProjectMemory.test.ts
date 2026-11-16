@@ -9,6 +9,7 @@ import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import type * as Scope from "effect/Scope";
+import * as TestClock from "effect/testing/TestClock";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ServerConfig from "../config.ts";
@@ -281,6 +282,164 @@ it.layer(NodeServices.layer)("ProjectMemory", (it) => {
         assert.deepStrictEqual(
           sameVersion.map((row) => row.mayBeOutdated),
           [false],
+        );
+      }),
+    ),
+  );
+
+  it.effect("remembers an interrupted or project-less run after the thread joins a project", () =>
+    withMemory(
+      Effect.gen(function* () {
+        const runs = yield* QaRuns.QaRuns;
+        const memory = yield* ProjectMemory.ProjectMemory;
+        const run = yield* finishedRun(null, [
+          { scenario: "Login works", verdict: "PASS", url: "https://shop.test/login" },
+        ]);
+        const saved = yield* runs.rememberRun(threadId, run.runId, shop);
+        assert.strictEqual(saved.projectId, shop);
+        assert.strictEqual((yield* memory.lookupFacts(shop, { runId: run.runId })).length, 1);
+        yield* runs.rememberRun(threadId, run.runId, shop);
+        assert.strictEqual((yield* memory.listFacts(shop, 100)).length, 1);
+        assert.isTrue(
+          Exit.isFailure(yield* Effect.exit(runs.rememberRun(threadId, run.runId, blog))),
+        );
+        yield* runs.recordEvidence(
+          threadId,
+          { scenario: "Interrupted", verdict: "PASS", note: "Observed" },
+          page("https://shop.test/cart"),
+        );
+        const open = (yield* runs.openRun(threadId))!;
+        const interrupted = yield* runs.rememberRun(threadId, open.runId, shop);
+        assert.isNotNull(interrupted.finishedAt);
+        assert.strictEqual((yield* memory.lookupFacts(shop, { runId: open.runId })).length, 1);
+      }),
+    ),
+  );
+
+  it.effect("saving older runs preserves newer observations and version changes", () =>
+    withMemory(
+      Effect.gen(function* () {
+        const runs = yield* QaRuns.QaRuns;
+        const memory = yield* ProjectMemory.ProjectMemory;
+        yield* memory.putFact(
+          shop,
+          fact({
+            kind: "data",
+            route: "/",
+            key: "Tested app version",
+            value: "1",
+            appVersion: "1",
+            author: "user",
+          }),
+        );
+        const older = yield* finishedRun(null, [
+          { scenario: "Login", verdict: "FAIL", url: "https://shop.test/login" },
+        ]);
+        yield* TestClock.adjust("1 second");
+        yield* memory.putFact(
+          shop,
+          fact({
+            kind: "data",
+            route: "/",
+            key: "Tested app version",
+            value: "2",
+            appVersion: "2",
+            author: "user",
+          }),
+        );
+        yield* finishedRun(shop, [
+          { scenario: "Login", verdict: "PASS", url: "https://shop.test/login" },
+        ]);
+        yield* runs.rememberRun(threadId, older.runId, shop);
+        const current = yield* memory.lookupFacts(shop, { kind: "result" });
+        assert.deepStrictEqual(
+          current.map((row) => [row.value, row.appVersion]),
+          [["PASS", "2"]],
+        );
+        const history = yield* memory.lookupFacts(shop, { kind: "result", status: "superseded" });
+        assert.strictEqual(history[0]?.appVersion, "1");
+        assert.strictEqual(history[0]?.supersededBy, current[0]?.factId);
+      }),
+    ),
+  );
+
+  it.effect("retains the generated brief size separately for each thread", () =>
+    withMemory(
+      Effect.gen(function* () {
+        const memory = yield* ProjectMemory.ProjectMemory;
+        assert.isNull(yield* memory.briefUsage(threadId));
+        yield* memory.recordBriefUsage(threadId, "First brief");
+        assert.deepStrictEqual(yield* memory.briefUsage(threadId), {
+          characters: 11,
+          estimatedTokens: 3,
+        });
+        assert.isNull(yield* memory.briefUsage(ThreadId.make("other-thread")));
+        yield* memory.recordBriefUsage(threadId, "");
+        assert.deepStrictEqual(yield* memory.briefUsage(threadId), {
+          characters: 0,
+          estimatedTokens: 0,
+        });
+      }),
+    ),
+  );
+
+  it.effect("stales earlier app versions only on the observed project's environment", () =>
+    withMemory(
+      Effect.gen(function* () {
+        const memory = yield* ProjectMemory.ProjectMemory;
+        const first = yield* memory.putFact(shop, fact({ appVersion: "1.2" }));
+        const unversioned = yield* memory.putFact(shop, fact({ key: "unversioned" }));
+        yield* memory.putFact(
+          shop,
+          fact({ environment: "https://staging.shop.test", appVersion: "1.2" }),
+        );
+        yield* memory.putFact(blog, fact({ appVersion: "1.2" }));
+        yield* memory.putFact(shop, fact({ key: "app version", appVersion: "1.3", value: "1.3" }));
+        assert.deepStrictEqual(
+          (yield* memory.lookupFacts(shop, { status: "stale" }))
+            .map((row) => row.factId)
+            .toSorted(),
+          [first!.factId, unversioned!.factId].toSorted(),
+        );
+        assert.strictEqual((yield* memory.lookupFacts(blog, {})).length, 1);
+        assert.strictEqual(
+          (yield* memory.lookupFacts(shop, { environment: "https://staging.shop.test" })).length,
+          1,
+        );
+        yield* memory.putFact(
+          shop,
+          fact({
+            kind: "data",
+            route: "/",
+            key: "Tested app version",
+            value: "1.3",
+            appVersion: "1.3",
+            author: "user",
+          }),
+        );
+        const inherited = yield* memory.putFact(
+          shop,
+          fact({ key: "observed after version change" }),
+        );
+        assert.strictEqual(inherited!.appVersion, "1.3");
+        const refreshed = yield* memory.putFact(shop, fact({ appVersion: "1.3" }));
+        assert.strictEqual(refreshed!.status, "current");
+        const history = yield* memory.listFacts(shop, 100);
+        assert.strictEqual(
+          history.find((row) => row.factId === first!.factId)?.supersededBy,
+          refreshed!.factId,
+        );
+        yield* memory.deleteFact(shop, refreshed!.factId);
+        assert.strictEqual(
+          (yield* memory.lookupFacts(shop, {
+            environment: "https://shop.test",
+            key: "empty email",
+          })).length,
+          0,
+        );
+        assert.strictEqual(
+          (yield* memory.lookupFacts(shop, { key: "empty email", status: "stale" })).length,
+          1,
         );
       }),
     ),

@@ -7,6 +7,8 @@ import {
   ProjectId,
   QaRun,
   type ProjectMemoryMap,
+  type ThreadId,
+  type MemoryBriefUsage,
   type ProjectMemoryFact,
   type ProjectMemoryFactInput,
   type ProjectMemoryFactLookup,
@@ -43,6 +45,13 @@ import {
 export class ProjectMemory extends Context.Service<
   ProjectMemory,
   {
+    readonly recordBriefUsage: (
+      threadId: ThreadId,
+      brief: string,
+    ) => Effect.Effect<void, ProjectMemoryError>;
+    readonly briefUsage: (
+      threadId: ThreadId,
+    ) => Effect.Effect<MemoryBriefUsage | null, ProjectMemoryError>;
     readonly map: (projectId: ProjectId) => Effect.Effect<ProjectMemoryMap, ProjectMemoryError>;
     /** Null when the user deleted this fact before; deleted facts never come back. */
     readonly putFact: (
@@ -221,7 +230,7 @@ const make = Effect.gen(function* () {
     secrets: ReadonlyArray<string> = [],
   ) {
     const hide = (text: string) => hideProvidedSecrets(text, secrets);
-    const input = redactFactInput({
+    let input = redactFactInput({
       ...raw,
       key: hide(raw.key),
       value: hide(raw.value),
@@ -233,6 +242,29 @@ const make = Effect.gen(function* () {
         message: "A fact's environment must be an http(s) URL or origin.",
       });
     }
+    if (input.appVersion === undefined) {
+      const versions = yield* sql<{ readonly appVersion: string }>`
+        SELECT app_version AS "appVersion" FROM project_memory_facts
+        WHERE project_id = ${projectId} AND environment = ${environment}
+          AND route = '/' AND kind = 'data' AND fact_key = 'Tested app version' AND author = 'user'
+          AND app_version IS NOT NULL AND observed_at <= ${observedAt}
+        ORDER BY observed_at DESC, rowid DESC LIMIT 1
+      `;
+      if (versions[0] !== undefined) input = { ...input, appVersion: versions[0].appVersion };
+    }
+    const latestVersions = yield* sql<{ readonly appVersion: string; readonly observedAt: string }>`
+      SELECT app_version AS "appVersion", observed_at AS "observedAt" FROM project_memory_facts
+      WHERE project_id = ${projectId} AND environment = ${environment}
+        AND route = '/' AND kind = 'data' AND fact_key = 'Tested app version' AND author = 'user' AND app_version IS NOT NULL
+      ORDER BY observed_at DESC, rowid DESC LIMIT 1
+    `;
+    const latestVersion = latestVersions[0];
+    const status =
+      latestVersion !== undefined &&
+      latestVersion.observedAt > observedAt &&
+      input.appVersion !== latestVersion.appVersion
+        ? "stale"
+        : "current";
     const route = memoryRoute(input.route);
     yield* Effect.forEach(input.evidence, (ref) => checkEvidence(projectId, ref), {
       discard: true,
@@ -250,16 +282,35 @@ const make = Effect.gen(function* () {
             AND item_ref = ${tombstoneRef({ ...identity, value: input.value })}
         `;
         if (deleted.length > 0) return null;
-        yield* sql`
-          UPDATE project_memory_facts
-          SET status = 'superseded', superseded_by = ${factId}
-          WHERE project_id = ${projectId}
-            AND environment = ${environment}
-            AND route = ${route}
-            AND kind = ${input.kind}
-            AND fact_key = ${input.key}
-            AND status = 'current'
+        if (raw.appVersion !== undefined) {
+          yield* sql`
+            UPDATE project_memory_facts SET status = 'stale'
+            WHERE project_id = ${projectId} AND environment = ${environment}
+              AND status = 'current'
+              AND (app_version IS NULL OR app_version != ${input.appVersion})
+          `;
+        }
+        const newer = yield* sql<{ readonly factId: string }>`
+          SELECT fact_id AS "factId" FROM project_memory_facts
+          WHERE project_id = ${projectId} AND environment = ${environment}
+            AND route = ${route} AND kind = ${input.kind} AND fact_key = ${input.key}
+            AND status IN ('current', 'stale') AND observed_at > ${observedAt}
+          ORDER BY observed_at DESC, rowid DESC LIMIT 1
         `;
+        const supersededBy = newer[0]?.factId ?? null;
+        const savedStatus = supersededBy === null ? status : "superseded";
+        if (supersededBy === null) {
+          yield* sql`
+            UPDATE project_memory_facts
+            SET status = 'superseded', superseded_by = ${factId}
+            WHERE project_id = ${projectId}
+              AND environment = ${environment}
+              AND route = ${route}
+              AND kind = ${input.kind}
+              AND fact_key = ${input.key}
+              AND status IN ('current', 'stale')
+          `;
+        }
         yield* sql`
           INSERT INTO project_memory_facts (
             fact_id, project_id, environment, route, kind, fact_key, value, detail, page_url,
@@ -267,7 +318,7 @@ const make = Effect.gen(function* () {
           ) VALUES (
             ${factId}, ${projectId}, ${environment}, ${route}, ${input.kind}, ${input.key},
             ${input.value}, ${input.detail ?? null}, ${input.pageUrl ?? null}, ${evidenceJson},
-            ${input.appVersion ?? null}, ${input.author}, 'current', ${observedAt}, NULL
+            ${input.appVersion ?? null}, ${input.author}, ${savedStatus}, ${observedAt}, ${supersededBy}
           )
         `;
         const fact: ProjectMemoryFact = {
@@ -280,9 +331,9 @@ const make = Effect.gen(function* () {
           evidence: input.evidence,
           appVersion: input.appVersion ?? null,
           author: input.author,
-          status: "current",
+          status: savedStatus,
           observedAt,
-          supersededBy: null,
+          supersededBy,
           mayBeOutdated: false,
         };
         return fact;
@@ -301,7 +352,14 @@ const make = Effect.gen(function* () {
       if (row.status !== "current") continue;
       yield* sql`
         UPDATE project_memory_facts
-        SET status = 'current', superseded_by = NULL
+        SET status = CASE WHEN EXISTS (
+          SELECT 1 FROM project_memory_facts AS version
+          WHERE version.project_id = ${row.projectId} AND version.environment = ${row.environment}
+            AND version.route = '/' AND version.kind = 'data'
+            AND version.fact_key = 'Tested app version' AND version.author = 'user'
+            AND version.status = 'current' AND version.app_version IS NOT NULL
+            AND (project_memory_facts.app_version IS NULL OR version.app_version != project_memory_facts.app_version)
+        ) THEN 'stale' ELSE 'current' END, superseded_by = NULL
         WHERE fact_id = (
           SELECT fact_id FROM project_memory_facts
           WHERE project_id = ${row.projectId}
@@ -335,6 +393,27 @@ const make = Effect.gen(function* () {
   );
 
   return ProjectMemory.of({
+    recordBriefUsage: Effect.fn("ProjectMemory.recordBriefUsage")(
+      function* (threadId, brief) {
+        yield* sql`
+          INSERT INTO project_memory_brief_usage (thread_id, characters, estimated_tokens)
+          VALUES (${threadId}, ${brief.length}, ${Math.ceil(brief.length / 4)})
+          ON CONFLICT (thread_id) DO UPDATE SET
+            characters = excluded.characters, estimated_tokens = excluded.estimated_tokens
+        `;
+      },
+      Effect.mapError(failure("Could not record memory brief usage.")),
+    ),
+    briefUsage: Effect.fn("ProjectMemory.briefUsage")(
+      function* (threadId) {
+        const rows = yield* sql<MemoryBriefUsage>`
+          SELECT characters, estimated_tokens AS "estimatedTokens"
+          FROM project_memory_brief_usage WHERE thread_id = ${threadId}
+        `;
+        return rows[0] ?? null;
+      },
+      Effect.mapError(failure("Could not read memory brief usage.")),
+    ),
     map,
     putFact: Effect.fn("ProjectMemory.putFact")(
       function* (projectId, input) {
@@ -456,8 +535,16 @@ const make = Effect.gen(function* () {
       function* (run, secrets = []) {
         const projectId = run.projectId;
         if (projectId === null || run.finishedAt === null) return 0;
+        const recorded = yield* sql<{ readonly scenarioIndex: number }>`
+          SELECT DISTINCT json_extract(evidence.value, '$.scenarioIndex') AS "scenarioIndex"
+          FROM project_memory_facts AS fact, json_each(fact.evidence_json) AS evidence
+          WHERE fact.project_id = ${projectId} AND fact.kind = 'result'
+            AND json_extract(evidence.value, '$.runId') = ${run.runId}
+        `;
+        const recordedScenarios = new Set(recorded.map((row) => row.scenarioIndex));
         let written = 0;
         for (const { input, observedAt } of resultFactsFor(run)) {
+          if (recordedScenarios.has(input.evidence[0]?.scenarioIndex ?? -1)) continue;
           if ((yield* write(projectId, input, observedAt, secrets)) !== null) written += 1;
         }
         return written;

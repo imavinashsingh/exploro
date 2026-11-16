@@ -104,6 +104,8 @@ const RPC_AGGREGATES = {
   [WS_METHODS.projectMemoryItemHistory]: "projectMemory",
   [WS_METHODS.projectMemoryUpdateItem]: "projectMemory",
   [WS_METHODS.projectMemoryDeleteItem]: "projectMemory",
+  [WS_METHODS.projectMemorySaveThread]: "projectMemory",
+  [WS_METHODS.projectMemorySetAppVersion]: "projectMemory",
   [WS_METHODS.projectMemoryRetryExtraction]: "projectMemory",
   [WS_METHODS.qaRunsSubscribe]: "qaRuns",
   [WS_METHODS.qaRunsDelete]: "qaRuns",

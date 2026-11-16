@@ -205,6 +205,15 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                   environmentId={props.environmentId}
                   threadId={props.threadId}
                   memoryNote={memoryNote}
+                  scratchProject={
+                    serverConfig !== undefined &&
+                    project !== null &&
+                    isScratchProject(project, serverConfig.scratchWorkspaceRoot)
+                  }
+                  memoryEnabled={
+                    serverConfig !== undefined && project !== null && memoryNote === null
+                  }
+                  contextMaxTokens={props.usage.contextWindow?.maxTokens ?? null}
                 />
               ) : null}
 

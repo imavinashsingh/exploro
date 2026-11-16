@@ -89,6 +89,12 @@ export class QaRuns extends Context.Service<
         readonly remember?: boolean;
       },
     ) => Effect.Effect<QaRun | null, QaRunError>;
+    readonly rememberRun: (
+      threadId: ThreadId,
+      runId: string,
+      projectId: ProjectId,
+      secrets?: ReadonlyArray<string>,
+    ) => Effect.Effect<QaRun, QaRunError>;
     readonly list: (threadId: ThreadId) => Effect.Effect<ReadonlyArray<QaRun>, QaRunError>;
     readonly subscribe: (threadId: ThreadId) => Stream.Stream<QaRunsSnapshot, QaRunError>;
     readonly deleteRun: (input: QaRunDeleteInput) => Effect.Effect<QaRunDeleteResult, QaRunError>;
@@ -399,13 +405,45 @@ const make = Effect.gen(function* () {
         finishRunUnlocked(threadId, input.projectId, input.secrets, input.remember),
       );
     }),
+    rememberRun: Effect.fn("QaRuns.rememberRun")(function* (
+      threadId,
+      runId,
+      projectId,
+      secrets = [],
+    ) {
+      return yield* lock.withPermit(
+        Effect.gen(function* () {
+          const run = (yield* load(threadId)).find((candidate) => candidate.runId === runId);
+          if (run === undefined || (run.projectId !== null && run.projectId !== projectId)) {
+            return yield* new QaRunError({ message: "This run does not belong to the project." });
+          }
+          const saved =
+            run.finishedAt === null
+              ? yield* finishRunUnlocked(threadId, projectId, secrets, false)
+              : yield* save({ ...run, projectId });
+          if (saved === null)
+            return yield* new QaRunError({ message: "The run is no longer available." });
+          yield* memory
+            .recordRun(saved, secrets)
+            .pipe(Effect.mapError(failure("Could not save the run to memory.")));
+          return saved;
+        }),
+      );
+    }),
     list,
     subscribe: (threadId) =>
       Stream.unwrap(
         Effect.gen(function* () {
           // Subscribe before reading so a change in between is not lost.
           const subscription = yield* PubSub.subscribe(changes);
-          const snapshot = Effect.map(list(threadId), (runs) => ({ runs }));
+          const snapshot = Effect.gen(function* () {
+            return {
+              runs: yield* list(threadId),
+              memoryBriefUsage: yield* memory
+                .briefUsage(threadId)
+                .pipe(Effect.orElseSucceed(() => null)),
+            };
+          });
           return Stream.concat(
             Stream.fromEffect(snapshot),
             Stream.fromSubscription(subscription).pipe(

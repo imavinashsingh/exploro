@@ -875,7 +875,11 @@ export const layer: Layer.Layer<
         goalCommand ||
         projection.runs.some((source) => source.ordinal < run.ordinal)
           ? ""
-          : yield* memoryAccess.value.firstTurnBrief(projection.thread.projectId, userText);
+          : yield* memoryAccess.value.firstTurnBrief(
+              projection.thread.projectId,
+              userText,
+              projection.thread.id,
+            );
       const tokenCap = yield* handoffTokenCapConfig.pipe(
         Effect.orElseSucceed(() => DEFAULT_HANDOFF_TOKEN_CAP),
       );

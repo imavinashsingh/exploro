@@ -1802,6 +1802,14 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:project-memory:delete-item",
       tag: WS_METHODS.projectMemoryDeleteItem,
     }),
+    saveThreadMemory: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:project-memory:save-thread",
+      tag: WS_METHODS.projectMemorySaveThread,
+    }),
+    setMemoryAppVersion: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:project-memory:app-version",
+      tag: WS_METHODS.projectMemorySetAppVersion,
+    }),
     retryMemoryExtraction: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:project-memory:retry-extraction",
       tag: WS_METHODS.projectMemoryRetryExtraction,

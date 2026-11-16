@@ -1,4 +1,4 @@
-import type { ProjectId, ServerSettings } from "@t3tools/contracts";
+import type { ProjectId, ServerSettings, ThreadId } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -17,7 +17,11 @@ export class ProjectMemoryAccess extends Context.Service<
     /** Scratch threads have no project, and the user can turn memory off for a project. */
     readonly hasMemory: (projectId: ProjectId) => Effect.Effect<boolean>;
     /** The brief for a thread's first turn, or "" when memory has nothing or fails. */
-    readonly firstTurnBrief: (projectId: ProjectId, goal: string) => Effect.Effect<string>;
+    readonly firstTurnBrief: (
+      projectId: ProjectId,
+      goal: string,
+      threadId?: ThreadId,
+    ) => Effect.Effect<string>;
   }
 >()("t3/memory/ProjectMemoryAccess") {}
 
@@ -40,41 +44,47 @@ const make = Effect.gen(function* () {
 
   return ProjectMemoryAccess.of({
     hasMemory,
-    firstTurnBrief: Effect.fn("ProjectMemoryAccess.firstTurnBrief")(function* (projectId, goal) {
-      if (!(yield* hasMemory(projectId))) return "";
-      return yield* Effect.gen(function* () {
-        const known = yield* memory.lookupFacts(projectId, { limit: 500 });
-        const target = memoryTarget(goal, known);
-        const testing =
-          target.environment === null ? {} : { testing: { environment: target.environment } };
-        const facts = yield* Effect.forEach(target.routes, (route) =>
-          memory.lookupFacts(projectId, {
+    firstTurnBrief: Effect.fn("ProjectMemoryAccess.firstTurnBrief")(
+      function* (projectId, goal, threadId) {
+        if (!(yield* hasMemory(projectId))) return "";
+        return yield* Effect.gen(function* () {
+          const known = yield* memory.lookupFacts(projectId, { limit: 500 });
+          const target = memoryTarget(goal, known);
+          const testing =
+            target.environment === null ? {} : { testing: { environment: target.environment } };
+          const facts = yield* Effect.forEach(target.routes, (route) =>
+            memory.lookupFacts(projectId, {
+              ...(target.environment === null ? {} : { environment: target.environment }),
+              route,
+              limit: 40,
+              ...testing,
+            }),
+          );
+          const openFailures = yield* memory.lookupFacts(projectId, {
             ...(target.environment === null ? {} : { environment: target.environment }),
-            route,
-            limit: 40,
+            openFailures: true,
+            limit: 15,
             ...testing,
-          }),
-        );
-        const openFailures = yield* memory.lookupFacts(projectId, {
-          ...(target.environment === null ? {} : { environment: target.environment }),
-          openFailures: true,
-          limit: 15,
-          ...testing,
-        });
-        const recalled = yield* understanding.recall(projectId, goal, { limit: 8 });
-        return formatMemoryBrief({
-          facts: facts.flat(),
-          openFailures,
-          understanding: recalled.items,
-        });
-      }).pipe(
-        Effect.catchCause((cause) =>
-          Effect.logWarning("Project memory brief was not built", { projectId, cause }).pipe(
-            Effect.as(""),
+          });
+          const recalled = yield* understanding.recall(projectId, goal, { limit: 8 });
+          const brief = formatMemoryBrief({
+            facts: facts.flat(),
+            openFailures,
+            understanding: recalled.items,
+          });
+          if (threadId !== undefined) {
+            yield* memory.recordBriefUsage(threadId, brief).pipe(Effect.ignore);
+          }
+          return brief;
+        }).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning("Project memory brief was not built", { projectId, cause }).pipe(
+              Effect.as(""),
+            ),
           ),
-        ),
-      );
-    }),
+        );
+      },
+    ),
   });
 });
 

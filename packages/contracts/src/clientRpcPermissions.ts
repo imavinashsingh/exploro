@@ -71,6 +71,8 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.projectMemoryDeleteFact]: AuthOrchestrationOperateScope,
   [WS_METHODS.projectMemoryUpdateItem]: AuthOrchestrationOperateScope,
   [WS_METHODS.projectMemoryDeleteItem]: AuthOrchestrationOperateScope,
+  [WS_METHODS.projectMemorySaveThread]: AuthOrchestrationOperateScope,
+  [WS_METHODS.projectMemorySetAppVersion]: AuthOrchestrationOperateScope,
   [WS_METHODS.projectMemoryRetryExtraction]: AuthOrchestrationOperateScope,
   [WS_METHODS.scheduledTasksRunNow]: AuthOrchestrationOperateScope,
   [WS_METHODS.scheduledTasksRotateWebhookToken]: AuthOrchestrationOperateScope,

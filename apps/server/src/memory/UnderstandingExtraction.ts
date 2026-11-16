@@ -13,6 +13,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
+import * as Semaphore from "effect/Semaphore";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
@@ -67,6 +68,7 @@ const make = Effect.gen(function* () {
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const qaRuns = yield* QaRuns.QaRuns;
   const queue = yield* Queue.unbounded<string>();
+  const extractionLock = yield* Semaphore.make(1);
 
   const nowIso = Effect.map(Clock.currentTimeMillis, (millis) =>
     DateTime.formatIso(DateTime.makeUnsafe(millis)),
@@ -155,33 +157,36 @@ const make = Effect.gen(function* () {
 
   const extract: UnderstandingExtraction["Service"]["extract"] = Effect.fn(
     "UnderstandingExtraction.extract",
-  )(function* (runId) {
-    const rows = yield* sql<{
-      readonly projectId: ProjectId;
-      readonly threadId: ThreadId;
-      readonly status: string;
-    }>`
+  )(
+    function* (runId) {
+      const rows = yield* sql<{
+        readonly projectId: ProjectId;
+        readonly threadId: ThreadId;
+        readonly status: string;
+      }>`
       SELECT project_id AS "projectId", thread_id AS "threadId", status
       FROM project_memory_extractions WHERE run_id = ${runId}
     `.pipe(Effect.orElseSucceed(() => []));
-    const row = rows[0];
-    if (row === undefined || row.status === "done") return;
-    const updatedAt = yield* nowIso;
-    yield* sql`
+      const row = rows[0];
+      if (row === undefined || row.status === "done") return;
+      const updatedAt = yield* nowIso;
+      yield* sql`
       UPDATE project_memory_extractions
       SET status = 'running', attempts = attempts + 1, updated_at = ${updatedAt}
       WHERE run_id = ${runId}
     `.pipe(Effect.ignore);
-    yield* learn(row.projectId, row.threadId, runId).pipe(
-      Effect.andThen(markStatus(runId, "done", null)),
-      Effect.catchCause((cause) =>
-        Effect.logWarning("Project understanding was not extracted", { runId, cause }).pipe(
-          Effect.andThen(markStatus(runId, "failed", errorText(cause))),
+      yield* learn(row.projectId, row.threadId, runId).pipe(
+        Effect.andThen(markStatus(runId, "done", null)),
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Project understanding was not extracted", { runId, cause }).pipe(
+            Effect.andThen(markStatus(runId, "failed", errorText(cause))),
+          ),
         ),
-      ),
-      Effect.ignore,
-    );
-  });
+        Effect.ignore,
+      );
+    },
+    (effect) => extractionLock.withPermit(effect),
+  );
 
   yield* Queue.take(queue).pipe(Effect.flatMap(extract), Effect.forever, Effect.forkScoped);
 
@@ -200,14 +205,14 @@ const make = Effect.gen(function* () {
       function* (run) {
         if (run.projectId === null || run.finishedAt === null) return;
         const updatedAt = yield* nowIso;
-        yield* sql`
+        const inserted = yield* sql`
           INSERT INTO project_memory_extractions (
             run_id, project_id, thread_id, status, error, attempts, updated_at
           ) VALUES (${run.runId}, ${run.projectId}, ${run.threadId}, 'pending', NULL, 0, ${updatedAt})
-          ON CONFLICT (run_id) DO UPDATE SET status = 'pending', error = NULL,
-            updated_at = excluded.updated_at
+          ON CONFLICT (run_id) DO NOTHING
+          RETURNING run_id
         `;
-        yield* Queue.offer(queue, run.runId);
+        if (inserted.length > 0) yield* Queue.offer(queue, run.runId);
       },
       Effect.mapError(fail("Could not queue the run for project memory.")),
     ),
