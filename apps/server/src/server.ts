@@ -882,13 +882,15 @@ const layerMakeRoutes = Layer.mergeAll(
   Layer.provide(
     QaRecorder.layer.pipe(
       Layer.provide(
-        UnderstandingExtraction.layer.pipe(
-          Layer.provide(ProjectUnderstanding.layer),
-          Layer.provideMerge(MemoryEmbedder.layerUnavailable),
-        ),
+        UnderstandingExtraction.layer.pipe(Layer.provideMerge(MemoryEmbedder.layerUnavailable)),
       ),
       Layer.provideMerge(QaRuns.layer),
-      Layer.provideMerge(ProjectMemory.layer),
+      Layer.provideMerge(
+        ProjectMemory.layer.pipe(
+          Layer.provideMerge(ProjectUnderstanding.layer),
+          Layer.provide(MemoryEmbedder.layerUnavailable),
+        ),
+      ),
       Layer.provide(PreviewAgentActivity.layer),
     ),
   ),

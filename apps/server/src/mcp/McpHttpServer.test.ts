@@ -1,3 +1,4 @@
+import * as ProjectMemory from "../memory/ProjectMemory.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
@@ -101,7 +102,12 @@ const layerTest = McpHttpServer.layerPreviewToolkit.pipe(
   Layer.provideMerge(McpToolAccessTestkit.liveThreadsLayer),
   Layer.provideMerge(
     Layer.mergeAll(
+      Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+        namedProjectsRoot: "",
+        isScratchProject: () => Effect.succeed(true),
+      }),
       Layer.mock(QaRuns.QaRuns)({}),
+      Layer.mock(ProjectMemory.ProjectMemory)({}),
       Layer.mock(QaRecorder.QaRecorder)({ browserOpened: () => Effect.void }),
     ),
   ),
@@ -618,6 +624,14 @@ it.effect("refuses preview tools to a client outside a thread before they run", 
         Effect.provideService(McpSchema.McpServerClient, client),
       );
     expect(click.message).toContain("Tool 'preview_act' not found");
+    const memory = yield* server
+      .callTool({ name: "memory_map", arguments: {} })
+      .pipe(
+        Effect.flip,
+        Effect.provideService(McpInvocationContext.McpInvocationContext, readOnly),
+        Effect.provideService(McpSchema.McpServerClient, client),
+      );
+    expect(memory.message).toContain("Tool 'memory_map' not found");
   }).pipe(Effect.provide(layerTest)),
 );
 
@@ -2064,4 +2078,21 @@ it.effect("lists optional tools to a deferring client only after tool_search loa
       expect(yield* other.listed).toEqual(["delegate_task", "preview_open", "schedule_task"]);
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect("returns a short no-memory result for a scratch-project thread", () =>
+  Effect.gen(function* () {
+    const server = yield* McpServer.McpServer;
+    const result = yield* server.callTool({ name: "memory_map", arguments: {} }).pipe(
+      Effect.provideService(McpInvocationContext.McpInvocationContext, {
+        ...invocation,
+        capabilities: new Set<McpInvocationContext.McpCapability>(),
+      }),
+      Effect.provideService(McpSchema.McpServerClient, client),
+    );
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toEqual({
+      map: "This thread has no project, so it has no memory.",
+    });
+  }).pipe(Effect.provide(layerTest)),
 );

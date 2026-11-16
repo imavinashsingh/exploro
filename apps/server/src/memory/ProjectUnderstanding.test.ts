@@ -78,9 +78,10 @@ const withUnderstanding = <A, E>(
     return yield* body.pipe(
       Effect.provide(
         UnderstandingExtraction.layer.pipe(
-          Layer.provideMerge(ProjectUnderstanding.layer),
           Layer.provideMerge(QaRuns.layer),
-          Layer.provideMerge(ProjectMemory.layer),
+          Layer.provideMerge(
+            ProjectMemory.layer.pipe(Layer.provideMerge(ProjectUnderstanding.layer)),
+          ),
           Layer.provideMerge(options.embedder ?? MemoryEmbedder.layerUnavailable),
           Layer.provide(
             Layer.mergeAll(

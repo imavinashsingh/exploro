@@ -1,3 +1,5 @@
+import * as ProjectMemory from "../../../memory/ProjectMemory.ts";
+import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
 import {
   OrchestratorMcpFailure,
   PreviewAutomationError,
@@ -5,6 +7,7 @@ import {
   QaEvidenceRecordInput,
   QaRun,
   QaRunError,
+  ProjectMemoryError,
   QaScenario,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
@@ -53,4 +56,20 @@ const QaReportFinishTool = Tool.make("qa_report_finish", {
   .annotate(Tool.Destructive, false)
   .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 
-export const QaToolkit = Toolkit.make(QaEvidenceRecordTool, QaReportFinishTool);
+const MemoryMapTool = Tool.make("memory_map", {
+  description:
+    "Read this project's app map from current facts: environments, route tree, controls, validations, APIs, navigation links, PASS/FAIL coverage, dependencies and workflow paths. Use it to find pages seen but not tested. No project means no memory.",
+  success: Schema.Struct({ map: Schema.String }),
+  failure: Schema.Union([ProjectMemoryError, OrchestratorMcpFailure]),
+  dependencies: [
+    ...dependencies,
+    ProjectMemory.ProjectMemory,
+    ManagedProjectFolders.ManagedProjectFolders,
+  ],
+})
+  .annotate(Tool.Title, "Read project map")
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
+
+export const QaToolkit = Toolkit.make(QaEvidenceRecordTool, QaReportFinishTool, MemoryMapTool);

@@ -1,3 +1,4 @@
+import { ProjectMemoryMap, ProjectMemoryMapInput, ProjectMemoryError } from "./projectMemory.ts";
 import {
   OrchestrationV2SearchThreadError,
   OrchestrationV2SearchThreadInput,
@@ -560,6 +561,7 @@ export const WS_METHODS = {
   serverRefreshUsageRates: "server.refreshUsageRates",
 
   scheduledTasksSubscribe: "scheduledTasks.subscribe",
+  projectMemoryMap: "projectMemory.map",
   qaRunsSubscribe: "qaRuns.subscribe",
   qaRunsDelete: "qaRuns.delete",
   scheduledTasksUpsert: "scheduledTasks.upsert",
@@ -2031,6 +2033,12 @@ const WsSubscribeServerLifecycleRpc = Rpc.make(WS_METHODS.subscribeServerLifecyc
   stream: true,
 });
 
+const WsProjectMemoryMapRpc = Rpc.make(WS_METHODS.projectMemoryMap, {
+  payload: ProjectMemoryMapInput,
+  success: ProjectMemoryMap,
+  error: Schema.Union([ProjectMemoryError, EnvironmentAuthorizationError]),
+});
+
 const WsQaRunsSubscribeRpc = Rpc.make(WS_METHODS.qaRunsSubscribe, {
   payload: QaRunsSubscribeInput,
   success: QaRunsSnapshot,
@@ -2195,6 +2203,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerRefreshUsageRatesRpc,
   WsServerSignalProcessRpc,
   WsScheduledTasksSubscribeRpc,
+  WsProjectMemoryMapRpc,
   WsQaRunsSubscribeRpc,
   WsQaRunsDeleteRpc,
   WsScheduledTasksUpsertRpc,

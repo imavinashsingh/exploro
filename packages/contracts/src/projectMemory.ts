@@ -154,3 +154,64 @@ export const ProjectUnderstandingItem = Schema.Struct({
   updatedAt: Schema.String,
 });
 export type ProjectUnderstandingItem = typeof ProjectUnderstandingItem.Type;
+
+export const ProjectMemoryMapPage = Schema.Struct({
+  environment: Schema.String,
+  route: Schema.String,
+  coverage: Schema.Literals(["failing", "tested", "seen"]),
+  passCount: NonNegativeInt,
+  failCount: NonNegativeInt,
+  facts: Schema.Array(ProjectMemoryFact),
+  details: Schema.Array(ProjectMemoryFact),
+  navigation: Schema.Array(
+    Schema.Struct({
+      environment: Schema.String,
+      route: Schema.String,
+      factId: Schema.String,
+      label: Schema.String,
+    }),
+  ),
+  needs: Schema.Array(Schema.String),
+});
+export type ProjectMemoryMapPage = typeof ProjectMemoryMapPage.Type;
+
+export interface ProjectMemoryMapBranch {
+  readonly name: string;
+  readonly route: string;
+  readonly page: ProjectMemoryMapPage | null;
+  readonly children: ReadonlyArray<ProjectMemoryMapBranch>;
+  readonly hiddenChildren: number;
+}
+interface ProjectMemoryMapBranchEncoded extends Omit<ProjectMemoryMapBranch, "page" | "children"> {
+  readonly page: typeof ProjectMemoryMapPage.Encoded | null;
+  readonly children: ReadonlyArray<ProjectMemoryMapBranchEncoded>;
+}
+export const ProjectMemoryMapBranch: Schema.Codec<
+  ProjectMemoryMapBranch,
+  ProjectMemoryMapBranchEncoded
+> = Schema.Struct({
+  name: Schema.String,
+  route: Schema.String,
+  page: Schema.NullOr(ProjectMemoryMapPage),
+  children: Schema.Array(Schema.suspend(() => ProjectMemoryMapBranch)),
+  hiddenChildren: NonNegativeInt,
+});
+
+export const ProjectMemoryMap = Schema.Struct({
+  environments: Schema.Array(
+    Schema.Struct({
+      environment: Schema.String,
+      tree: ProjectMemoryMapBranch,
+    }),
+  ),
+  hiddenEnvironments: NonNegativeInt,
+  workflows: Schema.Array(
+    Schema.Struct({
+      itemId: Schema.String,
+      statement: Schema.String,
+      pages: Schema.Array(Schema.Struct({ environment: Schema.String, route: Schema.String })),
+    }),
+  ),
+});
+export type ProjectMemoryMap = typeof ProjectMemoryMap.Type;
+export const ProjectMemoryMapInput = Schema.Struct({ projectId: ProjectId });

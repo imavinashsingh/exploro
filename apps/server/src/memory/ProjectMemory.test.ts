@@ -1,3 +1,5 @@
+import * as ProjectUnderstanding from "./ProjectUnderstanding.ts";
+import * as MemoryEmbedder from "./MemoryEmbedder.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProjectId, ThreadId, type ProjectMemoryFactInput } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
@@ -6,6 +8,8 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import type * as Scope from "effect/Scope";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ServerConfig from "../config.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
@@ -28,7 +32,16 @@ const page = (url: string): QaRuns.QaPageCapture => ({
 
 let randomSeed = 0;
 const withMemory = <A, E>(
-  body: Effect.Effect<A, E, QaRuns.QaRuns | ProjectMemory.ProjectMemory | FileSystem.FileSystem>,
+  body: Effect.Effect<
+    A,
+    E,
+    | QaRuns.QaRuns
+    | ProjectMemory.ProjectMemory
+    | ProjectUnderstanding.ProjectUnderstanding
+    | FileSystem.FileSystem
+    | SqlClient.SqlClient
+    | Scope.Scope
+  >,
 ) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -36,8 +49,14 @@ const withMemory = <A, E>(
     return yield* body.pipe(
       Effect.provide(
         QaRuns.layer.pipe(
-          Layer.provideMerge(ProjectMemory.layer),
-          Layer.provide(Layer.fresh(SqlitePersistence.layerMemory)),
+          Layer.provideMerge(
+            ProjectMemory.layer.pipe(
+              Layer.provideMerge(
+                ProjectUnderstanding.layer.pipe(Layer.provide(MemoryEmbedder.layerUnavailable)),
+              ),
+            ),
+          ),
+          Layer.provideMerge(Layer.fresh(SqlitePersistence.layerMemory)),
           Layer.provide(ServerConfig.layerTest(process.cwd(), baseDir)),
           Layer.provide(
             Layer.succeed(
@@ -85,6 +104,66 @@ const fact = (overrides: Partial<ProjectMemoryFactInput> = {}): ProjectMemoryFac
 });
 
 it.layer(NodeServices.layer)("ProjectMemory", (it) => {
+  it.effect("maps only this project's facts and reflects newly recorded runs and deletion", () =>
+    withMemory(
+      Effect.gen(function* () {
+        const memory = yield* ProjectMemory.ProjectMemory;
+        assert.deepStrictEqual((yield* memory.map(shop)).environments, []);
+        yield* memory.putFact(blog, fact({ route: "/private" }));
+        const saved = yield* memory.putFact(shop, fact());
+        assert.strictEqual(
+          (yield* memory.map(shop)).environments[0]?.tree.children[0]?.page?.coverage,
+          "seen",
+        );
+        const understanding = yield* ProjectUnderstanding.ProjectUnderstanding;
+        yield* understanding.saveItems(
+          shop,
+          [
+            {
+              ref: "session",
+              itemId: null,
+              kind: "dependency",
+              statement: "signed-in session",
+              citedFactIds: [saved!.factId],
+              dependsOn: [],
+              author: "user",
+            },
+          ],
+          { environment: "https://shop.test" },
+        );
+        assert.deepStrictEqual(
+          (yield* memory.map(shop)).environments[0]?.tree.children[0]?.page?.needs,
+          ["signed-in session"],
+        );
+        yield* finishedRun(shop, [
+          { scenario: "Login works", verdict: "PASS", url: "https://shop.test/login" },
+        ]);
+        const mapped = yield* memory.map(shop);
+        assert.strictEqual(mapped.environments[0]?.tree.children.length, 1);
+        assert.strictEqual(mapped.environments[0]?.tree.children[0]?.page?.coverage, "tested");
+        assert.strictEqual(mapped.environments[0]?.tree.children[0]?.page?.passCount, 1);
+        yield* memory.deleteFact(shop, saved!.factId);
+        assert.strictEqual(
+          (yield* memory.map(shop)).environments[0]?.tree.children[0]?.page?.details.length,
+          0,
+        );
+        assert.strictEqual(
+          (yield* memory.map(blog)).environments[0]?.tree.children[0]?.route,
+          "/private",
+        );
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 501)
+          INSERT INTO project_memory_facts (fact_id, project_id, environment, route, kind, fact_key,
+            value, detail, page_url, evidence_json, app_version, author, status, observed_at, superseded_by)
+          SELECT 'bulk-' || n, ${shop}, 'https://shop.test', '/login', 'result', 'bulk-' || n,
+            'PASS', NULL, NULL, '[]', NULL, 'server', 'current', '2026-01-01T00:00:00Z', NULL FROM seq`;
+        assert.strictEqual(
+          (yield* memory.map(shop)).environments[0]?.tree.children[0]?.page?.passCount,
+          502,
+        );
+      }),
+    ),
+  );
   it.effect("writes a result fact per scenario when a project's run finishes", () =>
     withMemory(
       Effect.gen(function* () {

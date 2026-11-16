@@ -1,3 +1,8 @@
+import { ProjectMemoryError } from "@t3tools/contracts";
+import * as ProjectMemory from "../../../memory/ProjectMemory.ts";
+import { formatProjectMap } from "../../../memory/projectMap.ts";
+import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
+import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import type { PreviewAutomationSnapshot } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
@@ -33,6 +38,38 @@ const decodePng = (data: string | undefined) =>
   data === undefined || data.length === 0 ? null : new Uint8Array(Buffer.from(data, "base64"));
 
 export const layer = McpToolAccess.toLayer(QaToolkit, {
+  memory_map: McpToolAccess.readsAsCaller(() =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.requireThreadScope(
+        yield* McpInvocationContext.McpInvocationContext,
+        "Project memory",
+      );
+      const threads = yield* ThreadManagementService.ThreadManagementService;
+      const folders = yield* ManagedProjectFolders.ManagedProjectFolders;
+      const memory = yield* ProjectMemory.ProjectMemory;
+      const thread = yield* threads
+        .getThreadShell(scope.thread.threadId)
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new ProjectMemoryError({ message: "Could not read this thread's project.", cause }),
+          ),
+        );
+      if (
+        thread === null ||
+        (yield* folders
+          .isScratchProject(thread.projectId)
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProjectMemoryError({ message: "Could not read this thread's project.", cause }),
+            ),
+          ))
+      )
+        return { map: "This thread has no project, so it has no memory." };
+      return { map: formatProjectMap(yield* memory.map(thread.projectId)) };
+    }),
+  ),
   qa_evidence_record: McpToolAccess.actsAsCaller(({ tabId, ...input }) =>
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.requireThreadMcpCapability("preview");

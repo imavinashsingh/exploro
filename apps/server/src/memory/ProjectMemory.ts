@@ -6,6 +6,7 @@ import {
   ProjectMemoryFactStatus,
   ProjectId,
   QaRun,
+  type ProjectMemoryMap,
   type ProjectMemoryFact,
   type ProjectMemoryFactInput,
   type ProjectMemoryFactLookup,
@@ -20,6 +21,9 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
+
+import * as ProjectUnderstanding from "./ProjectUnderstanding.ts";
+import { buildProjectMap } from "./projectMap.ts";
 
 import * as ServerConfig from "../config.ts";
 import { qaThreadFolder } from "../qa/qaEvidence.ts";
@@ -37,6 +41,7 @@ import {
 export class ProjectMemory extends Context.Service<
   ProjectMemory,
   {
+    readonly map: (projectId: ProjectId) => Effect.Effect<ProjectMemoryMap, ProjectMemoryError>;
     /** Null when the user deleted this fact before; deleted facts never come back. */
     readonly putFact: (
       projectId: ProjectId,
@@ -100,6 +105,7 @@ const tombstoneRef = (fact: {
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  const understanding = yield* ProjectUnderstanding.ProjectUnderstanding;
   const config = yield* ServerConfig.ServerConfig;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -275,7 +281,25 @@ const make = Effect.gen(function* () {
     }
   });
 
+  const map = Effect.fn("ProjectMemory.map")(
+    function* (projectId: ProjectId) {
+      return yield* sql.withTransaction(
+        Effect.gen(function* () {
+          const rows =
+            yield* sql`${selectFacts} WHERE project_id = ${projectId} AND status = 'current'
+          ORDER BY environment, route, fact_id`.pipe(Effect.flatMap(decodeRows));
+          return buildProjectMap(
+            rows.map(toFact(undefined)),
+            yield* understanding.getItems(projectId),
+          );
+        }),
+      );
+    },
+    Effect.mapError(failure("Could not build the project's map.")),
+  );
+
   return ProjectMemory.of({
+    map,
     putFact: Effect.fn("ProjectMemory.putFact")(
       function* (projectId, input) {
         return yield* write(projectId, input, yield* nowIso);
