@@ -584,9 +584,18 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       const stable = yield* appImageName("0.0.37");
       const nightly = yield* appImageName("0.0.38-nightly.20261026.3740");
 
-      assert.notInclude(stable, "${version}");
-      assert.notInclude(nightly, "${version}");
-      assert.notEqual(stable, nightly);
+      assert.equal(stable, "Exploro-${arch}.${ext}");
+      assert.equal(nightly, "Exploro-Nightly-${arch}.${ext}");
+      const versioned = yield* createBuildConfig(
+        "win",
+        "nsis",
+        "0.0.37",
+        false,
+        false,
+        undefined,
+        undefined,
+      );
+      assert.equal(versioned.artifactName, "Exploro-${version}-${arch}.${ext}");
     }).pipe(
       Effect.provide(
         ConfigProvider.layer(
