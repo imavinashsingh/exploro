@@ -59,6 +59,24 @@ but keep nothing between sessions.
 When the first test in a project finishes, the site it opened is added for you. Add, change or
 remove sites there at any time; Exploro never replaces sites you set yourself.
 
+### Project memory
+
+Each finished test in a project leaves memory behind for the next one. Memory stores:
+
+- **Facts**: what a run saw on a page, such as a validation message or where a link goes. Each
+  fact points at the run's screenshot.
+- **Understanding**: how the app works, such as "the dashboard needs a signed-in session",
+  written from the runs and from what you told the agent.
+
+The next test starts with a short brief from this memory and checks it against the live page.
+Exploro hides passwords you type in chat before it saves anything. Threads with **No project** have
+no memory.
+
+**Settings → Projects → Memory** lists both. Delete a fact or item you don't want kept; a deleted
+one is not saved again. Edit or **Confirm** an item to mark it as right; agents never change an
+item you confirmed. To stop a project remembering, turn **Project memory** off. What is already
+saved stays until you delete it. On mobile, memory is shown read-only.
+
 ## Pin and archive projects
 
 Pinned projects come first in the project pickers: the project picker on a new thread, the

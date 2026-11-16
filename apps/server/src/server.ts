@@ -101,6 +101,7 @@ import * as PreviewAgentActivity from "./preview/PreviewAgentActivity.ts";
 import * as QaRecorder from "./qa/QaRecorder.ts";
 import * as MemoryEmbedder from "./memory/MemoryEmbedder.ts";
 import * as ProjectMemory from "./memory/ProjectMemory.ts";
+import * as ProjectMemoryControl from "./memory/ProjectMemoryControl.ts";
 import * as ProjectUnderstanding from "./memory/ProjectUnderstanding.ts";
 import * as UnderstandingExtraction from "./memory/UnderstandingExtraction.ts";
 import * as QaRuns from "./qa/QaRuns.ts";
@@ -882,7 +883,9 @@ const layerMakeRoutes = Layer.mergeAll(
   // One run store for agents (/mcp) and clients (WebSocket); the recorder follows turns.
   Layer.provide(
     QaRecorder.layer.pipe(
-      Layer.provide(
+      // The Memory screen shares the recorder's extraction queue.
+      Layer.provideMerge(ProjectMemoryControl.layer),
+      Layer.provideMerge(
         UnderstandingExtraction.layer.pipe(Layer.provideMerge(MemoryEmbedder.layerUnavailable)),
       ),
       Layer.provideMerge(QaRuns.layer),

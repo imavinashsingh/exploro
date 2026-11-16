@@ -1,9 +1,11 @@
-import type { ProjectId } from "@t3tools/contracts";
+import type { ProjectId, ServerSettings } from "@t3tools/contracts";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
+import * as ServerSettingsService from "../serverSettings.ts";
 import { formatMemoryBrief, memoryTarget } from "./memoryBrief.ts";
 import * as ProjectMemory from "./ProjectMemory.ts";
 import * as ProjectUnderstanding from "./ProjectUnderstanding.ts";
@@ -12,20 +14,28 @@ import * as ProjectUnderstanding from "./ProjectUnderstanding.ts";
 export class ProjectMemoryAccess extends Context.Service<
   ProjectMemoryAccess,
   {
-    /** Scratch threads have no project, so they get no memory. */
+    /** Scratch threads have no project, and the user can turn memory off for a project. */
     readonly hasMemory: (projectId: ProjectId) => Effect.Effect<boolean>;
     /** The brief for a thread's first turn, or "" when memory has nothing or fails. */
     readonly firstTurnBrief: (projectId: ProjectId, goal: string) => Effect.Effect<string>;
   }
 >()("t3/memory/ProjectMemoryAccess") {}
 
+export const memoryEnabled = (settings: ServerSettings, projectId: ProjectId) =>
+  resolveProjectSettings(settings, projectId).settings.qaMemoryEnabled;
+
 const make = Effect.gen(function* () {
   const folders = yield* ManagedProjectFolders.ManagedProjectFolders;
+  const serverSettings = yield* ServerSettingsService.ServerSettingsService;
   const memory = yield* ProjectMemory.ProjectMemory;
   const understanding = yield* ProjectUnderstanding.ProjectUnderstanding;
 
   const hasMemory = Effect.fn("ProjectMemoryAccess.hasMemory")(function* (projectId: ProjectId) {
-    return !(yield* folders.isScratchProject(projectId));
+    if (yield* folders.isScratchProject(projectId)) return false;
+    return yield* serverSettings.getSettings.pipe(
+      Effect.map((settings) => memoryEnabled(settings, projectId)),
+      Effect.orElseSucceed(() => true),
+    );
   });
 
   return ProjectMemoryAccess.of({

@@ -23,6 +23,7 @@ import * as PreviewAgentActivity from "../preview/PreviewAgentActivity.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as UnderstandingExtraction from "../memory/UnderstandingExtraction.ts";
 import { learnedSiteOrigins } from "./qaEvidence.ts";
+import { memoryEnabled } from "../memory/ProjectMemoryAccess.ts";
 import { threadProvidedSecrets } from "../memory/providedSecrets.ts";
 import * as QaRuns from "./QaRuns.ts";
 
@@ -146,12 +147,17 @@ const make = Effect.gen(function* () {
     const secrets = yield* threadProvidedSecrets(threads, threadId).pipe(
       Effect.orElseSucceed(() => []),
     );
-    const run = yield* qaRuns.finishRun(threadId, {
-      projectId: yield* projectOf(threadId),
-      secrets,
-    });
+    const projectId = yield* projectOf(threadId);
+    const remember =
+      projectId !== null &&
+      (yield* serverSettings.getSettings.pipe(
+        Effect.map((settings) => memoryEnabled(settings, projectId)),
+        Effect.orElseSucceed(() => true),
+      ));
+    const run = yield* qaRuns.finishRun(threadId, { projectId, secrets, remember });
     if (run !== null) {
       yield* learnSite(run);
+      if (!remember) return run;
       yield* extraction
         .enqueue(run)
         .pipe(

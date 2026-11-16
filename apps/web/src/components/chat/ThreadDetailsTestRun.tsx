@@ -60,6 +60,8 @@ import {
 interface ThreadDetailsTestRunProps {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
+  /** Why this run will not use or grow project memory; null while it does. */
+  readonly memoryNote?: string | null;
 }
 
 const reportFailure = (title: string, error: unknown) =>
@@ -309,6 +311,16 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
       data-thread-test-run-panel
     >
       <div className="flex flex-col">
+        {props.memoryNote ? (
+          <p
+            className={cn(
+              "m-0 py-1 text-2xs text-muted-foreground",
+              THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS,
+            )}
+          >
+            {props.memoryNote}
+          </p>
+        ) : null}
         {run === null ? (
           <div className={cn(THREAD_DETAILS_PANEL_LOCKED_ROW_CLASS, "flex items-center")}>
             <ClipboardCheckIcon className={THREAD_DETAILS_PANEL_ICON_CLASS} aria-hidden />

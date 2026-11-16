@@ -76,6 +76,11 @@ export class ProjectUnderstanding extends Context.Service<
       projectId: ProjectId,
       itemId: string,
     ) => Effect.Effect<ReadonlyArray<UnderstandingVersion>, ProjectMemoryError>;
+    /** Agents never write a deleted statement again; items that depended on it lose the link. */
+    readonly deleteItem: (
+      projectId: ProjectId,
+      itemId: string,
+    ) => Effect.Effect<void, ProjectMemoryError>;
     readonly recall: (
       projectId: ProjectId,
       query: string,
@@ -128,6 +133,7 @@ const STOP_WORDS = new Set(
   ),
 );
 const CANDIDATES = 50;
+const tombstoneRef = (statement: string) => statement.trim().toLowerCase().replace(/\s+/gu, " ");
 const MAX_STATEMENT_CHARS = 300;
 
 /** FTS5 query matching any word of `text`, so punctuation in a goal cannot break the syntax. */
@@ -209,6 +215,7 @@ const make = Effect.gen(function* () {
         rows.map(({ staleCitations, ...item }): ProjectUnderstandingItem => ({
           ...item,
           status: item.status === "verified" && staleCitations > 0 ? "hypothesis" : item.status,
+          needsReview: staleCitations > 0,
         })),
       ),
     );
@@ -250,6 +257,12 @@ const make = Effect.gen(function* () {
           writes.flatMap((write) => (write.itemId === null ? [] : [write.itemId])),
         )).map((item) => [item.itemId, item]),
       );
+      const deleted = new Set(
+        (yield* sql<{ readonly ref: string }>`
+          SELECT item_ref AS "ref" FROM project_memory_deleted
+          WHERE project_id = ${projectId} AND item_type = 'understanding'
+        `).map((row) => row.ref),
+      );
       const ids = new Map<string, string>();
       const accepted: Array<UnderstandingWrite & { readonly itemId: string }> = [];
       for (const write of writes) {
@@ -259,6 +272,8 @@ const make = Effect.gen(function* () {
         const current = write.itemId === null ? undefined : existing.get(write.itemId);
         if (write.itemId !== null && current === undefined) continue;
         if (current?.status === "confirmed" && write.author !== "user") continue;
+        const agentRewrite = current === undefined && write.author !== "user";
+        if (agentRewrite && deleted.has(tombstoneRef(write.statement))) continue;
         const itemId = write.itemId ?? (yield* random.uuidV4());
         ids.set(write.ref, itemId);
         accepted.push({ ...write, itemId });
@@ -431,6 +446,37 @@ const make = Effect.gen(function* () {
         `.pipe(Effect.flatMap(decodeVersionRows));
       },
       Effect.mapError(failure("Could not read the item's history.")),
+    ),
+    deleteItem: Effect.fn("ProjectUnderstanding.deleteItem")(
+      function* (projectId, itemId) {
+        const deletedAt = yield* nowIso;
+        yield* sql.withTransaction(
+          Effect.gen(function* () {
+            const rows = yield* sql<{ readonly statement: string }>`
+              SELECT statement FROM project_memory_understanding
+              WHERE project_id = ${projectId} AND item_id = ${itemId}
+            `;
+            const row = rows[0];
+            if (row === undefined) return;
+            yield* sql`
+              INSERT OR IGNORE INTO project_memory_deleted (
+                project_id, item_type, item_ref, deleted_at
+              ) VALUES (${projectId}, 'understanding', ${tombstoneRef(row.statement)}, ${deletedAt})
+            `;
+            yield* sql`DELETE FROM project_memory_understanding WHERE item_id = ${itemId}`;
+            yield* sql`DELETE FROM project_memory_understanding_versions WHERE item_id = ${itemId}`;
+            yield* sql`DELETE FROM project_memory_links WHERE item_id = ${itemId}`;
+            yield* sql`
+              DELETE FROM project_memory_dependencies
+              WHERE item_id = ${itemId} OR depends_on_item_id = ${itemId}
+            `;
+            yield* sql`
+              DELETE FROM project_memory_understanding_search WHERE item_id = ${itemId}
+            `;
+          }),
+        );
+      },
+      Effect.mapError(failure("Could not delete the item.")),
     ),
     recall: Effect.fn("ProjectUnderstanding.recall")(
       function* (projectId, query, options) {

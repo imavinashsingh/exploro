@@ -1,4 +1,5 @@
 import * as ProjectMemory from "./memory/ProjectMemory.ts";
+import * as ProjectMemoryControl from "./memory/ProjectMemoryControl.ts";
 import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- A synchronous digest inside the pure provider mapping.
 import * as NodeCrypto from "node:crypto";
@@ -1475,6 +1476,7 @@ export const layerWsRpc = (
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
       const qaRuns = yield* QaRuns.QaRuns;
       const projectMemory = yield* ProjectMemory.ProjectMemory;
+      const memoryControl = yield* ProjectMemoryControl.ProjectMemoryControl;
       const secretRequests = yield* SecretRequests.SecretRequests;
       const guestShares = yield* GuestShareService.GuestShareService;
       const pullRequests = yield* PullRequestService.PullRequestService;
@@ -2292,6 +2294,16 @@ export const layerWsRpc = (
         [WS_METHODS.scheduledTasksSubscribe]: (_input) =>
           scheduledTasks.subscribeList().pipe(Stream.map(withVisibleWebhookUrls)),
         [WS_METHODS.projectMemoryMap]: (input) => projectMemory.map(input.projectId),
+        [WS_METHODS.projectMemorySnapshot]: (input) => memoryControl.snapshot(input.projectId),
+        [WS_METHODS.projectMemoryDeleteFact]: (input) =>
+          memoryControl.deleteFact(input.projectId, input.factId),
+        [WS_METHODS.projectMemoryItemHistory]: (input) =>
+          memoryControl.itemHistory(input.projectId, input.itemId),
+        [WS_METHODS.projectMemoryUpdateItem]: (input) => memoryControl.updateItem(input),
+        [WS_METHODS.projectMemoryDeleteItem]: (input) =>
+          memoryControl.deleteItem(input.projectId, input.itemId),
+        [WS_METHODS.projectMemoryRetryExtraction]: (input) =>
+          memoryControl.retryExtraction(input.projectId, input.runId),
         [WS_METHODS.qaRunsSubscribe]: (input) =>
           Stream.unwrap(
             Effect.annotateCurrentSpan({ "thread.id": input.threadId }).pipe(
@@ -3580,6 +3592,7 @@ export const layer = Layer.unwrap(
     const peerLinkRequests = yield* PeerLinkRequests.PeerLinkRequests;
     const qaRuns = yield* QaRuns.QaRuns;
     const projectMemory = yield* ProjectMemory.ProjectMemory;
+    const memoryControl = yield* ProjectMemoryControl.ProjectMemoryControl;
     const sql = yield* SqlClient.SqlClient;
     return HttpRouter.add(
       "GET",
@@ -3677,6 +3690,9 @@ export const layer = Layer.unwrap(
               // One run store for every connection and for agents, so changes reach all clients.
               Layer.provide(Layer.succeed(QaRuns.QaRuns, qaRuns)),
               Layer.provide(Layer.succeed(ProjectMemory.ProjectMemory, projectMemory)),
+              Layer.provide(
+                Layer.succeed(ProjectMemoryControl.ProjectMemoryControl, memoryControl),
+              ),
               Layer.provide(Layer.succeed(PeerLinkRequests.PeerLinkRequests, peerLinkRequests)),
               Layer.provide(
                 SourceControlDiscovery.layer.pipe(

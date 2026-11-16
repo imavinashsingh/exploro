@@ -85,6 +85,8 @@ export class QaRuns extends Context.Service<
         readonly projectId: ProjectId | null;
         /** Passwords the user gave in the thread, kept out of memory. */
         readonly secrets?: ReadonlyArray<string>;
+        /** False when the user turned the project's memory off. */
+        readonly remember?: boolean;
       },
     ) => Effect.Effect<QaRun | null, QaRunError>;
     readonly list: (threadId: ThreadId) => Effect.Effect<ReadonlyArray<QaRun>, QaRunError>;
@@ -291,6 +293,7 @@ const make = Effect.gen(function* () {
     threadId: ThreadId,
     projectId: ProjectId | null,
     secrets: ReadonlyArray<string> = [],
+    remember = true,
   ) {
     const open = findOpen(yield* load(threadId));
     if (!open) return null;
@@ -328,13 +331,15 @@ const make = Effect.gen(function* () {
     );
     const saved = yield* save(finished);
     // Memory is secondary: a failed write must not lose the finished report.
-    yield* memory
-      .recordRun(saved, secrets)
-      .pipe(
-        Effect.catch((error) =>
-          Effect.logWarning("QA results were not saved to memory", { error }),
-        ),
-      );
+    if (remember) {
+      yield* memory
+        .recordRun(saved, secrets)
+        .pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("QA results were not saved to memory", { error }),
+          ),
+        );
+    }
     return saved;
   });
 
@@ -390,7 +395,9 @@ const make = Effect.gen(function* () {
       );
     }),
     finishRun: Effect.fn("QaRuns.finishRun")(function* (threadId, input) {
-      return yield* lock.withPermit(finishRunUnlocked(threadId, input.projectId, input.secrets));
+      return yield* lock.withPermit(
+        finishRunUnlocked(threadId, input.projectId, input.secrets, input.remember),
+      );
     }),
     list,
     subscribe: (threadId) =>

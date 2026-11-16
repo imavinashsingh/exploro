@@ -150,6 +150,8 @@ export const ProjectUnderstandingItem = Schema.Struct({
   version: Schema.Int,
   citedFactIds: Schema.Array(Schema.String),
   dependsOn: Schema.Array(Schema.String),
+  /** A fact it cites was since deleted, superseded or contradicted. */
+  needsReview: Schema.Boolean,
   createdAt: Schema.String,
   updatedAt: Schema.String,
 });
@@ -215,3 +217,63 @@ export const ProjectMemoryMap = Schema.Struct({
 });
 export type ProjectMemoryMap = typeof ProjectMemoryMap.Type;
 export const ProjectMemoryMapInput = Schema.Struct({ projectId: ProjectId });
+
+export const ProjectUnderstandingVersion = Schema.Struct({
+  version: Schema.Int,
+  kind: ProjectUnderstandingKind,
+  statement: Schema.String,
+  status: ProjectUnderstandingStatus,
+  author: ProjectMemoryAuthor,
+  citedFactIds: Schema.Array(Schema.String),
+  dependsOn: Schema.Array(Schema.String),
+  changedAt: Schema.String,
+});
+export type ProjectUnderstandingVersion = typeof ProjectUnderstandingVersion.Type;
+
+export const ProjectMemoryStatus = Schema.Struct({
+  recall: Schema.Literals(["semantic", "text"]),
+  /** Why recall is text-only; null while semantic recall works. */
+  recallNote: Schema.NullOr(Schema.String),
+  pendingExtractions: NonNegativeInt,
+  failedExtractions: Schema.Array(Schema.Struct({ runId: Schema.String, error: Schema.String })),
+});
+export type ProjectMemoryStatus = typeof ProjectMemoryStatus.Type;
+
+/** Everything the Memory screen shows: every version of every fact, newest first. */
+export const ProjectMemorySnapshot = Schema.Struct({
+  facts: Schema.Array(ProjectMemoryFact),
+  /** More facts exist than were sent. */
+  factsTruncated: Schema.Boolean,
+  understanding: Schema.Array(ProjectUnderstandingItem),
+  status: ProjectMemoryStatus,
+});
+export type ProjectMemorySnapshot = typeof ProjectMemorySnapshot.Type;
+export const ProjectMemorySnapshotInput = Schema.Struct({ projectId: ProjectId });
+
+export const ProjectMemoryFactDeleteInput = Schema.Struct({
+  projectId: ProjectId,
+  factId: Schema.String,
+});
+
+export const ProjectUnderstandingHistoryInput = Schema.Struct({
+  projectId: ProjectId,
+  itemId: Schema.String,
+});
+
+/** The user rewrites or confirms an item; confirmed items are never revised by an agent. */
+export const ProjectUnderstandingUpdateInput = Schema.Struct({
+  projectId: ProjectId,
+  itemId: Schema.String,
+  statement: Schema.optional(MemoryText(2000)),
+  confirm: Schema.optional(Schema.Boolean),
+});
+
+export const ProjectUnderstandingDeleteInput = Schema.Struct({
+  projectId: ProjectId,
+  itemId: Schema.String,
+});
+
+export const ProjectMemoryRetryInput = Schema.Struct({
+  projectId: ProjectId,
+  runId: Schema.String,
+});

@@ -1,4 +1,10 @@
-import { ProjectMemoryError, type ProjectId, type QaRun, type ThreadId } from "@t3tools/contracts";
+import {
+  ProjectMemoryError,
+  type ProjectId,
+  type ProjectMemoryStatus,
+  type QaRun,
+  type ThreadId,
+} from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -20,14 +26,6 @@ import * as ProjectUnderstanding from "./ProjectUnderstanding.ts";
 import { memoryEnvironment } from "./projectMemoryFacts.ts";
 import { hideProvidedSecrets, providedSecrets } from "./providedSecrets.ts";
 import { buildExtractionPrompt, planUnderstandingWrites } from "./understandingPrompt.ts";
-
-export interface ProjectMemoryStatus {
-  readonly recall: "semantic" | "text";
-  /** Why recall is text-only; null while semantic recall works. */
-  readonly recallNote: string | null;
-  readonly pendingExtractions: number;
-  readonly failedExtractions: ReadonlyArray<{ readonly runId: string; readonly error: string }>;
-}
 
 /**
  * Learns understanding from finished runs in the background, one structured generation per run,

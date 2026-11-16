@@ -215,6 +215,7 @@ it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
         yield* qaRuns.deleteRun({ threadId, runId: run.runId });
         const [after] = yield* understanding.getItems(shop, [verified!.itemId]);
         assert.strictEqual(after?.status, "hypothesis");
+        assert.isTrue(after?.needsReview);
       }),
     ),
   );
@@ -248,6 +249,52 @@ it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
           ],
         );
         assert.deepStrictEqual(yield* understanding.history(blog, itemId), []);
+      }),
+    ),
+  );
+
+  it.effect("deletes an item for good, unlinking what depended on it", () =>
+    withUnderstanding(
+      Effect.gen(function* () {
+        const understanding = yield* ProjectUnderstanding.ProjectUnderstanding;
+        const context = { environment: site };
+        const [session, dashboard] = yield* understanding.saveItems(
+          shop,
+          [
+            write({ statement: "Sign in first" }),
+            write({
+              ref: "new-2",
+              kind: "workflow",
+              statement: "Open the dashboard",
+              dependsOn: ["new-1"],
+            }),
+          ],
+          context,
+        );
+        yield* understanding.deleteItem(blog, session!.itemId);
+        assert.lengthOf(yield* understanding.getItems(shop, [session!.itemId]), 1);
+
+        yield* understanding.deleteItem(shop, session!.itemId);
+        assert.deepStrictEqual(yield* understanding.getItems(shop, [session!.itemId]), []);
+        assert.deepStrictEqual(yield* understanding.history(shop, session!.itemId), []);
+        const [left] = yield* understanding.getItems(shop, [dashboard!.itemId]);
+        assert.deepStrictEqual(left?.dependsOn, []);
+        assert.deepStrictEqual((yield* understanding.recall(shop, "sign in")).items, []);
+
+        assert.deepStrictEqual(
+          yield* understanding.saveItems(
+            shop,
+            [write({ statement: "  sign in   FIRST" })],
+            context,
+          ),
+          [],
+        );
+        const [mine] = yield* understanding.saveItems(
+          shop,
+          [write({ statement: "Sign in first", author: "user" })],
+          context,
+        );
+        assert.strictEqual(mine?.statement, "Sign in first");
       }),
     ),
   );

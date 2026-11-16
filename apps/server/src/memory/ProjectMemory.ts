@@ -63,6 +63,11 @@ export class ProjectMemory extends Context.Service<
       projectId: ProjectId,
       lookup: ProjectMemoryFactLookup,
     ) => Effect.Effect<ReadonlyArray<ProjectMemoryFact>, ProjectMemoryError>;
+    /** Every version of every fact, newest first, for the user to review. */
+    readonly listFacts: (
+      projectId: ProjectId,
+      limit: number,
+    ) => Effect.Effect<ReadonlyArray<ProjectMemoryFact>, ProjectMemoryError>;
     readonly deleteFact: (
       projectId: ProjectId,
       factId: string,
@@ -405,6 +410,19 @@ const make = Effect.gen(function* () {
           LIMIT ${lookup.limit ?? DEFAULT_LOOKUP_LIMIT}
         `.pipe(Effect.flatMap(decodeRows));
         return rows.map(toFact(lookup.testing));
+      },
+      Effect.mapError(failure("Could not read the project's facts.")),
+    ),
+
+    listFacts: Effect.fn("ProjectMemory.listFacts")(
+      function* (projectId, limit) {
+        const rows = yield* sql`
+          ${selectFacts}
+          WHERE project_id = ${projectId}
+          ORDER BY observed_at DESC, rowid DESC
+          LIMIT ${limit}
+        `.pipe(Effect.flatMap(decodeRows));
+        return rows.map(toFact(undefined));
       },
       Effect.mapError(failure("Could not read the project's facts.")),
     ),

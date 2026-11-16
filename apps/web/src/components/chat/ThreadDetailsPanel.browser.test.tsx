@@ -1,4 +1,5 @@
 import {
+  DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
   ProjectId,
   ThreadId,
@@ -50,6 +51,7 @@ vi.mock(import("~/state/entities"), async (importOriginal) => ({
               EnvironmentId.make("environment"),
               {
                 scratchWorkspaceRoot: SCRATCH_ROOT,
+                settings: DEFAULT_SERVER_SETTINGS,
                 environment: { capabilities: { pullRequests: true } },
               },
             ],

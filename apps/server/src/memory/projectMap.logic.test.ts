@@ -50,6 +50,7 @@ const item = (
   version: 1,
   citedFactIds,
   dependsOn: [],
+  needsReview: false,
   createdAt: "t",
   updatedAt: "t",
 });
