@@ -162,7 +162,7 @@ async function serviceUnitFromEnvironment(
   if (unitName.endsWith(".xml")) {
     const localAppData = env.LOCALAPPDATA?.trim();
     if (!localAppData) return undefined;
-    const path = NodePath.win32.join(localAppData, "t3code", unitName);
+    const path = NodePath.win32.join(localAppData, "exploro", unitName);
     const taskName = serviceTaskName(env.USERDOMAIN ?? "", env.USERNAME ?? "");
     return { path, reload: () => registerServiceTask(path, taskName) };
   }

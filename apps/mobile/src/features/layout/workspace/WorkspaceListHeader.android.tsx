@@ -58,7 +58,7 @@ export function WorkspaceListHeader(props: WorkspaceListHeaderProps) {
 
   return (
     <AppBar
-      title="T3 Code"
+      title="Exploro"
       titleContent={
         <WorkspaceBrandTitle
           accessibilityLabel={props.accessibilityLabel}

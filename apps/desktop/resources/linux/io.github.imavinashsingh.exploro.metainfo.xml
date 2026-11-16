@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.imavinashsingh.exploro</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Exploro</name>
+  <summary>Exploratory QA, with evidence</summary>
+  <developer id="io.github.imavinashsingh">
+    <name>Exploro</name>
+  </developer>
+  <description>
+    <p>
+      Exploro is an open-source app for manual QA engineers. Give it a website
+      and a testing goal. An agent tests the site in a real browser while you
+      watch, take over when you want, and keep the evidence.
+    </p>
+  </description>
+  <launchable type="desktop-id">exploro.desktop</launchable>
+  <icon type="stock">exploro</icon>
+  <provides>
+    <binary>exploro</binary>
+  </provides>
+  <categories>
+    <category>Development</category>
+  </categories>
+  <url type="homepage">https://imavinashsingh.github.io/exploro/</url>
+  <url type="bugtracker">https://github.com/imavinashsingh/exploro/issues</url>
+  <url type="vcs-browser">https://github.com/imavinashsingh/exploro</url>
+</component>
