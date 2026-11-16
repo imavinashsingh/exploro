@@ -8,6 +8,9 @@ Exploro is a fork of [T3 Code](https://github.com/pingdotgg/t3code). We keep T3'
 sessions, streaming, approvals and clients, and build the QA experience on top. `AGENTS.md`
 still describes the T3 codebase and applies here; this file only adds what is different.
 
+The product we are building towards is described in [site/vision.html](site/vision.html). It is a
+design target, not a record of what ships; the decisions below still win where they differ.
+
 ## Decisions
 
 - **Browser: T3's built-in browser.** Agents drive it through the `preview_*` MCP tools that

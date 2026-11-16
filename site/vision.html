@@ -1,0 +1,1274 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Exploro Vision</title>
+    <meta
+      name="description"
+      content="The Exploro we intend to build: an autonomous exploratory QA agent that turns a testing goal into evidence-backed verdicts. A design target, not a description of what ships today."
+    />
+    <link rel="icon" href="mark.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Sora:wght@600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --primary: #00727d;
+        --primary-ink: #ffffff;
+        --amber: #fea92f;
+        --ink: #0c1e22;
+        --slate: #53676c;
+        --mist: #e1eef0;
+        --bg: #f6fbfc;
+        --surface: #ffffff;
+        --code: #eef6f7;
+        --pass: #1d7d3e;
+        --fail: #c22826;
+        --blocked: #a75c00;
+        --inconclusive: #794db6;
+        --skipped: #5f6b74;
+        --shadow: 0 1px 2px rgb(12 30 34 / 6%), 0 8px 24px rgb(12 30 34 / 6%);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) {
+          --primary: #33c0c7;
+          --primary-ink: #061115;
+          --ink: #e4edee;
+          --slate: #9db0b4;
+          --mist: #1d3136;
+          --bg: #061115;
+          --surface: #0e1d21;
+          --code: #0a171a;
+          --pass: #67d283;
+          --fail: #f97770;
+          --blocked: #f7ac4d;
+          --inconclusive: #b897f0;
+          --skipped: #a0adb6;
+          --shadow: none;
+        }
+      }
+      :root[data-theme="dark"] {
+        --primary: #33c0c7;
+        --primary-ink: #061115;
+        --ink: #e4edee;
+        --slate: #9db0b4;
+        --mist: #1d3136;
+        --bg: #061115;
+        --surface: #0e1d21;
+        --code: #0a171a;
+        --pass: #67d283;
+        --fail: #f97770;
+        --blocked: #f7ac4d;
+        --inconclusive: #b897f0;
+        --skipped: #a0adb6;
+        --shadow: none;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        -webkit-text-size-adjust: 100%;
+        scroll-behavior: smooth;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font:
+          400 17px/1.6 "IBM Plex Sans",
+          system-ui,
+          sans-serif;
+      }
+      a {
+        color: var(--primary);
+      }
+      a:focus-visible,
+      button:focus-visible {
+        outline: 3px solid var(--amber);
+        outline-offset: 2px;
+        border-radius: 6px;
+      }
+      h1,
+      h2,
+      h3 {
+        font-family: Sora, system-ui, sans-serif;
+        line-height: 1.15;
+        margin: 0;
+        letter-spacing: -0.01em;
+      }
+      code,
+      .mono {
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 0.88em;
+      }
+      .wrap {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 0 16px;
+      }
+
+      header.top {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background: var(--bg);
+        border-bottom: 1px solid var(--mist);
+      }
+      .top .wrap {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 64px;
+        gap: 16px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        text-decoration: none;
+        color: var(--ink);
+        font:
+          700 20px Sora,
+          sans-serif;
+      }
+      .brand svg {
+        flex: none;
+      }
+      .brand small {
+        font:
+          500 12px "IBM Plex Sans",
+          sans-serif;
+        color: var(--blocked);
+        border: 1px solid currentColor;
+        padding: 1px 7px;
+        border-radius: 999px;
+        white-space: nowrap;
+      }
+      nav.links {
+        display: flex;
+        gap: 22px;
+        font-size: 15px;
+      }
+      nav.links a {
+        color: var(--slate);
+        text-decoration: none;
+      }
+      nav.links a:hover {
+        color: var(--ink);
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 20px;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: 16px;
+        text-decoration: none;
+        border: 1px solid transparent;
+        cursor: pointer;
+      }
+      .btn-primary {
+        background: var(--primary);
+        color: var(--primary-ink);
+      }
+      .btn-primary:hover {
+        filter: brightness(1.08);
+      }
+      .btn-ghost {
+        border-color: var(--mist);
+        color: var(--ink);
+        background: var(--surface);
+      }
+      .btn-ghost:hover {
+        border-color: var(--slate);
+      }
+
+      .hero {
+        padding: 80px 0 64px;
+      }
+      .hero .wrap {
+        display: grid;
+        grid-template-columns: 1.05fr 1fr;
+        gap: 48px;
+        align-items: center;
+      }
+      .eyebrow {
+        color: var(--primary);
+        font-weight: 600;
+        font-size: 14px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        margin: 0 0 14px;
+      }
+      .hero h1 {
+        font-size: clamp(36px, 5.4vw, 56px);
+      }
+      .hero h1 em {
+        font-style: normal;
+        color: var(--primary);
+      }
+      .hero p.lede {
+        font-size: 19px;
+        color: var(--slate);
+        margin: 20px 0 30px;
+        max-width: 34em;
+      }
+      .cta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+      .notice {
+        display: flex;
+        gap: 10px;
+        margin-top: 22px;
+        padding: 12px 14px;
+        border-left: 3px solid var(--amber);
+        background: var(--surface);
+        border-radius: 0 8px 8px 0;
+        font-size: 14px;
+        color: var(--slate);
+        max-width: 34em;
+      }
+      .notice b {
+        color: var(--ink);
+      }
+
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--mist);
+        border-radius: 16px;
+        box-shadow: var(--shadow);
+        overflow: hidden;
+        font-size: 15px;
+      }
+      .card-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 14px 18px;
+        border-bottom: 1px solid var(--mist);
+      }
+      .card-head .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--primary);
+      }
+      .card-head strong {
+        font-weight: 600;
+      }
+      .card-head span {
+        margin-left: auto;
+        color: var(--slate);
+        font-size: 13px;
+      }
+      .goal {
+        padding: 14px 18px;
+        border-bottom: 1px solid var(--mist);
+        color: var(--slate);
+      }
+      .goal b {
+        color: var(--ink);
+        font-weight: 500;
+      }
+      .trace {
+        list-style: none;
+        margin: 0;
+        padding: 16px 18px 18px;
+        display: grid;
+        gap: 14px;
+      }
+      .trace li {
+        display: grid;
+        grid-template-columns: 24px 1fr;
+        gap: 10px;
+      }
+      .trace .n {
+        display: grid;
+        place-items: center;
+        width: 24px;
+        height: 24px;
+        border-radius: 7px;
+        background: var(--primary);
+        color: var(--primary-ink);
+        font:
+          700 12px Sora,
+          sans-serif;
+      }
+      .trace strong {
+        display: block;
+        font-weight: 600;
+      }
+      .trace p {
+        margin: 2px 0 0;
+        color: var(--slate);
+        font-size: 14px;
+      }
+      .trace pre {
+        margin: 8px 0 0;
+        padding: 10px 12px;
+        border-radius: 8px;
+        background: var(--code);
+        border: 1px solid var(--mist);
+        font-size: 12.5px;
+        line-height: 1.7;
+        overflow-x: auto;
+      }
+      .card-foot {
+        padding: 12px 18px;
+        border-top: 1px solid var(--mist);
+        color: var(--slate);
+        font-size: 13px;
+      }
+
+      section {
+        padding: 72px 0;
+      }
+      section.alt {
+        background: var(--surface);
+        border-top: 1px solid var(--mist);
+        border-bottom: 1px solid var(--mist);
+      }
+      .section-head {
+        max-width: 640px;
+        margin-bottom: 40px;
+      }
+      .section-head h2 {
+        font-size: clamp(28px, 3.6vw, 38px);
+      }
+      .section-head p {
+        color: var(--slate);
+        margin: 14px 0 0;
+      }
+
+      .loop {
+        display: grid;
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+        gap: 12px;
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        counter-reset: step;
+      }
+      .loop li {
+        border: 1px solid var(--mist);
+        border-radius: 14px;
+        padding: 18px 14px;
+        background: var(--surface);
+      }
+      .loop li::before {
+        counter-increment: step;
+        content: counter(step);
+        display: grid;
+        place-items: center;
+        width: 28px;
+        height: 28px;
+        border-radius: 8px;
+        background: var(--primary);
+        color: var(--primary-ink);
+        font:
+          700 14px Sora,
+          sans-serif;
+        margin-bottom: 12px;
+      }
+      .loop h3 {
+        font-size: 16px;
+        margin-bottom: 4px;
+      }
+      .loop p {
+        margin: 0;
+        color: var(--slate);
+        font-size: 14px;
+      }
+      .loop-note {
+        margin: 18px 0 0;
+        color: var(--slate);
+        font-size: 15px;
+      }
+
+      .features {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 28px 32px;
+      }
+      .feature h3 {
+        font-size: 18px;
+        margin-bottom: 8px;
+      }
+      .feature p {
+        margin: 0;
+        color: var(--slate);
+        font-size: 15.5px;
+      }
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 10px;
+      }
+      .chip {
+        font:
+          600 11px/1 "JetBrains Mono",
+          monospace;
+        letter-spacing: 0.04em;
+        padding: 5px 8px;
+        border-radius: 6px;
+        border: 1px solid currentColor;
+        white-space: nowrap;
+      }
+      .tag {
+        font-size: 13px;
+        padding: 3px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--mist);
+        background: var(--bg);
+        color: var(--ink);
+      }
+      .v-pass {
+        color: var(--pass);
+      }
+      .v-fail {
+        color: var(--fail);
+      }
+      .v-blocked {
+        color: var(--blocked);
+      }
+      .v-inconclusive {
+        color: var(--inconclusive);
+      }
+      .v-skipped {
+        color: var(--skipped);
+      }
+
+      .demo {
+        display: grid;
+        grid-template-columns: 280px 1fr;
+      }
+      .demo-left {
+        padding: 22px;
+        border-right: 1px solid var(--mist);
+        background: var(--bg);
+      }
+      .demo-left p {
+        margin: 0 0 16px;
+        color: var(--slate);
+        font-size: 14px;
+      }
+      .cases {
+        display: grid;
+        gap: 8px;
+      }
+      .case {
+        width: 100%;
+        text-align: left;
+        padding: 11px 14px;
+        border-radius: 10px;
+        border: 1px solid var(--mist);
+        background: var(--surface);
+        color: var(--ink);
+        font:
+          600 15px "IBM Plex Sans",
+          sans-serif;
+        cursor: pointer;
+      }
+      .case:hover {
+        border-color: var(--slate);
+      }
+      .case[aria-pressed="true"] {
+        background: var(--primary);
+        border-color: var(--primary);
+        color: var(--primary-ink);
+      }
+      .demo-right {
+        padding: 24px 28px;
+      }
+      .mission {
+        font:
+          600 19px/1.45 Sora,
+          sans-serif;
+        padding-bottom: 18px;
+        margin: 0 0 18px;
+        border-bottom: 1px solid var(--mist);
+      }
+      .reason {
+        display: grid;
+        grid-template-columns: 120px 1fr;
+        gap: 14px 18px;
+        margin: 0;
+      }
+      .reason dt {
+        color: var(--primary);
+        font-weight: 600;
+        font-size: 13px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        padding-top: 2px;
+      }
+      .reason dd {
+        margin: 0;
+        color: var(--slate);
+        font-size: 15.5px;
+      }
+      .fine {
+        margin: 20px 0 0;
+        padding-top: 14px;
+        border-top: 1px solid var(--mist);
+        font-size: 13px;
+        color: var(--slate);
+      }
+
+      .arch {
+        display: grid;
+        grid-template-columns: 1fr 1.1fr 1fr;
+        gap: 20px;
+        align-items: stretch;
+      }
+      .arch-col {
+        display: grid;
+        gap: 12px;
+        align-content: start;
+      }
+      .arch-kicker {
+        color: var(--slate);
+        font-weight: 600;
+        font-size: 13px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      .tile {
+        padding: 18px;
+        border-radius: 14px;
+        background: var(--bg);
+        border: 1px solid var(--mist);
+      }
+      .tile h3 {
+        font-size: 16px;
+        margin-bottom: 6px;
+      }
+      .tile p {
+        margin: 0;
+        color: var(--slate);
+        font-size: 14.5px;
+      }
+      .core {
+        border-radius: 16px;
+        background: var(--primary);
+        color: var(--primary-ink);
+        padding: 32px 24px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        text-align: center;
+        gap: 12px;
+      }
+      .core h3 {
+        font-size: 28px;
+      }
+      .core p {
+        margin: 0;
+        font-size: 15px;
+      }
+      .core .chips {
+        justify-content: center;
+      }
+      .core .tag {
+        background: transparent;
+        border-color: currentColor;
+        color: inherit;
+      }
+      .arch-note {
+        margin: 20px 0 0;
+        color: var(--slate);
+        font-size: 15px;
+        max-width: 760px;
+      }
+
+      .rules {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 28px 40px;
+        counter-reset: rule;
+      }
+      .rule {
+        display: grid;
+        grid-template-columns: 34px 1fr;
+        gap: 14px;
+      }
+      .rule::before {
+        counter-increment: rule;
+        content: counter(rule, decimal-leading-zero);
+        display: grid;
+        place-items: center;
+        width: 34px;
+        height: 34px;
+        border-radius: 8px;
+        border: 1px solid var(--primary);
+        color: var(--primary);
+        font:
+          700 13px Sora,
+          sans-serif;
+      }
+      .rule h3 {
+        font-size: 17px;
+        margin-bottom: 6px;
+      }
+      .rule p {
+        margin: 0;
+        color: var(--slate);
+        font-size: 15.5px;
+      }
+
+      .success {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 36px;
+        align-items: center;
+      }
+      .success h2 {
+        font-size: clamp(26px, 3.2vw, 34px);
+      }
+      .success > div > p {
+        color: var(--slate);
+        margin: 14px 0 0;
+      }
+      .criteria {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 10px;
+      }
+      .criteria li {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        padding: 12px 14px;
+        border: 1px solid var(--mist);
+        border-radius: 10px;
+        background: var(--bg);
+        font-size: 15.5px;
+      }
+      .criteria li::before {
+        content: "";
+        flex: none;
+        width: 10px;
+        height: 10px;
+        border-radius: 3px;
+        background: var(--primary);
+      }
+
+      footer {
+        padding: 40px 0 56px;
+        color: var(--slate);
+        font-size: 14px;
+      }
+      footer .wrap {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px 28px;
+        justify-content: space-between;
+      }
+
+      @media (max-width: 1000px) {
+        .loop {
+          grid-template-columns: repeat(4, 1fr);
+        }
+      }
+      @media (max-width: 900px) {
+        .hero .wrap,
+        .success {
+          grid-template-columns: 1fr;
+        }
+        .features {
+          grid-template-columns: repeat(2, 1fr);
+        }
+        .demo {
+          grid-template-columns: 1fr;
+        }
+        .demo-left {
+          border-right: 0;
+          border-bottom: 1px solid var(--mist);
+        }
+        .cases {
+          grid-template-columns: repeat(2, 1fr);
+        }
+        .arch {
+          grid-template-columns: 1fr;
+        }
+        .core {
+          order: -1;
+        }
+      }
+      @media (max-width: 640px) {
+        nav.links a:not(.keep) {
+          display: none;
+        }
+        .hero {
+          padding: 48px 0 40px;
+        }
+        section {
+          padding: 52px 0;
+        }
+        .loop {
+          grid-template-columns: repeat(2, 1fr);
+        }
+        .features,
+        .rules {
+          grid-template-columns: 1fr;
+        }
+        .demo-right {
+          padding: 20px 16px;
+        }
+        .reason {
+          grid-template-columns: 1fr;
+          gap: 2px;
+        }
+        .reason dd {
+          margin-bottom: 12px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="top">
+      <div class="wrap">
+        <a class="brand" href="./"
+          ><svg width="30" height="30" viewBox="0 0 128 128" fill="none" aria-hidden="true">
+            <rect width="128" height="128" rx="30" fill="#00727D" />
+            <circle cx="56" cy="56" r="27" stroke="#FFFFFF" stroke-width="12" />
+            <path
+              d="M62 60V102L72.5 91.5L81 108L91 103L82.5 87H98Z"
+              fill="#FEA92F"
+              stroke="#00727D"
+              stroke-width="6"
+              stroke-linejoin="round"
+              paint-order="stroke"
+            />
+          </svg>
+          Exploro <small>Vision</small></a
+        >
+        <nav class="links">
+          <a href="#loop">The agent</a>
+          <a href="#missions">Missions</a>
+          <a href="#architecture">Architecture</a>
+          <a href="#success">Success criteria</a>
+          <a class="keep" href="./#download">Download</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <div class="hero">
+        <div class="wrap">
+          <div>
+            <p class="eyebrow">The agent we are building</p>
+            <h1>Give it a goal. <em>It finds the tests.</em></h1>
+            <p class="lede">
+              Exploro is becoming an autonomous exploratory QA engineer. It understands an
+              application, invents relevant test scenarios, drives a real browser, investigates
+              failures, and turns what it observed into verifiable evidence.
+            </p>
+            <div class="cta">
+              <a class="btn btn-primary" href="#loop">Explore the vision</a>
+              <a class="btn btn-ghost" href="#missions">See how it should think</a>
+            </div>
+            <p class="notice">
+              <span
+                >This page is a <b>design target</b>, not a list of shipped features. For what
+                Exploro does today, see the <a href="./">product page</a>.</span
+              >
+            </p>
+          </div>
+
+          <div class="card" aria-label="Illustrative agent reasoning trace">
+            <div class="card-head">
+              <span class="dot"></span><strong>Mission reasoning</strong><span>Illustrative</span>
+            </div>
+            <div class="goal">
+              Goal:
+              <b
+                >test login. Make sure validation, incorrect credentials, and a successful sign-in
+                behave correctly.</b
+              >
+            </div>
+            <ol class="trace">
+              <li>
+                <span class="n">1</span>
+                <div>
+                  <strong>Understand the application</strong>
+                  <p>Inspect visible fields, semantics, form behaviour and repository context.</p>
+                </div>
+              </li>
+              <li>
+                <span class="n">2</span>
+                <div>
+                  <strong>Form test hypotheses</strong>
+                  <p>Empty submission · wrong credentials · required fields · valid session.</p>
+                </div>
+              </li>
+              <li>
+                <span class="n">3</span>
+                <div>
+                  <strong>Act, observe, adapt</strong>
+                  <pre><code>observe()  → candidate actions
+act()      → DOM + network + console
+reason()   → next best check</code></pre>
+                </div>
+              </li>
+              <li>
+                <span class="n">4</span>
+                <div>
+                  <strong>Prove the outcome</strong>
+                  <p>Assert visible behaviour, keep the evidence, and say what stays unverified.</p>
+                </div>
+              </li>
+            </ol>
+            <div class="card-foot">Evidence first. Never an invented result.</div>
+          </div>
+        </div>
+      </div>
+
+      <section class="alt" id="loop">
+        <div class="wrap">
+          <div class="section-head">
+            <h2>Not a script runner. An agent that thinks.</h2>
+            <p>
+              Every action starts from fresh evidence. The agent decides what is worth testing next
+              instead of following a fixed checklist.
+            </p>
+          </div>
+          <ol class="loop">
+            <li>
+              <h3>Understand</h3>
+              <p>Intent and risk</p>
+            </li>
+            <li>
+              <h3>Explore</h3>
+              <p>UI, repository, context</p>
+            </li>
+            <li>
+              <h3>Hypothesize</h3>
+              <p>Generate scenarios</p>
+            </li>
+            <li>
+              <h3>Execute</h3>
+              <p>Real browser actions</p>
+            </li>
+            <li>
+              <h3>Observe</h3>
+              <p>DOM, network, console</p>
+            </li>
+            <li>
+              <h3>Verify</h3>
+              <p>Assertions and evidence</p>
+            </li>
+            <li>
+              <h3>Learn</h3>
+              <p>Useful memory</p>
+            </li>
+          </ol>
+          <p class="loop-note">
+            It loops back whenever the page changes, a check fails, or a new risk appears.
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
+          <div class="section-head">
+            <h2>Six things the agent must do really well</h2>
+            <p>
+              Working with Exploro should feel like working with a thoughtful QA engineer, not
+              programming a list of browser commands.
+            </p>
+          </div>
+          <div class="features">
+            <div class="feature">
+              <h3>Invent the right tests</h3>
+              <p>
+                Turn a broad goal into positive, negative, boundary and exploratory checks, without
+                the user writing every scenario.
+              </p>
+            </div>
+            <div class="feature">
+              <h3>Understand any interface</h3>
+              <p>
+                Read the DOM, accessibility tree and visual state: forms, sliders, tabs, dialogs,
+                navigation and responsive layouts, never fixed selectors.
+              </p>
+            </div>
+            <div class="feature">
+              <h3>Use the whole toolkit</h3>
+              <p>
+                Correlate the page with console, network, screenshots, DevTools and repository
+                context to find the cause, not just the symptom.
+              </p>
+            </div>
+            <div class="feature">
+              <h3>Recover intelligently</h3>
+              <p>
+                Handle popups, new tabs, stale elements, delays and unexpected screens by re-reading
+                the live state.
+              </p>
+            </div>
+            <div class="feature">
+              <h3>Build trustworthy evidence</h3>
+              <p>Capture what actually happened, and give every scenario an honest verdict:</p>
+              <div class="chips">
+                <span class="chip v-pass">PASS</span><span class="chip v-fail">FAIL</span
+                ><span class="chip v-blocked">BLOCKED</span
+                ><span class="chip v-inconclusive">INCONCLUSIVE</span
+                ><span class="chip v-skipped">SKIPPED</span>
+              </div>
+            </div>
+            <div class="feature">
+              <h3>Remember what matters</h3>
+              <p>
+                Keep project knowledge, past defects, tested paths and recovery strategies, without
+                treating old observations as unquestioned facts.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="alt" id="missions">
+        <div class="wrap">
+          <div class="section-head">
+            <h2>One instruction. Many decisions.</h2>
+            <p>
+              Pick a sample mission to see the reasoning Exploro should do. These are design
+              illustrations, not real agent output.
+            </p>
+          </div>
+          <div class="card demo">
+            <div class="demo-left">
+              <p>
+                No prewritten test cases. The agent expands a goal after it understands the app.
+              </p>
+              <div class="cases" role="group" aria-label="Sample missions">
+                <button class="case" type="button" data-case="login" aria-pressed="true">
+                  Login form
+                </button>
+                <button class="case" type="button" data-case="slider" aria-pressed="false">
+                  Slider and sidebar
+                </button>
+                <button class="case" type="button" data-case="policy" aria-pressed="false">
+                  Policy links and tabs
+                </button>
+                <button class="case" type="button" data-case="responsive" aria-pressed="false">
+                  Responsive layout
+                </button>
+              </div>
+            </div>
+            <div class="demo-right" aria-live="polite">
+              <p class="mission" id="mission">
+                “Test the login page and make sure it works correctly.”
+              </p>
+              <dl class="reason">
+                <dt>Interpret</dt>
+                <dd id="interpret">
+                  Find the form and understand the expected submit flow, feedback, and signed-in
+                  destination.
+                </dd>
+                <dt>Generate</dt>
+                <dd id="generate">
+                  Blank fields, missing password, wrong credentials, password masking, successful
+                  sign-in and session behaviour.
+                </dd>
+                <dt>Investigate</dt>
+                <dd>
+                  <span id="investigate"
+                    >Use the page, DOM and network responses to see whether errors appear and
+                    navigation succeeds.</span
+                  >
+                  <span class="chips" id="tools"
+                    ><span class="tag">DOM</span><span class="tag">Browser actions</span
+                    ><span class="tag">Network</span></span
+                  >
+                </dd>
+                <dt>Adapt</dt>
+                <dd id="adapt">
+                  If the page changes or validation appears unexpectedly, inspect the new state and
+                  update the plan before continuing.
+                </dd>
+                <dt>Verify</dt>
+                <dd id="verify">
+                  Compare behaviour with captured evidence. Never mark sign-in as passed without
+                  seeing the destination or session state.
+                </dd>
+              </dl>
+              <p class="fine">
+                These show the kind of reasoning we expect, not sequences hardcoded into the agent.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="architecture">
+        <div class="wrap">
+          <div class="section-head">
+            <h2>Keep the foundation. Build the intelligence.</h2>
+            <p>
+              One reasoning engine uses every available tool and source of context. No competing
+              planner, no separate verification brain, no required local model.
+            </p>
+          </div>
+          <div class="arch">
+            <div class="arch-col">
+              <div class="arch-kicker">Context</div>
+              <div class="tile">
+                <h3>Mission and environment</h3>
+                <p>The goal, site URL, allowed sites, test credentials and permissions.</p>
+              </div>
+              <div class="tile">
+                <h3>Repository intelligence</h3>
+                <p>
+                  Optional, read-only: code search and indexes that map routes and components to
+                  what the agent sees.
+                </p>
+              </div>
+              <div class="tile">
+                <h3>Project memory</h3>
+                <p>
+                  SQLite with full-text search, optional embeddings: prior coverage, findings and
+                  recovery strategies.
+                </p>
+              </div>
+            </div>
+            <div class="core">
+              <div class="arch-kicker" style="color: inherit">The single reasoning engine</div>
+              <h3>Your agent, running the QA method</h3>
+              <p>Understands · plans · acts · observes · verifies · replans</p>
+              <div class="chips">
+                <span class="tag">Claude</span><span class="tag">Codex</span
+                ><span class="tag">ACP agents</span><span class="tag">QA skill</span>
+              </div>
+            </div>
+            <div class="arch-col">
+              <div class="arch-kicker">Actions and output</div>
+              <div class="tile">
+                <h3>Built-in browser</h3>
+                <p>Chromium tabs per thread, DOM, screenshots, recordings, console and network.</p>
+              </div>
+              <div class="tile">
+                <h3>Evidence and reports</h3>
+                <p>
+                  Server-owned runs: verdicts, screenshots, reproduction steps, coverage, and an
+                  HTML report.
+                </p>
+              </div>
+              <div class="tile">
+                <h3>Human in the loop</h3>
+                <p>
+                  Approvals for risky steps, steering mid-run, take-over, and actionable findings.
+                </p>
+              </div>
+            </div>
+          </div>
+          <p class="arch-note">
+            Built on the Electron desktop app and T3 Code's agent infrastructure. Memory and code
+            intelligence are modules on top, not replacements for the base. Memory works without
+            Hindsight or Ollama; embeddings are pluggable, never the agent's core reasoning.
+          </p>
+        </div>
+      </section>
+
+      <section class="alt">
+        <div class="wrap">
+          <div class="section-head">
+            <h2>Intelligence without fragile magic</h2>
+            <p>
+              These guardrails matter more than the choice of model, framework or memory library.
+            </p>
+          </div>
+          <div class="rules">
+            <div class="rule">
+              <div>
+                <h3>No hardcoded sites or controls</h3>
+                <p>
+                  Handle unfamiliar applications by inspecting them, never by assuming particular
+                  buttons, selectors or pages.
+                </p>
+              </div>
+            </div>
+            <div class="rule">
+              <div>
+                <h3>Observations decide the next action</h3>
+                <p>
+                  When navigation, timing or layout differs, replan from live evidence instead of
+                  retrying the same failed action.
+                </p>
+              </div>
+            </div>
+            <div class="rule">
+              <div>
+                <h3>Never fabricate a verdict</h3>
+                <p>
+                  Keep expectation and observation apart. A blocked test is not a failure, and a
+                  click is not proof of success.
+                </p>
+              </div>
+            </div>
+            <div class="rule">
+              <div>
+                <h3>The human controls risky steps</h3>
+                <p>
+                  Ask before destructive, irreversible or sensitive actions. Keep the trace,
+                  reasoning and evidence reviewable.
+                </p>
+              </div>
+            </div>
+            <div class="rule">
+              <div>
+                <h3>Memory informs, never overrides</h3>
+                <p>
+                  Recall what was learned before, then check it against the current page and code.
+                </p>
+              </div>
+            </div>
+            <div class="rule">
+              <div>
+                <h3>Model independence</h3>
+                <p>
+                  Use the agent the user already has. No required Ollama, separate LLM, Hindsight
+                  service or local model.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="success">
+        <div class="wrap success">
+          <div>
+            <p class="eyebrow">Definition of success</p>
+            <h2>Can it test an app it has never seen before?</h2>
+            <p>
+              Not just click through a demo: make reasonable decisions, react to unknown states, and
+              explain what was proven. These are the acceptance criteria for the agent.
+            </p>
+          </div>
+          <ul class="criteria">
+            <li>Creates meaningful tests from a high-level goal</li>
+            <li>Handles forms, sliders, tabs, links and several viewports</li>
+            <li>Uses DOM, DevTools, repository and memory when relevant</li>
+            <li>Recovers from unexpected browser behaviour</li>
+            <li>Produces honest, evidence-backed verdicts</li>
+            <li>Improves across sessions without becoming brittle</li>
+          </ul>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="wrap">
+        <span
+          >A target-state vision. Implementation and validation are still ahead; progress is tracked
+          in <a href="https://github.com/imavinashsingh/exploro/issues">GitHub issues</a>.</span
+        >
+        <span><a href="./">Back to the product page</a></span>
+      </div>
+    </footer>
+
+    <script>
+      (function () {
+        var cases = {
+          login: {
+            mission: "“Test the login page and make sure it works correctly.”",
+            interpret:
+              "Find the form and understand the expected submit flow, feedback, and signed-in destination.",
+            generate:
+              "Blank fields, missing password, wrong credentials, password masking, successful sign-in and session behaviour.",
+            investigate:
+              "Use the page, DOM and network responses to see whether errors appear and navigation succeeds.",
+            tools: ["DOM", "Browser actions", "Network"],
+            adapt:
+              "If the page changes or validation appears unexpectedly, inspect the new state and update the plan before continuing.",
+            verify:
+              "Compare behaviour with captured evidence. Never mark sign-in as passed without seeing the destination or session state.",
+          },
+          slider: {
+            mission: "“Test the horizontal slider (maximum five) and check the sidebar.”",
+            interpret:
+              "Locate the slider, read its live min, max and step, and understand the sidebar's navigation and active state.",
+            generate:
+              "Keyboard and pointer input, lower and upper bounds, intermediate steps, displayed value in sync, and sidebar navigation.",
+            investigate:
+              "Read the current value from DOM properties and rendered text; follow the sidebar links and observe what changes.",
+            tools: ["DOM properties", "Keyboard", "Pointer", "Navigation"],
+            adapt:
+              "If dragging is unreliable, use keyboard input or the control's native semantics, then verify the resulting value.",
+            verify:
+              "Confirm from observed behaviour that the maximum is five, and that sidebar links open the intended views.",
+          },
+          policy: {
+            mission: "“Verify the Terms of Use and Data Policy links, including new tabs.”",
+            interpret:
+              "Identify the source page, the policy links, where they lead, and any new tabs or external destinations.",
+            generate:
+              "Both destinations, readable content, return navigation, browser history, and whether the original page stays usable.",
+            investigate:
+              "Track tabs and URLs, inspect the loaded policy content, then switch back to the original tab.",
+            tools: ["Tabs", "URL and DOM", "Navigation", "Screenshots"],
+            adapt:
+              "If a link opens a new tab or loads slowly, switch tab, wait for an observable ready state, then continue.",
+            verify:
+              "Prove each link reaches readable policy content. Make no claims about the legal text itself.",
+          },
+          responsive: {
+            mission: "“Assess mobile, tablet and desktop responsiveness.”",
+            interpret:
+              "Inspect layout structure, navigation patterns and key flows across meaningful viewport widths.",
+            generate:
+              "Overflow, clipped controls, text readability, menu changes, tap targets, dialogs and key flows at each width.",
+            investigate:
+              "Resize the viewport, inspect computed layout and screenshots, and try high-value interactions at each size.",
+            tools: ["Viewport", "Screenshots", "DOM geometry", "Browser actions"],
+            adapt:
+              "If a control moves behind a menu, find it again in its new place instead of reusing desktop assumptions.",
+            verify:
+              "Report the exact viewport sizes tested, every visual or functional defect, and a screenshot for each finding.",
+          },
+        };
+        var fields = ["mission", "interpret", "generate", "investigate", "adapt", "verify"];
+        var buttons = document.querySelectorAll("[data-case]");
+        buttons.forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            var sample = cases[btn.dataset.case];
+            buttons.forEach(function (b) {
+              b.setAttribute("aria-pressed", String(b === btn));
+            });
+            fields.forEach(function (key) {
+              document.getElementById(key).textContent = sample[key];
+            });
+            document.getElementById("tools").replaceChildren.apply(
+              document.getElementById("tools"),
+              sample.tools.map(function (t) {
+                var el = document.createElement("span");
+                el.className = "tag";
+                el.textContent = t;
+                return el;
+              }),
+            );
+          });
+        });
+      })();
+    </script>
+  </body>
+</html>
