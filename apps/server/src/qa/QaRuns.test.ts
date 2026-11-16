@@ -1,5 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ThreadId } from "@t3tools/contracts";
+import { ProjectId, ThreadId } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
@@ -81,10 +81,11 @@ it.layer(NodeServices.layer)("QaRuns", (it) => {
         );
         assert.deepStrictEqual(yield* fs.readFile(scenario.screenshotPath!), PNG);
 
-        const finished = yield* qaRuns.finishRun(threadId);
+        const finished = yield* qaRuns.finishRun(threadId, { projectId: ProjectId.make("shop") });
         assert.isNotNull(finished);
         const manifest = JSON.parse(yield* fs.readFileString(path.join(finished!.dir, "run.json")));
         assert.strictEqual(manifest.scenarios[0].scenario, "Wrong password is rejected");
+        assert.strictEqual(manifest.projectId, "shop");
         assert.isNotNull(manifest.finishedAt);
         assert.strictEqual(
           path.basename(scenario.screenshotPath!),
@@ -132,7 +133,7 @@ it.layer(NodeServices.layer)("QaRuns", (it) => {
         const fs = yield* FileSystem.FileSystem;
         const input = { scenario: "Home loads", verdict: "PASS", note: "ok" } as const;
         yield* qaRuns.recordEvidence(threadId, input, page());
-        const first = yield* qaRuns.finishRun(threadId);
+        const first = yield* qaRuns.finishRun(threadId, { projectId: null });
         yield* qaRuns.recordEvidence(threadId, input, page());
         const runs = yield* qaRuns.list(threadId);
         assert.strictEqual(runs.length, 2);

@@ -48,6 +48,17 @@ Settings that are environment-wide stay read-only while a project is selected. W
 targets disagree, a control shows **Mixed** until you choose one value. Appearance, keyboard,
 and other phone-only settings ignore the filter.
 
+## QA projects and sites
+
+A project is one app you test. Choose **Add project → New project** and give it a name; Exploro
+creates and keeps its folder, so there is nothing to pick on disk. Creating a project needs Git
+installed. To test without one, start a thread with **No project**; those threads work the same
+but keep nothing between sessions.
+
+**Settings → Projects → Sites** lists the sites a project tests, such as staging and production.
+When the first test in a project finishes, the site it opened is added for you. Add, change or
+remove sites there at any time; Exploro never replaces sites you set yourself.
+
 ## Pin and archive projects
 
 Pinned projects come first in the project pickers: the project picker on a new thread, the

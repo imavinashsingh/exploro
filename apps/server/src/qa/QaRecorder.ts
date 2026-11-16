@@ -17,7 +17,11 @@ import * as ServerConfig from "../config.ts";
 import type * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
 import * as PreviewAutomationBroker from "../mcp/PreviewAutomationBroker.ts";
 import { claimPreviewRecording } from "../mcp/toolkits/preview/recordingClaim.ts";
+import * as ServerSettings from "../serverSettings.ts";
+import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as PreviewAgentActivity from "../preview/PreviewAgentActivity.ts";
+import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
+import { learnedSiteOrigins } from "./qaEvidence.ts";
 import * as QaRuns from "./QaRuns.ts";
 
 const errorReason = (error: unknown) =>
@@ -49,6 +53,9 @@ const make = Effect.gen(function* () {
   const activity = yield* PreviewAgentActivity.PreviewAgentActivity;
   const config = yield* ServerConfig.ServerConfig;
   const fileSystem = yield* FileSystem.FileSystem;
+  const threads = yield* ThreadManagementService.ThreadManagementService;
+  const managedFolders = yield* ManagedProjectFolders.ManagedProjectFolders;
+  const serverSettings = yield* ServerSettings.ServerSettingsService;
   const recordings = new Map<
     ThreadId,
     { readonly scope: McpInvocationContext.McpThreadInvocationScope; readonly tabId: PreviewTabId }
@@ -106,9 +113,36 @@ const make = Effect.gen(function* () {
       );
   });
 
+  // "No project" threads live in the scratch project, so a run there belongs to no project.
+  const projectOf = Effect.fn("QaRecorder.projectOf")(
+    function* (threadId: ThreadId) {
+      const shell = yield* threads.getThreadShell(threadId);
+      if (shell === null) return null;
+      return (yield* managedFolders.isScratchProject(shell.projectId)) ? null : shell.projectId;
+    },
+    Effect.orElseSucceed(() => null),
+  );
+
+  const learnSite = Effect.fn("QaRecorder.learnSite")(
+    function* (run: QaRun) {
+      if (run.projectId === null) return;
+      const projectId = run.projectId;
+      const settings = yield* serverSettings.getSettings;
+      const overrides = settings.projectSettingsOverrides[projectId] ?? {};
+      const origins = learnedSiteOrigins(overrides.qaSiteOrigins, run.site);
+      if (origins === null) return;
+      yield* serverSettings.updateSettings({
+        projectSettingsOverrides: { [projectId]: { ...overrides, qaSiteOrigins: origins } },
+      });
+    },
+    Effect.catch((error) => Effect.logWarning("QA project site was not saved", { error })),
+  );
+
   const finish = Effect.fn("QaRecorder.finish")(function* (threadId: ThreadId) {
     yield* stopRecording(threadId);
-    return yield* qaRuns.finishRun(threadId);
+    const run = yield* qaRuns.finishRun(threadId, { projectId: yield* projectOf(threadId) });
+    if (run !== null) yield* learnSite(run);
+    return run;
   });
 
   const turns = yield* activity.changes;

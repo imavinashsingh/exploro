@@ -36,6 +36,8 @@ const githubAvailable = {
   ],
 };
 
+// Exploro hides these flows; the upstream code under test still exists.
+vi.mock("../exploroFeatures", () => ({ EXPLORO_OFFERS_REPOSITORIES: true }));
 vi.mock("@effect/atom-react", async (original) => ({
   ...(await original<typeof import("@effect/atom-react")>()),
   useAtomValue: (atom: unknown) =>

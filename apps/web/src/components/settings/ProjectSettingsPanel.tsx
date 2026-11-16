@@ -50,6 +50,7 @@ import {
   ProjectFaviconPickerDialog,
 } from "./ProjectFaviconPickerDialog";
 import { ProjectActionsSettings } from "./ProjectActionsSettings";
+import { ProjectSitesSettings } from "./ProjectSitesSettings";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
 import {
   defaultProjectIcon,
@@ -665,6 +666,7 @@ function ProjectDetail({
           ) : null}
         </SettingsSection>
         <ProjectDefaultsSettings category="project" />
+        {group.memberProjects.every((member) => member.isScratch) ? null : <ProjectSitesSettings />}
         <ProjectActionsSettings />
         {checkoutChoices}
         <SettingsSection title="Danger">

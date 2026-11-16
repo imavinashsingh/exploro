@@ -8,6 +8,7 @@ import {
   type QaRunDeleteInput,
   type QaRunDeleteResult,
   type QaRunsSnapshot,
+  type ProjectId,
   type QaScenario,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -77,7 +78,10 @@ export class QaRuns extends Context.Service<
       reason: string,
     ) => Effect.Effect<void, QaRunError>;
     /** Writes both reports and closes the open run; null when there is none. */
-    readonly finishRun: (threadId: ThreadId) => Effect.Effect<QaRun | null, QaRunError>;
+    readonly finishRun: (
+      threadId: ThreadId,
+      input: { readonly projectId: ProjectId | null },
+    ) => Effect.Effect<QaRun | null, QaRunError>;
     readonly list: (threadId: ThreadId) => Effect.Effect<ReadonlyArray<QaRun>, QaRunError>;
     readonly subscribe: (threadId: ThreadId) => Stream.Stream<QaRunsSnapshot, QaRunError>;
     readonly deleteRun: (input: QaRunDeleteInput) => Effect.Effect<QaRunDeleteResult, QaRunError>;
@@ -167,6 +171,7 @@ const make = Effect.gen(function* () {
     return yield* save({
       runId,
       threadId,
+      projectId: null,
       site,
       startedAt,
       finishedAt: null,
@@ -277,7 +282,10 @@ const make = Effect.gen(function* () {
     Effect.mapError(failure("Could not save the run's video.")),
   );
 
-  const finishRunUnlocked = Effect.fnUntraced(function* (threadId: ThreadId) {
+  const finishRunUnlocked = Effect.fnUntraced(function* (
+    threadId: ThreadId,
+    projectId: ProjectId | null,
+  ) {
     const open = findOpen(yield* load(threadId));
     if (!open) return null;
     const finishedAt = yield* nowIso;
@@ -285,6 +293,7 @@ const make = Effect.gen(function* () {
     const reportHtmlPath = path.join(open.dir, "report.html");
     const finished: QaRun = {
       ...open,
+      projectId,
       finishedAt,
       videoUnavailableReason:
         open.video === null
@@ -362,8 +371,8 @@ const make = Effect.gen(function* () {
         ),
       );
     }),
-    finishRun: Effect.fn("QaRuns.finishRun")(function* (threadId) {
-      return yield* lock.withPermit(finishRunUnlocked(threadId));
+    finishRun: Effect.fn("QaRuns.finishRun")(function* (threadId, input) {
+      return yield* lock.withPermit(finishRunUnlocked(threadId, input.projectId));
     }),
     list,
     subscribe: (threadId) =>
