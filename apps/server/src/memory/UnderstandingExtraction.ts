@@ -18,6 +18,7 @@ import * as MemoryEmbedder from "./MemoryEmbedder.ts";
 import * as ProjectMemory from "./ProjectMemory.ts";
 import * as ProjectUnderstanding from "./ProjectUnderstanding.ts";
 import { memoryEnvironment } from "./projectMemoryFacts.ts";
+import { hideProvidedSecrets, providedSecrets } from "./providedSecrets.ts";
 import { buildExtractionPrompt, planUnderstandingWrites } from "./understandingPrompt.ts";
 
 export interface ProjectMemoryStatus {
@@ -93,9 +94,12 @@ const make = Effect.gen(function* () {
     const records = yield* threads.getThreadRecords(threadId, ["messages"], {
       messageRoles: ["user"],
     });
-    const userMessages = records.messages
+    const typed = records.messages
       .filter((message) => !message.streaming && message.text.trim().length > 0)
       .map((message) => message.text);
+    // The model never sees the user's passwords, so it cannot copy them into memory.
+    const secrets = providedSecrets(typed);
+    const userMessages = typed.map((text) => hideProvidedSecrets(text, secrets));
     if (facts.length === 0 && userMessages.length === 0) return;
     const project = yield* projects.get(projectId);
     if (Option.isNone(project)) return;
@@ -122,7 +126,11 @@ const make = Effect.gen(function* () {
       modelSelection: settings.textGenerationModelSelection,
       projectId,
     });
-    const planned = planUnderstandingWrites(output, input);
+    const planned = planUnderstandingWrites(output, input).map((write) => ({
+      ...write,
+      statement: hideProvidedSecrets(write.statement, secrets),
+      userQuote: write.userQuote === null ? null : hideProvidedSecrets(write.userQuote, secrets),
+    }));
     const writes = yield* Effect.forEach(planned, ({ userQuote, ...write }) =>
       Effect.gen(function* () {
         if (userQuote === null || environment === null)

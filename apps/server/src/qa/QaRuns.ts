@@ -81,7 +81,11 @@ export class QaRuns extends Context.Service<
     /** Writes both reports and closes the open run; null when there is none. */
     readonly finishRun: (
       threadId: ThreadId,
-      input: { readonly projectId: ProjectId | null },
+      input: {
+        readonly projectId: ProjectId | null;
+        /** Passwords the user gave in the thread, kept out of memory. */
+        readonly secrets?: ReadonlyArray<string>;
+      },
     ) => Effect.Effect<QaRun | null, QaRunError>;
     readonly list: (threadId: ThreadId) => Effect.Effect<ReadonlyArray<QaRun>, QaRunError>;
     readonly subscribe: (threadId: ThreadId) => Stream.Stream<QaRunsSnapshot, QaRunError>;
@@ -286,6 +290,7 @@ const make = Effect.gen(function* () {
   const finishRunUnlocked = Effect.fnUntraced(function* (
     threadId: ThreadId,
     projectId: ProjectId | null,
+    secrets: ReadonlyArray<string> = [],
   ) {
     const open = findOpen(yield* load(threadId));
     if (!open) return null;
@@ -324,7 +329,7 @@ const make = Effect.gen(function* () {
     const saved = yield* save(finished);
     // Memory is secondary: a failed write must not lose the finished report.
     yield* memory
-      .recordRun(saved)
+      .recordRun(saved, secrets)
       .pipe(
         Effect.catch((error) =>
           Effect.logWarning("QA results were not saved to memory", { error }),
@@ -385,7 +390,7 @@ const make = Effect.gen(function* () {
       );
     }),
     finishRun: Effect.fn("QaRuns.finishRun")(function* (threadId, input) {
-      return yield* lock.withPermit(finishRunUnlocked(threadId, input.projectId));
+      return yield* lock.withPermit(finishRunUnlocked(threadId, input.projectId, input.secrets));
     }),
     list,
     subscribe: (threadId) =>

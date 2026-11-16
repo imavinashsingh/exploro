@@ -23,6 +23,7 @@ import * as PreviewAgentActivity from "../preview/PreviewAgentActivity.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as UnderstandingExtraction from "../memory/UnderstandingExtraction.ts";
 import { learnedSiteOrigins } from "./qaEvidence.ts";
+import { threadProvidedSecrets } from "../memory/providedSecrets.ts";
 import * as QaRuns from "./QaRuns.ts";
 
 const errorReason = (error: unknown) =>
@@ -142,7 +143,13 @@ const make = Effect.gen(function* () {
 
   const finish = Effect.fn("QaRecorder.finish")(function* (threadId: ThreadId) {
     yield* stopRecording(threadId);
-    const run = yield* qaRuns.finishRun(threadId, { projectId: yield* projectOf(threadId) });
+    const secrets = yield* threadProvidedSecrets(threads, threadId).pipe(
+      Effect.orElseSucceed(() => []),
+    );
+    const run = yield* qaRuns.finishRun(threadId, {
+      projectId: yield* projectOf(threadId),
+      secrets,
+    });
     if (run !== null) {
       yield* learnSite(run);
       yield* extraction

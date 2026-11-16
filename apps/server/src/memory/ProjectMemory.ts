@@ -26,10 +26,12 @@ import * as ProjectUnderstanding from "./ProjectUnderstanding.ts";
 import { buildProjectMap } from "./projectMap.ts";
 
 import * as ServerConfig from "../config.ts";
+import { hideProvidedSecrets } from "./providedSecrets.ts";
 import { qaThreadFolder } from "../qa/qaEvidence.ts";
 import {
   memoryEnvironment,
   memoryRoute,
+  projectOrigins,
   redactFactInput,
   resultFactsFor,
 } from "./projectMemoryFacts.ts";
@@ -47,6 +49,16 @@ export class ProjectMemory extends Context.Service<
       projectId: ProjectId,
       input: ProjectMemoryFactInput,
     ) => Effect.Effect<ProjectMemoryFact | null, ProjectMemoryError>;
+    /**
+     * Saves what an agent saw on a page of the run's site or a site the project already has
+     * facts for, citing the screenshot of one of the run's scenarios.
+     */
+    readonly putObservedFact: (
+      projectId: ProjectId,
+      run: QaRun,
+      input: ObservedFact,
+      secrets?: ReadonlyArray<string>,
+    ) => Effect.Effect<ProjectMemoryFact | null, ProjectMemoryError>;
     readonly lookupFacts: (
       projectId: ProjectId,
       lookup: ProjectMemoryFactLookup,
@@ -56,11 +68,22 @@ export class ProjectMemory extends Context.Service<
       factId: string,
     ) => Effect.Effect<void, ProjectMemoryError>;
     /** Writes one `result` fact per scenario of a finished run that belongs to a project. */
-    readonly recordRun: (run: QaRun) => Effect.Effect<number, ProjectMemoryError>;
+    readonly recordRun: (
+      run: QaRun,
+      secrets?: ReadonlyArray<string>,
+    ) => Effect.Effect<number, ProjectMemoryError>;
     /** Deletes every fact whose evidence points at the run. */
     readonly forgetRun: (runId: string) => Effect.Effect<void, ProjectMemoryError>;
   }
 >()("t3/memory/ProjectMemory") {}
+
+export interface ObservedFact extends Pick<
+  ProjectMemoryFactInput,
+  "kind" | "key" | "value" | "detail"
+> {
+  readonly pageUrl: string;
+  readonly scenarioIndex: number;
+}
 
 const FactRow = Schema.Struct({
   factId: Schema.String,
@@ -189,8 +212,16 @@ const make = Effect.gen(function* () {
     projectId: ProjectId,
     raw: ProjectMemoryFactInput,
     observedAt: string,
+    /** Passwords the user gave in the thread; memory keeps a placeholder instead. */
+    secrets: ReadonlyArray<string> = [],
   ) {
-    const input = redactFactInput(raw);
+    const hide = (text: string) => hideProvidedSecrets(text, secrets);
+    const input = redactFactInput({
+      ...raw,
+      key: hide(raw.key),
+      value: hide(raw.value),
+      ...(raw.detail === undefined ? {} : { detail: hide(raw.detail) }),
+    });
     const environment = memoryEnvironment(input.environment);
     if (environment === null) {
       return yield* new ProjectMemoryError({
@@ -307,6 +338,42 @@ const make = Effect.gen(function* () {
       Effect.mapError(failure("Could not save the fact.")),
     ),
 
+    putObservedFact: Effect.fn("ProjectMemory.putObservedFact")(function* (
+      projectId,
+      run,
+      { pageUrl, scenarioIndex, ...input },
+      secrets = [],
+    ) {
+      const environment = memoryEnvironment(pageUrl);
+      const known = yield* sql<{ readonly environment: string }>`
+          SELECT DISTINCT environment FROM project_memory_facts
+          WHERE project_id = ${projectId} AND status = 'current'
+        `.pipe(Effect.mapError(failure("Could not read the project's sites.")));
+      const origins = projectOrigins(
+        run,
+        known.map((row) => row.environment),
+      );
+      if (environment === null || !origins.has(environment))
+        return yield* new ProjectMemoryError({
+          message: `${pageUrl} is not on a site this project tests (${[...origins].join(", ") || "none yet"}).`,
+        });
+      return yield* write(
+        projectId,
+        {
+          ...input,
+          environment,
+          route: pageUrl,
+          pageUrl,
+          evidence: [
+            { threadId: run.threadId, runId: run.runId, scenarioIndex, type: "screenshot" },
+          ],
+          author: "agent",
+        },
+        yield* nowIso,
+        secrets,
+      ).pipe(Effect.mapError(failure("Could not save the fact.")));
+    }),
+
     lookupFacts: Effect.fn("ProjectMemory.lookupFacts")(
       function* (projectId, lookup) {
         const environment =
@@ -368,12 +435,12 @@ const make = Effect.gen(function* () {
     ),
 
     recordRun: Effect.fn("ProjectMemory.recordRun")(
-      function* (run) {
+      function* (run, secrets = []) {
         const projectId = run.projectId;
         if (projectId === null || run.finishedAt === null) return 0;
         let written = 0;
         for (const { input, observedAt } of resultFactsFor(run)) {
-          if ((yield* write(projectId, input, observedAt)) !== null) written += 1;
+          if ((yield* write(projectId, input, observedAt, secrets)) !== null) written += 1;
         }
         return written;
       },

@@ -1,4 +1,5 @@
 import * as ProjectMemory from "../memory/ProjectMemory.ts";
+import * as ProjectUnderstanding from "../memory/ProjectUnderstanding.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
@@ -108,6 +109,7 @@ const layerTest = McpHttpServer.layerPreviewToolkit.pipe(
       }),
       Layer.mock(QaRuns.QaRuns)({}),
       Layer.mock(ProjectMemory.ProjectMemory)({}),
+      Layer.mock(ProjectUnderstanding.ProjectUnderstanding)({}),
       Layer.mock(QaRecorder.QaRecorder)({ browserOpened: () => Effect.void }),
     ),
   ),
@@ -2080,19 +2082,36 @@ it.effect("lists optional tools to a deferring client only after tool_search loa
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
 
-it.effect("returns a short no-memory result for a scratch-project thread", () =>
+it.effect("hides memory tools from a thread without a project and refuses their calls", () =>
   Effect.gen(function* () {
     const server = yield* McpServer.McpServer;
-    const result = yield* server.callTool({ name: "memory_map", arguments: {} }).pipe(
+    const withCapabilities = (capabilities: ReadonlyArray<McpInvocationContext.McpCapability>) =>
       Effect.provideService(McpInvocationContext.McpInvocationContext, {
         ...invocation,
-        capabilities: new Set<McpInvocationContext.McpCapability>(),
-      }),
-      Effect.provideService(McpSchema.McpServerClient, client),
-    );
-    expect(result.isError).not.toBe(true);
-    expect(result.structuredContent).toEqual({
-      map: "This thread has no project, so it has no memory.",
-    });
+        capabilities: new Set(capabilities),
+      });
+    const memoryTools = server.tools
+      .filter(({ tool }) => tool.name.startsWith("memory_"))
+      .map(({ tool }) => tool.name);
+    expect(memoryTools).toEqual([
+      "memory_map",
+      "memory_fact_put",
+      "memory_facts_lookup",
+      "memory_recall",
+    ]);
+    const visible = (capabilities: ReadonlyArray<McpInvocationContext.McpCapability>) =>
+      Effect.sync(McpInvocationContext.hiddenWithoutMemory).pipe(withCapabilities(capabilities));
+    expect(yield* visible(["preview"])).toBe(false);
+    expect(yield* visible(["preview", "memory"])).toBe(true);
+    for (const name of memoryTools) {
+      const refused = yield* server
+        .callTool({ name, arguments: {} })
+        .pipe(
+          withCapabilities(["preview"]),
+          Effect.provideService(McpSchema.McpServerClient, client),
+          Effect.flip,
+        );
+      expect(refused.message).toBe(`Tool '${name}' not found`);
+    }
   }).pipe(Effect.provide(layerTest)),
 );

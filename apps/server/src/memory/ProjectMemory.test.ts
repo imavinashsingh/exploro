@@ -313,6 +313,56 @@ it.layer(NodeServices.layer)("ProjectMemory", (it) => {
     ),
   );
 
+  it.effect("saves an agent's observation only for the site under test, citing this run", () =>
+    withMemory(
+      Effect.gen(function* () {
+        const memory = yield* ProjectMemory.ProjectMemory;
+        const qaRuns = yield* QaRuns.QaRuns;
+        yield* qaRuns.recordEvidence(
+          threadId,
+          { scenario: "Login page", verdict: "PASS", note: "Seen" },
+          page("https://shop.test/login"),
+        );
+        yield* qaRuns.recordEvidence(
+          threadId,
+          { scenario: "Followed a link", verdict: "PASS", note: "Seen" },
+          page("https://evil.test/"),
+        );
+        const run = (yield* qaRuns.openRun(threadId))!;
+        const observe = (pageUrl: string, scenarioIndex = 0) =>
+          memory
+            .putObservedFact(shop, run, {
+              pageUrl,
+              scenarioIndex,
+              kind: "validation",
+              key: "empty email",
+              value: "Email is required",
+            })
+            .pipe(Effect.exit);
+
+        const saved = yield* observe("https://shop.test/login?next=1");
+        assert.isTrue(Exit.isSuccess(saved));
+        assert.deepInclude(Exit.isSuccess(saved) ? saved.value : null, {
+          environment: "https://shop.test",
+          route: "/login",
+          author: "agent",
+          evidence: [{ threadId, runId: run.runId, scenarioIndex: 0, type: "screenshot" }],
+        });
+        // A page a link led to is not the project's, even with this run's evidence.
+        assert.isTrue(Exit.isFailure(yield* observe("https://evil.test/", 1)));
+        assert.isTrue(Exit.isFailure(yield* observe("https://shop.test/login", 5)));
+        const otherThread = yield* finishedRun(
+          shop,
+          [{ scenario: "Admin", verdict: "PASS", url: "https://admin.shop.test/" }],
+          ThreadId.make("thread-memory-other"),
+        );
+        // A site the project already has facts for is one of its sites.
+        assert.isTrue(Exit.isSuccess(yield* observe("https://admin.shop.test/users")));
+        assert.equal(otherThread.projectId, shop);
+      }),
+    ),
+  );
+
   it.effect("keeps each project's memory to itself", () =>
     withMemory(
       Effect.gen(function* () {
@@ -387,6 +437,33 @@ it.layer(NodeServices.layer)("ProjectMemory", (it) => {
         assert.notInclude(JSON.stringify(stored), "abc.def");
         assert.notInclude(JSON.stringify(stored), "sid=123");
         assert.strictEqual(stored?.pageUrl, "https://shop.test/login?token=REDACTED");
+
+        // Passwords the user typed in chat, in run results and in an agent's observation.
+        const secrets = ["secret_sauce"];
+        const qaRuns = yield* QaRuns.QaRuns;
+        yield* qaRuns.recordEvidence(
+          threadId,
+          { scenario: "Login as demo / secret_sauce", verdict: "PASS", note: "Seen" },
+          page("https://shop.test/login"),
+        );
+        const run = (yield* qaRuns.finishRun(threadId, { projectId: shop, secrets }))!;
+        yield* memory.putObservedFact(
+          shop,
+          run,
+          {
+            pageUrl: "https://shop.test/login",
+            scenarioIndex: 0,
+            kind: "rule",
+            key: "demo login",
+            value: "demo signs in with secret_sauce",
+            detail: "password secret_sauce",
+          },
+          secrets,
+        );
+        const saved = JSON.stringify(yield* memory.lookupFacts(shop, { limit: 50 }));
+        assert.notInclude(saved, "secret_sauce");
+        assert.include(saved, "demo signs in with <provided password>");
+        assert.include(saved, "Login as demo / <provided password>");
       }),
     ),
   );

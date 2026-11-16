@@ -88,3 +88,15 @@ export function resultFactsFor(run: QaRun): ReadonlyArray<RunResultFact> {
     ];
   });
 }
+
+/**
+ * The sites an agent may save facts about: the one this run tests and the ones the project
+ * already has facts for. Pages a link led to elsewhere are not among them.
+ */
+export function projectOrigins(
+  run: Pick<QaRun, "site">,
+  knownEnvironments: Iterable<string>,
+): ReadonlySet<string> {
+  const site = run.site === null ? null : memoryEnvironment(run.site);
+  return new Set([...(site === null ? [] : [site]), ...knownEnvironments]);
+}

@@ -342,6 +342,7 @@ it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
         assert.deepStrictEqual(
           items.map((item) => [item.statement, item.status, item.author]).toSorted(),
           [
+            ["Admins sign in with <provided password>", "hypothesis", "agent"],
             ["Admins skip checkout", "hypothesis", "agent"],
             ["Coupons only apply at checkout", "hypothesis", "agent"],
             ["Login lands on the dashboard", "verified", "agent"],
@@ -356,8 +357,13 @@ it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
         assert.deepStrictEqual((yield* extraction.status(shop)).failedExtractions, []);
       }),
       {
-        userMessages: ["Coupons only apply at checkout. Please retest the cart."],
+        userMessages: [
+          "Coupons only apply at checkout. Please retest the cart.",
+          "Sign in as admin, the password is s3cret_pw.",
+        ],
         generate: (input) => {
+          // The model never sees a password the user gave, so it cannot learn it.
+          if (input.prompt.includes("s3cret_pw")) return Effect.die("the prompt has the password");
           const factId =
             /\[([^\]]+)\] result https:\/\/shop\.test\/login/.exec(input.prompt)?.[1] ?? "";
           const output: ProjectUnderstandingExtraction = {
@@ -393,6 +399,14 @@ it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
                 citedFactIds: [],
                 dependsOn: [],
                 userQuote: "Coupons only apply at checkout. Please retest the cart.",
+              },
+              {
+                ref: "new-6",
+                kind: "lesson",
+                statement: "Admins sign in with s3cret_pw",
+                citedFactIds: [],
+                dependsOn: [],
+                userQuote: null,
               },
               {
                 ref: "new-4",
