@@ -8,6 +8,8 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 
 import * as ServerConfig from "../config.ts";
+import * as ProjectMemory from "../memory/ProjectMemory.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { QA_MAX_SCREENSHOT_BYTES } from "./qaEvidence.ts";
 import * as QaRuns from "./QaRuns.ts";
 
@@ -42,6 +44,8 @@ const withQaRuns = <A, E>(
     return yield* body.pipe(
       Effect.provide(
         QaRuns.layer.pipe(
+          Layer.provide(ProjectMemory.layer),
+          Layer.provide(Layer.fresh(SqlitePersistence.layerMemory)),
           Layer.provide(ServerConfig.layerTest(process.cwd(), baseDir)),
           Layer.provide(
             Layer.succeed(

@@ -26,11 +26,12 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 
-import { toSafeThreadAttachmentSegment } from "../attachmentStore.ts";
 import * as ServerConfig from "../config.ts";
+import * as ProjectMemory from "../memory/ProjectMemory.ts";
 import {
   QA_MAX_SCENARIOS_PER_RUN,
   QA_MAX_SCREENSHOT_BYTES,
+  qaThreadFolder,
   resolveVerdict,
   sanitizeConsoleEntries,
   sanitizeNetworkEntries,
@@ -100,13 +101,13 @@ const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const random = yield* SecureRandom.SecureRandom;
+  const memory = yield* ProjectMemory.ProjectMemory;
   const changes = yield* PubSub.unbounded<ThreadId>();
   const lock = yield* Semaphore.make(1);
   const cache = new Map<ThreadId, ReadonlyArray<QaRun>>();
 
   const qaRunsDir = path.join(config.stateDir, "qa-runs");
-  const threadDir = (threadId: ThreadId) =>
-    path.join(qaRunsDir, toSafeThreadAttachmentSegment(threadId) ?? "_unknown");
+  const threadDir = (threadId: ThreadId) => path.join(qaRunsDir, qaThreadFolder(threadId));
 
   const nowIso = Effect.map(Clock.currentTimeMillis, (millis) =>
     DateTime.formatIso(DateTime.makeUnsafe(millis)),
@@ -320,13 +321,25 @@ const make = Effect.gen(function* () {
       ),
       Effect.mapError(failure("Could not write the QA report.")),
     );
-    return yield* save(finished);
+    const saved = yield* save(finished);
+    // Memory is secondary: a failed write must not lose the finished report.
+    yield* memory
+      .recordRun(saved)
+      .pipe(
+        Effect.catch((error) =>
+          Effect.logWarning("QA results were not saved to memory", { error }),
+        ),
+      );
+    return saved;
   });
 
   const deleteRunUnlocked = Effect.fnUntraced(function* (input: QaRunDeleteInput) {
     const runs = yield* load(input.threadId);
     const run = runs.find((candidate) => candidate.runId === input.runId);
     if (!run) return yield* new QaRunError({ message: "That QA run no longer exists." });
+    yield* memory
+      .forgetRun(run.runId)
+      .pipe(Effect.mapError(failure("Could not delete the run's facts from project memory.")));
     yield* fileSystem
       .remove(path.join(threadDir(input.threadId), input.runId), { recursive: true })
       .pipe(Effect.mapError(failure("Could not delete the QA run.")));

@@ -99,6 +99,7 @@ import * as PortScanner from "./preview/PortScanner.ts";
 import * as ServerBrowser from "./preview/ServerBrowser.ts";
 import * as PreviewAgentActivity from "./preview/PreviewAgentActivity.ts";
 import * as QaRecorder from "./qa/QaRecorder.ts";
+import * as ProjectMemory from "./memory/ProjectMemory.ts";
 import * as QaRuns from "./qa/QaRuns.ts";
 import * as DesktopBrowserChannel from "./preview/DesktopBrowserChannel.ts";
 import * as ServerBrowserStream from "./preview/ServerBrowserStream.ts";
@@ -877,7 +878,7 @@ const layerMakeRoutes = Layer.mergeAll(
   // One run store for agents (/mcp) and clients (WebSocket); the recorder follows turns.
   Layer.provide(
     QaRecorder.layer.pipe(
-      Layer.provideMerge(QaRuns.layer),
+      Layer.provideMerge(QaRuns.layer.pipe(Layer.provide(ProjectMemory.layer))),
       Layer.provide(PreviewAgentActivity.layer),
     ),
   ),

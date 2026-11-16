@@ -8,9 +8,15 @@ import {
   type QaVerdict,
 } from "@t3tools/contracts";
 
+import { toSafeThreadAttachmentSegment } from "../attachmentStore.ts";
+
 export const QA_MAX_SCENARIOS_PER_RUN = 200;
 export const QA_MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024;
 export const QA_MAX_LOG_ENTRIES = 500;
+/** The folder under `qa-runs/` that holds a thread's runs. */
+export const qaThreadFolder = (threadId: string) =>
+  toSafeThreadAttachmentSegment(threadId) ?? "_unknown";
+
 const MAX_LOG_TEXT_CHARS = 4000;
 const MAX_SUMMARY_ITEMS = 5;
 
