@@ -129,16 +129,16 @@ Home Manager, update your configuration's nixpkgs input or channel and rebuild.
 Nix manages both the desktop app and the bundled
 `t3` command; use Nix to update them instead of the in-app updater or `t3 update`.
 
-### The `t3` command
+### The `exploro` command
 
-The desktop app includes the `t3` command-line tool. A new install sets it up
+The desktop app includes the `exploro` command-line tool. A new install sets it up
 on first launch; after an update, or any time, choose **Install** next to
-**t3 command** in **Settings → About**. On macOS and Linux it adds a `t3` link
+**exploro command** in **Settings → About**. On macOS and Linux it adds an `exploro` link
 in `~/.local/bin` (or `~/bin`); on Windows it adds the app's command folder to
 your `PATH`. Open a new terminal afterwards. If the folder is not on your
 `PATH`, **Add to PATH** on the Welcome page or in **Settings → About** adds one
 line to your shell's startup file. **Remove** takes it off, and the app does not
-add it again. If you already have another `t3`, it stays as it is.
+add it again. If you already have another `exploro`, it stays as it is.
 
 ### Windows Subsystem for Linux
 
@@ -152,18 +152,18 @@ take longer.
 With the desktop app already running on the same machine:
 
 ```bash
-t3 app
+exploro app
 ```
 
 This opens a new thread for the current directory, adding the project if needed.
-Pass a path, such as `t3 app ../my-project`, to open another directory. It requires
+Pass a path, such as `exploro app ../my-project`, to open another directory. It requires
 the desktop app, so a standalone server or an SSH session is not enough. If the
 command cannot reach the app, start or update the desktop app and try again.
 
 ### Drop a folder on the sidebar
 
 Drag one or more folders from Finder, Explorer, or your file manager onto the
-sidebar. Each one opens as a project on this computer, the same as `t3 app`.
+sidebar. Each one opens as a project on this computer, the same as `exploro app`.
 Files dropped on a thread still attach to that thread. Browsers do not share
 folder paths, so in the web app use **Add project** instead.
 
