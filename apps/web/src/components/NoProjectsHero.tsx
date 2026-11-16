@@ -28,7 +28,7 @@ export function NoProjectsHero() {
         <Empty size="hero" className="flex-1">
           <div className="w-full max-w-lg px-8 py-12">
             <EmptyHeader className="max-w-none">
-              <EmptyTitle>What should we work on?</EmptyTitle>
+              <EmptyTitle>What should we test?</EmptyTitle>
               <EmptyDescription>
                 {scratchTargetEnvironmentId === null
                   ? "Add a project to start your first thread."

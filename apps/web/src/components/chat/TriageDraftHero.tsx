@@ -5,7 +5,7 @@ import { InlineButton } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 /**
- * The empty-draft hero for a triage session, in place of "What should we work on?".
+ * The empty-draft hero for a triage session, in place of "What should we test?".
  * Keeps the regular hero's heading-plus-one-line rhythm above the composer.
  */
 export function TriageDraftHero(props: {
