@@ -21,6 +21,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as PreviewAgentActivity from "../preview/PreviewAgentActivity.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
+import * as UnderstandingExtraction from "../memory/UnderstandingExtraction.ts";
 import { learnedSiteOrigins } from "./qaEvidence.ts";
 import * as QaRuns from "./QaRuns.ts";
 
@@ -56,6 +57,7 @@ const make = Effect.gen(function* () {
   const threads = yield* ThreadManagementService.ThreadManagementService;
   const managedFolders = yield* ManagedProjectFolders.ManagedProjectFolders;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
+  const extraction = yield* UnderstandingExtraction.UnderstandingExtraction;
   const recordings = new Map<
     ThreadId,
     { readonly scope: McpInvocationContext.McpThreadInvocationScope; readonly tabId: PreviewTabId }
@@ -141,7 +143,14 @@ const make = Effect.gen(function* () {
   const finish = Effect.fn("QaRecorder.finish")(function* (threadId: ThreadId) {
     yield* stopRecording(threadId);
     const run = yield* qaRuns.finishRun(threadId, { projectId: yield* projectOf(threadId) });
-    if (run !== null) yield* learnSite(run);
+    if (run !== null) {
+      yield* learnSite(run);
+      yield* extraction
+        .enqueue(run)
+        .pipe(
+          Effect.catch((error) => Effect.logWarning("Run was not queued for memory", { error })),
+        );
+    }
     return run;
   });
 

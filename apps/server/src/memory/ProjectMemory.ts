@@ -301,6 +301,14 @@ const make = Effect.gen(function* () {
                 ? []
                 : [sql`kind = ${lookup.kind}`]),
             ...(lookup.key === undefined ? [] : [sql`fact_key = ${lookup.key}`]),
+            ...(lookup.runId === undefined
+              ? []
+              : [
+                  sql`EXISTS (
+                    SELECT 1 FROM json_each(evidence_json)
+                    WHERE json_extract(value, '$.runId') = ${lookup.runId}
+                  )`,
+                ]),
           ])}
           ORDER BY observed_at DESC, rowid DESC
           LIMIT ${lookup.limit ?? DEFAULT_LOOKUP_LIMIT}

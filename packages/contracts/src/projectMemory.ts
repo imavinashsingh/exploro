@@ -83,6 +83,8 @@ export const ProjectMemoryFactLookup = Schema.Struct({
   route: Schema.optional(MemoryText(2048)),
   kind: Schema.optional(ProjectMemoryFactKind),
   key: Schema.optional(MemoryText(200)),
+  /** Facts whose evidence points at this run. */
+  runId: Schema.optional(QaRunId),
   /** Defaults to current facts. */
   status: Schema.optional(ProjectMemoryFactStatus),
   /** Only current results whose verdict is FAIL. */
@@ -105,3 +107,50 @@ export class ProjectMemoryError extends Schema.TaggedError<ProjectMemoryError>()
     cause: Schema.optional(Schema.Defect()),
   },
 ) {}
+
+export const PROJECT_UNDERSTANDING_KINDS = [
+  "workflow",
+  "dependency",
+  "test-strategy",
+  "lesson",
+  "open-question",
+] as const;
+export const ProjectUnderstandingKind = Schema.Literals(PROJECT_UNDERSTANDING_KINDS);
+export type ProjectUnderstandingKind = typeof ProjectUnderstandingKind.Type;
+
+/** Agents write hypotheses or verified items; only the user confirms. */
+export const ProjectUnderstandingStatus = Schema.Literals(["hypothesis", "verified", "confirmed"]);
+export type ProjectUnderstandingStatus = typeof ProjectUnderstandingStatus.Type;
+
+/** What the extraction model returns. Kept loose so one bad item cannot fail the rest; the server validates each field. */
+export const ProjectUnderstandingExtraction = Schema.Struct({
+  items: Schema.Array(
+    Schema.Struct({
+      /** An existing item's id to revise it, or a new label such as "new-1". */
+      ref: Schema.String,
+      kind: Schema.String,
+      statement: Schema.String,
+      citedFactIds: Schema.Array(Schema.String),
+      /** Refs of the items this one depends on. */
+      dependsOn: Schema.Array(Schema.String),
+      /** A sentence the user wrote in this thread, copied exactly; null when none applies. */
+      userQuote: Schema.NullOr(Schema.String),
+    }),
+  ),
+});
+export type ProjectUnderstandingExtraction = typeof ProjectUnderstandingExtraction.Type;
+
+export const ProjectUnderstandingItem = Schema.Struct({
+  itemId: Schema.String,
+  projectId: ProjectId,
+  kind: ProjectUnderstandingKind,
+  statement: Schema.String,
+  status: ProjectUnderstandingStatus,
+  author: ProjectMemoryAuthor,
+  version: Schema.Int,
+  citedFactIds: Schema.Array(Schema.String),
+  dependsOn: Schema.Array(Schema.String),
+  createdAt: Schema.String,
+  updatedAt: Schema.String,
+});
+export type ProjectUnderstandingItem = typeof ProjectUnderstandingItem.Type;

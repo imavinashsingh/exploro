@@ -1,0 +1,444 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import {
+  DEFAULT_SERVER_SETTINGS,
+  ProjectId,
+  TextGenerationError,
+  ThreadId,
+  type ProjectUnderstandingExtraction,
+} from "@t3tools/contracts";
+import { assert, it } from "@effect/vitest";
+import * as SecureRandom from "effect/crypto/SecureRandom";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
+
+import * as ServerConfig from "../config.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
+import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as QaRuns from "../qa/QaRuns.ts";
+import * as ServerSettings from "../serverSettings.ts";
+import * as TextGeneration from "../textGeneration/TextGeneration.ts";
+import * as MemoryEmbedder from "./MemoryEmbedder.ts";
+import * as ProjectMemory from "./ProjectMemory.ts";
+import * as ProjectUnderstanding from "./ProjectUnderstanding.ts";
+import * as UnderstandingExtraction from "./UnderstandingExtraction.ts";
+
+const shop = ProjectId.make("shop");
+const blog = ProjectId.make("blog");
+const threadId = ThreadId.make("thread-understanding-1");
+const site = "https://shop.test";
+
+// Concepts stand in for meaning: texts sharing a concept are close, with or without shared words.
+const CONCEPTS = [/sign|login|session|auth/i, /pay|checkout|card|order/i, /search|filter/i];
+const conceptEmbedder = Layer.succeed(
+  MemoryEmbedder.MemoryEmbedder,
+  MemoryEmbedder.MemoryEmbedder.of({
+    status: Effect.succeed({ model: "concepts", unavailableReason: null }),
+    embed: Effect.fn("TestEmbedder.embed")((texts: ReadonlyArray<string>) =>
+      Effect.succeed(
+        texts.map((text) => {
+          const vector = Float32Array.from(CONCEPTS, (concept) => (concept.test(text) ? 1 : 0));
+          const length = Math.hypot(...vector) || 1;
+          return vector.map((value) => value / length);
+        }),
+      ),
+    ),
+  }),
+);
+
+type Generate = TextGeneration.TextGeneration["Service"]["generateProjectUnderstanding"];
+const noItems: Generate = () => Effect.succeed({ items: [] });
+
+let randomSeed = 0;
+const withUnderstanding = <A, E>(
+  body: Effect.Effect<
+    A,
+    E,
+    | QaRuns.QaRuns
+    | ProjectMemory.ProjectMemory
+    | ProjectUnderstanding.ProjectUnderstanding
+    | UnderstandingExtraction.UnderstandingExtraction
+    | FileSystem.FileSystem
+  >,
+  options: {
+    readonly embedder?: Layer.Layer<MemoryEmbedder.MemoryEmbedder>;
+    readonly generate?: Generate;
+    readonly userMessages?: ReadonlyArray<string>;
+  } = {},
+) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "exploro-understanding-" });
+    const records = {
+      thread: {},
+      messages: (options.userMessages ?? []).map((text) => ({ text, streaming: false })),
+    };
+    return yield* body.pipe(
+      Effect.provide(
+        UnderstandingExtraction.layer.pipe(
+          Layer.provideMerge(ProjectUnderstanding.layer),
+          Layer.provideMerge(QaRuns.layer),
+          Layer.provideMerge(ProjectMemory.layer),
+          Layer.provideMerge(options.embedder ?? MemoryEmbedder.layerUnavailable),
+          Layer.provide(
+            Layer.mergeAll(
+              Layer.mock(TextGeneration.TextGeneration)({
+                generateProjectUnderstanding: options.generate ?? noItems,
+              }),
+              Layer.mock(ThreadManagementService.ThreadManagementService)({
+                // Only the fields extraction reads.
+                getThreadRecords: () => Effect.succeed(records as never),
+              }),
+              Layer.mock(ProjectStore.ProjectStoreV2)({
+                get: () => Effect.succeedSome({ title: "Shop", workspaceRoot: baseDir } as never),
+              }),
+              Layer.mock(ServerSettings.ServerSettingsService)({
+                getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
+              }),
+            ),
+          ),
+          Layer.provide(Layer.fresh(SqlitePersistence.layerMemory)),
+          Layer.provide(ServerConfig.layerTest(process.cwd(), baseDir)),
+          Layer.provide(
+            Layer.succeed(
+              SecureRandom.SecureRandom,
+              SecureRandom.make((size) => new Uint8Array(size).fill((randomSeed += 1) % 256)),
+            ),
+          ),
+        ),
+      ),
+    );
+  });
+
+/** A finished run in `projectId` whose scenarios become evidence-backed result facts. */
+const finishedRun = (
+  projectId: ProjectId,
+  scenarios: ReadonlyArray<{
+    scenario: string;
+    verdict: "PASS" | "FAIL";
+    path: string;
+    origin?: string;
+  }>,
+) =>
+  Effect.gen(function* () {
+    const qaRuns = yield* QaRuns.QaRuns;
+    for (const { scenario, verdict, path, origin = site } of scenarios) {
+      yield* qaRuns.recordEvidence(
+        threadId,
+        { scenario, verdict, note: `${scenario}: ${verdict}` },
+        {
+          url: `${origin}${path}`,
+          title: "Page",
+          png: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+          consoleEntries: [],
+          networkEntries: [],
+          actionTimeline: [],
+        },
+      );
+    }
+    const run = (yield* qaRuns.finishRun(threadId, { projectId }))!;
+    const facts = yield* (yield* ProjectMemory.ProjectMemory).lookupFacts(projectId, {
+      runId: run.runId,
+    });
+    return { run, facts };
+  });
+
+const write = (
+  overrides: Partial<ProjectUnderstanding.UnderstandingWrite> = {},
+): ProjectUnderstanding.UnderstandingWrite => ({
+  ref: "new-1",
+  itemId: null,
+  kind: "dependency",
+  statement: "The dashboard needs a signed-in session",
+  citedFactIds: [],
+  dependsOn: [],
+  author: "agent",
+  ...overrides,
+});
+
+it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
+  it.effect("verifies agent items only on current evidence from the tested environment", () =>
+    withUnderstanding(
+      Effect.gen(function* () {
+        const understanding = yield* ProjectUnderstanding.ProjectUnderstanding;
+        const memory = yield* ProjectMemory.ProjectMemory;
+        const qaRuns = yield* QaRuns.QaRuns;
+        const { run, facts } = yield* finishedRun(shop, [
+          { scenario: "Login works", verdict: "PASS", path: "/login" },
+        ]);
+        const userFact = yield* memory.putFact(shop, {
+          environment: site,
+          route: "/",
+          kind: "rule",
+          key: "dashboard",
+          value: "Needs a session",
+          evidence: [],
+          author: "user",
+        });
+        const cited = [facts[0]!.factId];
+        const status = (
+          overrides: Partial<ProjectUnderstanding.UnderstandingWrite>,
+          environment = site,
+        ) =>
+          understanding
+            .saveItems(shop, [write(overrides)], { environment })
+            .pipe(Effect.map((items) => items[0]?.status));
+
+        assert.strictEqual(yield* status({ citedFactIds: cited }), "verified");
+        assert.strictEqual(
+          yield* status({ citedFactIds: cited }, "https://staging.shop.test"),
+          "hypothesis",
+        );
+        assert.strictEqual(yield* status({ citedFactIds: [userFact!.factId] }), "hypothesis");
+        assert.strictEqual(
+          yield* status({ citedFactIds: [...cited, userFact!.factId] }),
+          "verified",
+        );
+        assert.strictEqual(yield* status({ citedFactIds: ["missing"] }), "hypothesis");
+        assert.strictEqual(yield* status({}), "hypothesis");
+        assert.isTrue(
+          Exit.isFailure(
+            yield* understanding
+              .saveItems(shop, [write({ confirm: true })], { environment: site })
+              .pipe(Effect.exit),
+          ),
+        );
+
+        const [verified] = yield* understanding.saveItems(
+          shop,
+          [write({ statement: "Login lands on the dashboard", citedFactIds: cited })],
+          { environment: site },
+        );
+        yield* qaRuns.deleteRun({ threadId, runId: run.runId });
+        const [after] = yield* understanding.getItems(shop, [verified!.itemId]);
+        assert.strictEqual(after?.status, "hypothesis");
+      }),
+    ),
+  );
+
+  it.effect("keeps every version and never lets an agent revise a confirmed item", () =>
+    withUnderstanding(
+      Effect.gen(function* () {
+        const understanding = yield* ProjectUnderstanding.ProjectUnderstanding;
+        const context = { environment: site };
+        const [created] = yield* understanding.saveItems(shop, [write()], context);
+        const itemId = created!.itemId;
+        const revise = (overrides: Partial<ProjectUnderstanding.UnderstandingWrite>) =>
+          understanding.saveItems(shop, [write({ ref: itemId, itemId, ...overrides })], context);
+
+        assert.deepStrictEqual(yield* revise({}), []);
+        yield* revise({ statement: "The dashboard needs a session cookie" });
+        yield* revise({
+          statement: "The dashboard needs a session cookie",
+          author: "user",
+          confirm: true,
+        });
+        assert.deepStrictEqual(yield* revise({ statement: "Agent rewrite" }), []);
+
+        const history = yield* understanding.history(shop, itemId);
+        assert.deepStrictEqual(
+          history.map((version) => [version.version, version.status, version.statement]),
+          [
+            [1, "hypothesis", "The dashboard needs a signed-in session"],
+            [2, "hypothesis", "The dashboard needs a session cookie"],
+            [3, "confirmed", "The dashboard needs a session cookie"],
+          ],
+        );
+        assert.deepStrictEqual(yield* understanding.history(blog, itemId), []);
+      }),
+    ),
+  );
+
+  it.effect("recalls by text when no model is loaded, following depends-on links", () =>
+    withUnderstanding(
+      Effect.gen(function* () {
+        const understanding = yield* ProjectUnderstanding.ProjectUnderstanding;
+        const extraction = yield* UnderstandingExtraction.UnderstandingExtraction;
+        const [, , dashboard] = yield* understanding.saveItems(
+          shop,
+          [
+            write({
+              ref: "login",
+              kind: "workflow",
+              statement: "Sign in with the seeded admin account",
+            }),
+            write({
+              ref: "session",
+              statement: "A session cookie is set after sign in",
+              dependsOn: ["login"],
+            }),
+            write({
+              ref: "dashboard",
+              kind: "workflow",
+              statement: "Open the dashboard from the top menu",
+              dependsOn: ["session"],
+            }),
+            write({
+              ref: "search",
+              kind: "lesson",
+              statement: "Search results load after typing stops",
+            }),
+          ],
+          { environment: site },
+        );
+        yield* understanding.saveItems(blog, [write({ statement: "Dashboard shows blog posts" })], {
+          environment: site,
+        });
+
+        const recall = yield* understanding.recall(shop, "Test the dashboard!");
+        assert.strictEqual(recall.mode, "text");
+        assert.deepStrictEqual(
+          recall.items.map(({ item, via }) => [item.statement, via]),
+          [
+            ["Open the dashboard from the top menu", "match"],
+            ["A session cookie is set after sign in", "dependency"],
+            ["Sign in with the seeded admin account", "dependency"],
+          ],
+        );
+        assert.strictEqual(recall.items[0]?.item.itemId, dashboard?.itemId);
+        assert.strictEqual((yield* extraction.status(shop)).recall, "text");
+      }),
+    ),
+  );
+
+  it.effect("ranks items by meaning and words together when a model is loaded", () =>
+    withUnderstanding(
+      Effect.gen(function* () {
+        const understanding = yield* ProjectUnderstanding.ProjectUnderstanding;
+        yield* understanding.saveItems(
+          shop,
+          [
+            write({ ref: "a", statement: "Checkout needs a saved card" }),
+            write({ ref: "b", statement: "Filters reset when the page reloads" }),
+          ],
+          { environment: site },
+        );
+        const recall = yield* understanding.recall(shop, "test the payment flow");
+        assert.strictEqual(recall.mode, "semantic");
+        assert.strictEqual(recall.items[0]?.item.statement, "Checkout needs a saved card");
+      }),
+      { embedder: conceptEmbedder },
+    ),
+  );
+
+  it.effect("extracts items after a run, citing facts and only verbatim user quotes", () =>
+    withUnderstanding(
+      Effect.gen(function* () {
+        const extraction = yield* UnderstandingExtraction.UnderstandingExtraction;
+        const understanding = yield* ProjectUnderstanding.ProjectUnderstanding;
+        const memory = yield* ProjectMemory.ProjectMemory;
+        const { run } = yield* finishedRun(shop, [
+          { scenario: "Login works", verdict: "PASS", path: "/login" },
+          // A link left the site under test; its fact is newer but must not set the environment.
+          { scenario: "Help opens", verdict: "PASS", path: "/help", origin: "https://help.test" },
+        ]);
+        yield* extraction.enqueue(run);
+        yield* extraction.extract(run.runId);
+
+        const items = yield* understanding.getItems(shop);
+        assert.deepStrictEqual(
+          items.map((item) => [item.statement, item.status, item.author]).toSorted(),
+          [
+            ["Admins skip checkout", "hypothesis", "agent"],
+            ["Coupons only apply at checkout", "hypothesis", "agent"],
+            ["Login lands on the dashboard", "verified", "agent"],
+            ["Retest the cart after coupons", "hypothesis", "agent"],
+          ],
+        );
+        const rules = yield* memory.lookupFacts(shop, { kind: "rule" });
+        assert.deepStrictEqual(
+          rules.map((fact) => [fact.value, fact.author]),
+          [["Coupons only apply at checkout.", "user"]],
+        );
+        assert.deepStrictEqual((yield* extraction.status(shop)).failedExtractions, []);
+      }),
+      {
+        userMessages: ["Coupons only apply at checkout. Please retest the cart."],
+        generate: (input) => {
+          const factId =
+            /\[([^\]]+)\] result https:\/\/shop\.test\/login/.exec(input.prompt)?.[1] ?? "";
+          const output: ProjectUnderstandingExtraction = {
+            items: [
+              {
+                ref: "new-1",
+                kind: "workflow",
+                statement: "Login lands on the dashboard",
+                citedFactIds: [factId],
+                dependsOn: [],
+                userQuote: null,
+              },
+              {
+                ref: "new-2",
+                kind: "lesson",
+                statement: "Coupons only apply at checkout",
+                citedFactIds: [],
+                dependsOn: [],
+                userQuote: "Coupons only apply at checkout.",
+              },
+              {
+                ref: "new-3",
+                kind: "lesson",
+                statement: "Admins skip checkout",
+                citedFactIds: [],
+                dependsOn: [],
+                userQuote: "Admins skip checkout.",
+              },
+              {
+                ref: "new-5",
+                kind: "lesson",
+                statement: "Retest the cart after coupons",
+                citedFactIds: [],
+                dependsOn: [],
+                userQuote: "Coupons only apply at checkout. Please retest the cart.",
+              },
+              {
+                ref: "new-4",
+                kind: "advice",
+                statement: "Test empty inputs",
+                citedFactIds: [],
+                dependsOn: [],
+                userQuote: null,
+              },
+            ],
+          };
+          return Effect.succeed(output);
+        },
+      },
+    ),
+  );
+
+  it.effect("records a failed extraction without touching the run, and retries it", () =>
+    withUnderstanding(
+      Effect.gen(function* () {
+        const extraction = yield* UnderstandingExtraction.UnderstandingExtraction;
+        const qaRuns = yield* QaRuns.QaRuns;
+        const { run } = yield* finishedRun(shop, [
+          { scenario: "Login works", verdict: "PASS", path: "/login" },
+        ]);
+        yield* extraction.enqueue(run);
+        yield* extraction.extract(run.runId);
+        const failed = yield* extraction.status(shop);
+        assert.deepStrictEqual(
+          failed.failedExtractions.map((entry) => entry.runId),
+          [run.runId],
+        );
+        assert.isNotNull((yield* qaRuns.list(threadId))[0]?.reportMarkdownPath);
+
+        yield* extraction.retry(shop, run.runId);
+        assert.strictEqual((yield* extraction.status(shop)).pendingExtractions, 1);
+        yield* extraction.retry(blog, run.runId);
+      }),
+      {
+        generate: () =>
+          Effect.fail(
+            new TextGenerationError({
+              operation: "generateProjectUnderstanding",
+              detail: "offline",
+            }),
+          ),
+      },
+    ),
+  );
+});

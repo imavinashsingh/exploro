@@ -231,6 +231,11 @@ function selectOpenCodeRuntimeTextGeneration(
         v1: v1.generateTranscriptionPostProcessing(input),
         v2: v2.generateTranscriptionPostProcessing(input),
       }),
+    generateProjectUnderstanding: (input) =>
+      byOpenCodeRuntime(resolve, {
+        v1: v1.generateProjectUnderstanding(input),
+        v2: v2.generateProjectUnderstanding(input),
+      }),
   };
 }
 

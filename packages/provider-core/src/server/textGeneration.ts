@@ -3,6 +3,7 @@ import type {
   ChatAttachment,
   ModelSelection,
   ProjectId,
+  ProjectUnderstandingExtraction,
   PullRequestReviewGuide,
   TextGenerationError,
 } from "@t3tools/contracts";
@@ -114,6 +115,15 @@ export interface TranscriptionPostProcessingResult {
   transcription: string;
 }
 
+export interface ProjectUnderstandingGenerationInput {
+  cwd: string;
+  prompt: string;
+  modelSelection: ModelSelection;
+  projectId?: ProjectId | null | undefined;
+}
+
+export type ProjectUnderstandingGenerationResult = ProjectUnderstandingExtraction;
+
 export interface ProviderTextGeneration {
   readonly generateTranscriptionPostProcessing: (
     input: TranscriptionPostProcessingInput,
@@ -138,4 +148,8 @@ export interface ProviderTextGeneration {
   readonly generateReviewGuide: (
     input: ReviewGuideGenerationInput,
   ) => Effect.Effect<ReviewGuideGenerationResult, TextGenerationError>;
+
+  readonly generateProjectUnderstanding: (
+    input: ProjectUnderstandingGenerationInput,
+  ) => Effect.Effect<ProjectUnderstandingGenerationResult, TextGenerationError>;
 }
