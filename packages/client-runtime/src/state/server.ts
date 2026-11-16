@@ -1508,6 +1508,11 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:project-memory:snapshot",
       tag: WS_METHODS.projectMemorySnapshot,
     }),
+    // Not polled, like the snapshot: every page carries its facts.
+    projectMemoryMap: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:project-memory:map",
+      tag: WS_METHODS.projectMemoryMap,
+    }),
     projectMemoryItemHistory: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:project-memory:item-history",
       tag: WS_METHODS.projectMemoryItemHistory,

@@ -88,6 +88,8 @@ export class ProjectMemory extends Context.Service<
     ) => Effect.Effect<number, ProjectMemoryError>;
     /** Deletes every fact whose evidence points at the run. */
     readonly forgetRun: (runId: string) => Effect.Effect<void, ProjectMemoryError>;
+    /** Everything remembered for a deleted project, including what was learned and tombstones. */
+    readonly forgetProject: (projectId: ProjectId) => Effect.Effect<void, ProjectMemoryError>;
   }
 >()("t3/memory/ProjectMemory") {}
 
@@ -569,6 +571,34 @@ const make = Effect.gen(function* () {
         );
       },
       Effect.mapError(failure("Could not delete the run's facts.")),
+    ),
+
+    forgetProject: Effect.fn("ProjectMemory.forgetProject")(
+      function* (projectId) {
+        const items = sql`
+          SELECT item_id FROM project_memory_understanding WHERE project_id = ${projectId}
+        `;
+        yield* sql.withTransaction(
+          Effect.gen(function* () {
+            yield* sql`DELETE FROM project_memory_links WHERE item_id IN (${items})`;
+            yield* sql`
+              DELETE FROM project_memory_dependencies
+              WHERE item_id IN (${items}) OR depends_on_item_id IN (${items})
+            `;
+            yield* sql`
+              DELETE FROM project_memory_understanding_versions WHERE item_id IN (${items})
+            `;
+            yield* sql`
+              DELETE FROM project_memory_understanding_search WHERE project_id = ${projectId}
+            `;
+            yield* sql`DELETE FROM project_memory_understanding WHERE project_id = ${projectId}`;
+            yield* sql`DELETE FROM project_memory_facts WHERE project_id = ${projectId}`;
+            yield* sql`DELETE FROM project_memory_deleted WHERE project_id = ${projectId}`;
+            yield* sql`DELETE FROM project_memory_extractions WHERE project_id = ${projectId}`;
+          }),
+        );
+      },
+      Effect.mapError(failure("Could not delete the project's memory.")),
     ),
   });
 });

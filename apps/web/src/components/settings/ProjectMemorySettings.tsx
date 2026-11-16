@@ -11,13 +11,14 @@ import {
   type ProjectMemoryFact,
   type ProjectMemoryFactKind,
   type ProjectMemoryFactStatus,
+  type ProjectMemoryMapPage,
   type ProjectUnderstandingItem,
 } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { ChevronDownIcon, ChevronRightIcon, RefreshCwIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 
-import { useEnvironmentQuery } from "../../state/query";
+import { useEnvironmentQuery, useEnvironmentQueryRefresh } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import type { SidebarProjectGroupMember } from "../../sidebarProjectGrouping";
@@ -34,6 +35,8 @@ import {
   factFilterOptions,
   factVersions,
   filterFacts,
+  mapCoverageLabel,
+  mapRows,
   memoryStatusLine,
   understandingBadge,
   understandingByKind,
@@ -56,6 +59,11 @@ const BADGE_VARIANT = {
   hypothesis: "outline",
   "needs review": "warning",
 } as const satisfies Record<UnderstandingBadge, string>;
+const COVERAGE_VARIANT = {
+  failing: "error",
+  tested: "success",
+  seen: "outline",
+} as const satisfies Record<ProjectMemoryMapPage["coverage"], string>;
 const KIND_LABEL: Record<(typeof PROJECT_UNDERSTANDING_KINDS)[number], string> = {
   workflow: "Workflows",
   dependency: "Dependencies",
@@ -256,6 +264,153 @@ function FactsTab(props: {
   );
 }
 
+function MapTab(props: {
+  environmentId: EnvironmentId;
+  projectId: ProjectId;
+  facts: ReadonlyArray<ProjectMemoryFact>;
+  canEdit: boolean;
+  onDelete: (fact: ProjectMemoryFact) => void;
+  onOpenEvidence: (fact: ProjectMemoryFact) => void;
+}) {
+  const map = useEnvironmentQuery(
+    serverEnvironment.projectMemoryMap({
+      environmentId: props.environmentId,
+      input: { projectId: props.projectId },
+    }),
+  );
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  if (map.error !== null)
+    return <p className="py-2 text-sm text-destructive-foreground">{map.error}</p>;
+  if (map.data === null) return <p className="py-2 text-sm text-muted-foreground">Loading map…</p>;
+  if (map.data.environments.length === 0)
+    return (
+      <p className="py-2 text-sm text-muted-foreground">
+        No map yet. It grows as test runs in this project record facts.
+      </p>
+    );
+  const rows = mapRows(map.data, collapsed);
+  const selected = rows.find((row) => row.kind === "node" && row.key === selectedKey);
+  const page = selected?.kind === "node" ? selected.page : null;
+  const toggle = (key: string) => {
+    const next = new Set(collapsed);
+    if (!next.delete(key)) next.add(key);
+    setCollapsed(next);
+  };
+  return (
+    <div className="flex flex-col gap-3">
+      <ul role="tree" aria-label="Project map" className="flex flex-col">
+        {rows.map((row) =>
+          row.kind === "more" ? (
+            <li
+              key={row.key}
+              role="treeitem"
+              className="py-1 text-2xs text-muted-foreground"
+              style={{ paddingInlineStart: `${row.depth * 16 + 28}px` }}
+            >
+              +{row.count} more
+            </li>
+          ) : (
+            <li
+              key={row.key}
+              role="treeitem"
+              aria-expanded={row.expandable ? row.open : undefined}
+              aria-selected={row.key === selectedKey}
+              className="flex items-center gap-1 py-0.5"
+              style={{ paddingInlineStart: `${row.depth * 16}px` }}
+            >
+              {row.expandable ? (
+                <Button
+                  size="icon-xs"
+                  variant="ghost-muted"
+                  aria-label={row.open ? `Collapse ${row.label}` : `Expand ${row.label}`}
+                  onClick={() => toggle(row.key)}
+                >
+                  {row.open ? <ChevronDownIcon /> : <ChevronRightIcon />}
+                </Button>
+              ) : (
+                <span className="size-6 shrink-0" />
+              )}
+              {row.page === null ? (
+                <span className="min-w-0 truncate text-sm text-muted-foreground">{row.label}</span>
+              ) : (
+                <>
+                  <Button
+                    size="xs"
+                    variant={row.key === selectedKey ? "secondary" : "ghost"}
+                    onClick={() => setSelectedKey(row.key === selectedKey ? null : row.key)}
+                  >
+                    {row.label}
+                  </Button>
+                  <Badge variant={COVERAGE_VARIANT[row.page.coverage]}>
+                    {mapCoverageLabel(row.page)}
+                  </Badge>
+                  {row.page.needs.map((need) => (
+                    <span key={need} className="min-w-0 truncate text-2xs text-muted-foreground">
+                      needs: {need}
+                    </span>
+                  ))}
+                </>
+              )}
+            </li>
+          ),
+        )}
+      </ul>
+      {page === null ? null : (
+        <div className="flex flex-col gap-1 border-t border-border/60 pt-2">
+          <p className="break-all text-xs font-medium">
+            {page.environment}
+            {page.route}
+          </p>
+          {page.navigation.length > 0 ? (
+            <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">
+              {page.navigation.map((link) => (
+                <li key={link.factId} className="break-all">
+                  → {link.environment === page.environment ? "" : link.environment}
+                  {link.route} ({link.label})
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {page.facts.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              Reached by a link from another page. Nothing recorded here yet.
+            </p>
+          ) : (
+            <ul className="flex flex-col">
+              {page.facts.map((fact) => (
+                <FactRow
+                  key={fact.factId}
+                  fact={fact}
+                  versions={factVersions(props.facts, fact)}
+                  canEdit={props.canEdit}
+                  onDelete={props.onDelete}
+                  onOpenEvidence={props.onOpenEvidence}
+                />
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      {map.data.workflows.length > 0 ? (
+        <div className="border-t border-border/60 pt-2">
+          <p className="text-xs font-medium text-muted-foreground">Workflows</p>
+          <ul className="flex flex-col gap-1 text-xs">
+            {map.data.workflows.map((workflow) => (
+              <li key={workflow.itemId}>
+                {workflow.statement}
+                <span className="block break-all text-muted-foreground">
+                  {workflow.pages.map((step) => step.route).join(" → ")}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ItemHistory(props: {
   environmentId: EnvironmentId;
   projectId: ProjectId;
@@ -432,7 +587,7 @@ export function ProjectMemorySettings(props: {
   const [appVersion, setAppVersion] = useState("");
   const [savingVersion, setSavingVersion] = useState(false);
   const [memberKey, setMemberKey] = useState<string | null>(null);
-  const [tab, setTab] = useState<"facts" | "understanding">("facts");
+  const [tab, setTab] = useState<"map" | "facts" | "understanding">("map");
   const member =
     props.members.find((candidate) => candidate.physicalProjectKey === memberKey) ??
     props.members[0]!;
@@ -441,6 +596,13 @@ export function ProjectMemorySettings(props: {
   const snapshot = useEnvironmentQuery(
     serverEnvironment.projectMemorySnapshot({ environmentId, input: { projectId } }),
   );
+  const mapQuery = useEnvironmentQueryRefresh(
+    serverEnvironment.projectMemoryMap({ environmentId, input: { projectId } }),
+  );
+  const refresh = () => {
+    snapshot.refresh();
+    mapQuery.refresh();
+  };
   const canEdit = useAtomValue(serverEnvironment.deleteMemoryFact.permissionAtom(environmentId));
   const deleteFact = useAtomCommand(serverEnvironment.deleteMemoryFact, { label: "delete fact" });
   const updateItem = useAtomCommand(serverEnvironment.updateMemoryItem, {
@@ -466,8 +628,20 @@ export function ProjectMemorySettings(props: {
 
   const after = (title: string) => (result: AtomCommandResult<unknown, unknown>) => {
     const failed = reportFailure(title, result);
-    snapshot.refresh();
+    refresh();
     return !failed;
+  };
+  const onDeleteFact = (fact: ProjectMemoryFact) =>
+    void deleteFact({ environmentId, input: { projectId, factId: fact.factId } }).then(
+      after("Could not delete the fact"),
+    );
+  const onOpenEvidence = (fact: ProjectMemoryFact) => {
+    const ref = fact.evidence[0];
+    if (ref === undefined) return;
+    void navigate({
+      to: "/$environmentId/$threadId",
+      params: { environmentId, threadId: ref.threadId },
+    });
   };
   const save = (item: ProjectUnderstandingItem, statement: string) =>
     updateItem({
@@ -522,7 +696,7 @@ export function ProjectMemorySettings(props: {
               size="icon-xs"
               variant="ghost-muted"
               aria-label="Refresh memory"
-              onClick={() => snapshot.refresh()}
+              onClick={refresh}
             >
               <RefreshCwIcon />
             </Button>
@@ -623,33 +797,32 @@ export function ProjectMemorySettings(props: {
             aria-label="Memory contents"
             value={[tab]}
             onValueChange={(next) => {
-              if (next[0] === "facts" || next[0] === "understanding") setTab(next[0]);
+              if (next[0] === "map" || next[0] === "facts" || next[0] === "understanding")
+                setTab(next[0]);
             }}
           >
+            <Toggle value="map">Map</Toggle>
             <Toggle value="facts">
               Facts · {data?.facts.filter((f) => f.status === "current").length ?? 0}
             </Toggle>
             <Toggle value="understanding">Understanding · {data?.understanding.length ?? 0}</Toggle>
           </ToggleGroup>
-          {data === null ? null : tab === "facts" ? (
+          {data === null ? null : tab === "map" ? (
+            <MapTab
+              environmentId={environmentId}
+              projectId={projectId}
+              facts={data.facts}
+              canEdit={canEdit}
+              onDelete={onDeleteFact}
+              onOpenEvidence={onOpenEvidence}
+            />
+          ) : tab === "facts" ? (
             <FactsTab
               facts={data.facts}
               truncated={data.factsTruncated}
               canEdit={canEdit}
-              onDelete={(fact) =>
-                void deleteFact({
-                  environmentId,
-                  input: { projectId, factId: fact.factId },
-                }).then(after("Could not delete the fact"))
-              }
-              onOpenEvidence={(fact) => {
-                const ref = fact.evidence[0];
-                if (ref === undefined) return;
-                void navigate({
-                  to: "/$environmentId/$threadId",
-                  params: { environmentId, threadId: ref.threadId },
-                });
-              }}
+              onDelete={onDeleteFact}
+              onOpenEvidence={onOpenEvidence}
             />
           ) : data.understanding.length === 0 ? (
             <p className="py-2 text-sm text-muted-foreground">

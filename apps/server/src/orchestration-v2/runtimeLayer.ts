@@ -98,9 +98,15 @@ const layerLegacyV1ThreadImporterProvided = LegacyV1ThreadImporter.layer.pipe(
   Layer.provide(layerEventSink),
 );
 
+const layerProjectMemoryProvided = ProjectMemory.layer.pipe(
+  Layer.provideMerge(ProjectUnderstanding.layer),
+  Layer.provide(MemoryEmbedder.layerUnavailable),
+);
+
 export const layerProjectService = ProjectService.layer.pipe(
   Layer.provide(
     Layer.mergeAll(
+      layerProjectMemoryProvided,
       ProjectStore.layer,
       ProjectionStore.layer,
       layerEventSink,
@@ -119,12 +125,7 @@ const layerManagedProjectFoldersProvided = ManagedProjectFolders.layer.pipe(
  */
 export const layerProjectMemoryAccess = ProjectMemoryAccess.layer.pipe(
   Layer.provide(layerManagedProjectFoldersProvided),
-  Layer.provide(
-    ProjectMemory.layer.pipe(
-      Layer.provideMerge(ProjectUnderstanding.layer),
-      Layer.provide(MemoryEmbedder.layerUnavailable),
-    ),
-  ),
+  Layer.provide(layerProjectMemoryProvided),
 );
 
 const layerProviderEventIngestorProvided = ProviderEventIngestor.layer.pipe(

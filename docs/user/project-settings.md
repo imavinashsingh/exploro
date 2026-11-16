@@ -72,7 +72,8 @@ The next test starts with a short brief from this memory and checks it against t
 Exploro hides passwords you type in chat before it saves anything. Threads with **No project** have
 no memory.
 
-**Settings → Projects → Memory** lists both. Delete a fact or item you don't want kept; a deleted
+**Settings → Projects → Memory** lists both, and its **Map** shows the app's pages by site with
+which are tested, failing, or seen but not tested yet. Pick a page to see its facts. Delete a fact or item you don't want kept; a deleted
 one is not saved again. Edit or **Confirm** an item to mark it as right; agents never change an
 item you confirmed. To stop a project remembering, turn **Project memory** off. What is already
 saved stays until you delete it. On mobile, memory is shown read-only.

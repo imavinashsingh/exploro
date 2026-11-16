@@ -7,6 +7,7 @@ import * as Layer from "effect/Layer";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ServerSettingsService from "../serverSettings.ts";
 import { formatMemoryBrief, memoryTarget } from "./memoryBrief.ts";
+import { seenNotTestedPages } from "./projectMap.ts";
 import * as ProjectMemory from "./ProjectMemory.ts";
 import * as ProjectUnderstanding from "./ProjectUnderstanding.ts";
 
@@ -67,10 +68,14 @@ const make = Effect.gen(function* () {
             ...testing,
           });
           const recalled = yield* understanding.recall(projectId, goal, { limit: 8 });
+          const untested = seenNotTestedPages(yield* memory.map(projectId)).filter(
+            (page) => target.environment === null || page.environment === target.environment,
+          );
           const brief = formatMemoryBrief({
             facts: facts.flat(),
             openFailures,
             understanding: recalled.items,
+            untested,
           });
           if (threadId !== undefined) {
             yield* memory.recordBriefUsage(threadId, brief).pipe(Effect.ignore);

@@ -3,6 +3,9 @@ import {
   type ProjectMemoryFact,
   type ProjectMemoryFactKind,
   type ProjectMemoryFactStatus,
+  type ProjectMemoryMap,
+  type ProjectMemoryMapBranch,
+  type ProjectMemoryMapPage,
   type ProjectMemoryStatus,
   type ProjectUnderstandingItem,
   type ProjectUnderstandingKind,
@@ -102,4 +105,83 @@ export function memoryStatusLine(
   if (status.pendingExtractions > 0)
     return { tone: "busy", text: `Learning from ${runs(status.pendingExtractions)}.` };
   return { tone: "ready", text: "Ready." };
+}
+
+export type MapRow =
+  | {
+      readonly kind: "node";
+      /** Stable across refreshes: the environment plus the route. */
+      readonly key: string;
+      readonly depth: number;
+      readonly label: string;
+      readonly page: ProjectMemoryMapPage | null;
+      readonly expandable: boolean;
+      readonly open: boolean;
+    }
+  | { readonly kind: "more"; readonly key: string; readonly depth: number; readonly count: number };
+
+/** The map as the visible rows of a tree, skipping what is under a collapsed row. */
+export function mapRows(
+  map: ProjectMemoryMap,
+  collapsed: ReadonlySet<string>,
+): ReadonlyArray<MapRow> {
+  const rows: Array<MapRow> = [];
+  const more = (parent: string, depth: number, count: number) => {
+    if (count > 0) rows.push({ kind: "more", key: `${parent}\n+`, depth, count });
+  };
+  const visit = (environment: string, branch: ProjectMemoryMapBranch, depth: number) => {
+    const key = `${environment}\n${branch.route}`;
+    const open = !collapsed.has(key);
+    rows.push({
+      kind: "node",
+      key,
+      depth,
+      label: branch.route === "/" ? "/" : `/${branch.name}`,
+      page: branch.page,
+      expandable: branch.children.length > 0,
+      open,
+    });
+    if (!open) return;
+    branch.children.forEach((child) => visit(environment, child, depth + 1));
+    more(key, depth + 1, branch.hiddenChildren);
+  };
+  for (const { environment, tree } of map.environments) {
+    const open = !collapsed.has(environment);
+    rows.push({
+      kind: "node",
+      key: environment,
+      depth: 0,
+      label: environment,
+      page: null,
+      expandable: true,
+      open,
+    });
+    if (!open) continue;
+    // The root is a row only when "/" itself is a page; its children hang off the environment.
+    if (tree.page !== null) {
+      rows.push({
+        kind: "node",
+        key: `${environment}\n/`,
+        depth: 1,
+        label: "/",
+        page: tree.page,
+        expandable: false,
+        open: true,
+      });
+    }
+    tree.children.forEach((child) => visit(environment, child, 1));
+    more(environment, 1, tree.hiddenChildren);
+  }
+  more("", 0, map.hiddenEnvironments);
+  return rows;
+}
+
+export function mapCoverageLabel(page: ProjectMemoryMapPage): string {
+  if (page.coverage === "seen") return "seen, not tested";
+  return [
+    page.failCount > 0 ? `${page.failCount} FAIL` : null,
+    page.passCount > 0 ? `${page.passCount} PASS` : null,
+  ]
+    .filter((part) => part !== null)
+    .join(", ");
 }

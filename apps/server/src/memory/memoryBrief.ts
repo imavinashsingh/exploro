@@ -1,4 +1,4 @@
-import type { ProjectMemoryFact } from "@t3tools/contracts";
+import type { ProjectMemoryFact, ProjectMemoryMapPage } from "@t3tools/contracts";
 
 import type { RecalledUnderstanding } from "./ProjectUnderstanding.ts";
 import { memoryEnvironment, memoryRoute } from "./projectMemoryFacts.ts";
@@ -83,12 +83,14 @@ export interface MemoryBriefInput {
   readonly facts: ReadonlyArray<ProjectMemoryFact>;
   readonly openFailures: ReadonlyArray<ProjectMemoryFact>;
   readonly understanding: ReadonlyArray<RecalledUnderstanding>;
+  /** Pages earlier runs reached or observed but never tested: the coverage gaps. */
+  readonly untested?: ReadonlyArray<Pick<ProjectMemoryMapPage, "environment" | "route">>;
 }
 
 /** The first-turn brief, or "" when there is nothing to say. */
 export function formatMemoryBrief(input: MemoryBriefInput, maxChars = 6000): string {
   // Room for the joins and each section's "more" line.
-  const budget = Math.floor((maxChars - BRIEF_HEADER.length - 200) / 3);
+  const budget = Math.floor((maxChars - BRIEF_HEADER.length - 250) / 4);
   const failureIds = new Set(input.openFailures.map((fact) => fact.factId));
   const parts = [
     section("### Open failures", input.openFailures.map(formatFactLine), budget),
@@ -100,6 +102,11 @@ export function formatMemoryBrief(input: MemoryBriefInput, maxChars = 6000): str
     section(
       "### What earlier runs learned",
       input.understanding.map(formatUnderstandingLine),
+      budget,
+    ),
+    section(
+      "### Seen, not tested",
+      (input.untested ?? []).map((page) => `- ${page.environment}${cut(page.route, 200)}`),
       budget,
     ),
   ].filter((part) => part !== "");

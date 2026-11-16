@@ -564,6 +564,22 @@ it.layer(NodeServices.layer)("ProjectMemory", (it) => {
     ),
   );
 
+  it.effect("forgets a deleted project's memory and leaves other projects alone", () =>
+    withMemory(
+      Effect.gen(function* () {
+        const memory = yield* ProjectMemory.ProjectMemory;
+        const saved = yield* memory.putFact(shop, fact());
+        yield* memory.putFact(blog, fact());
+        yield* memory.deleteFact(shop, saved!.factId);
+        yield* memory.putFact(shop, fact({ key: "empty password" }));
+        yield* memory.forgetProject(shop);
+        assert.deepStrictEqual(yield* memory.listFacts(shop, 10), []);
+        assert.notStrictEqual(yield* memory.putFact(shop, fact()), null);
+        assert.strictEqual((yield* memory.listFacts(blog, 10)).length, 1);
+      }),
+    ),
+  );
+
   it.effect("never brings a deleted fact back", () =>
     withMemory(
       Effect.gen(function* () {
