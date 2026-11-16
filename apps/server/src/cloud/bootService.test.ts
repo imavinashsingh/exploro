@@ -1446,7 +1446,7 @@ process.disconnect();
       const task = yield* fs.readFileString(plan.unitPath);
 
       expect(plan.unitPath).toBe(
-        path.join(path.dirname(plan.baseDir), "AppData", "Local", "t3code", "t3code-task.xml"),
+        path.join(path.dirname(plan.baseDir), "AppData", "Local", "exploro", "t3code-task.xml"),
       );
       expect(BootService.bootServiceProgramOf(task)).toBe(runtime.entryPath);
       expect(BootService.bootServiceBaseDirOf(task)).toBe(plan.baseDir);
