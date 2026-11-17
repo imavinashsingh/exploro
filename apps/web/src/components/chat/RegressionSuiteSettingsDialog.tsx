@@ -41,9 +41,10 @@ const EMPTY_PROVIDERS: never[] = [];
 function HealingModel(props: {
   readonly environmentId: EnvironmentId;
   readonly projectId: ProjectId | null;
-  readonly selection: ModelSelection | null;
+  readonly selection: ModelSelection;
   readonly onChange: (selection: ModelSelection) => void;
 }) {
+  const { selection } = props;
   const settings = useEnvironmentSettings(props.environmentId);
   const providers = useEnvironmentProviders().get(props.environmentId) ?? EMPTY_PROVIDERS;
   const targets = useTextGenerationTargets({
@@ -51,31 +52,24 @@ function HealingModel(props: {
     settings,
     providers: providers.filter((provider) => provider.supportsTextGeneration !== false),
     projectId: props.projectId,
-    selections: [props.selection],
+    selections: [selection],
   });
-  if (props.selection === null)
-    return (
-      <p className="m-0 text-xs text-muted-foreground">
-        This suite was saved before its model was recorded. Choose one to heal with.
-      </p>
-    );
   const available = targets.entries.some(
-    (entry) =>
-      entry.instanceId === props.selection?.instanceId && entry.enabled && entry.isAvailable,
+    (entry) => entry.instanceId === selection.instanceId && entry.enabled && entry.isAvailable,
   );
   return (
     <div className="flex flex-col gap-1">
       <ProviderModelPicker
         environmentId={props.environmentId}
-        activeInstanceId={props.selection.instanceId}
-        model={props.selection.model}
+        activeInstanceId={selection.instanceId}
+        model={selection.model}
         lockedProvider={null}
         instanceEntries={targets.entries}
         modelOptionsByInstance={getTextGenerationModelOptionsByInstance(
           settings,
           targets.providers,
-          props.selection.instanceId,
-          props.selection.model,
+          selection.instanceId,
+          selection.model,
         )}
         onInstanceModelChange={(instanceId: ProviderInstanceId, model: string) =>
           props.onChange({ instanceId, model })
@@ -95,6 +89,10 @@ export function RegressionSuiteSettingsDialog(props: {
   readonly onClose: () => void;
 }) {
   const { suite } = props;
+  const defaultModel = useEnvironmentSettings(
+    props.environmentId,
+    (settings) => settings.textGenerationModelSelection,
+  );
   const update = useAtomCommand(serverEnvironment.updateQaSuite, {
     label: "update regression suite",
     reportFailure: false,
@@ -107,7 +105,7 @@ export function RegressionSuiteSettingsDialog(props: {
   const [edits, setEdits] = useState<ReadonlyMap<string, string>>(new Map());
   const [healing, setHealing] = useState(suite.healing.enabled);
   const [healingModel, setHealingModel] = useState(
-    suite.healing.modelSelection ?? suite.recordedWith,
+    suite.healing.modelSelection ?? suite.recordedWith ?? defaultModel,
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -134,8 +132,7 @@ export function RegressionSuiteSettingsDialog(props: {
         dataSet,
         healing: {
           enabled: healing,
-          modelSelection:
-            healingModel === null || healingModel === suite.recordedWith ? null : healingModel,
+          modelSelection: healingModel === suite.recordedWith ? null : healingModel,
         },
         ...applyTexts(suite, edits),
       },
