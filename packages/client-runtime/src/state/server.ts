@@ -1503,6 +1503,20 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:scheduled-tasks:live",
       tag: WS_METHODS.scheduledTasksSubscribe,
     }),
+    // Not polled: a project's facts can be large, so the Memory screen refreshes after each change.
+    projectMemorySnapshot: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:project-memory:snapshot",
+      tag: WS_METHODS.projectMemorySnapshot,
+    }),
+    // Not polled, like the snapshot: every page carries its facts.
+    projectMemoryMap: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:project-memory:map",
+      tag: WS_METHODS.projectMemoryMap,
+    }),
+    projectMemoryItemHistory: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:project-memory:item-history",
+      tag: WS_METHODS.projectMemoryItemHistory,
+    }),
     qaRunsLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:server:qa-runs:live",
       tag: WS_METHODS.qaRunsSubscribe,
@@ -1780,6 +1794,30 @@ export function createServerEnvironmentAtoms<R, E>(
       tag: WS_METHODS.scheduledTasksSetEnabled,
       scheduler: configScheduler,
       concurrency: configConcurrency,
+    }),
+    deleteMemoryFact: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:project-memory:delete-fact",
+      tag: WS_METHODS.projectMemoryDeleteFact,
+    }),
+    updateMemoryItem: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:project-memory:update-item",
+      tag: WS_METHODS.projectMemoryUpdateItem,
+    }),
+    deleteMemoryItem: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:project-memory:delete-item",
+      tag: WS_METHODS.projectMemoryDeleteItem,
+    }),
+    saveThreadMemory: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:project-memory:save-thread",
+      tag: WS_METHODS.projectMemorySaveThread,
+    }),
+    setMemoryAppVersion: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:project-memory:app-version",
+      tag: WS_METHODS.projectMemorySetAppVersion,
+    }),
+    retryMemoryExtraction: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:project-memory:retry-extraction",
+      tag: WS_METHODS.projectMemoryRetryExtraction,
     }),
     deleteQaRun: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:qa-run:delete",

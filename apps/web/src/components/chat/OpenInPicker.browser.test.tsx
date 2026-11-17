@@ -57,6 +57,16 @@ vi.mock(import("../../editorPreferences"), async (importOriginal) => {
     },
   };
 });
+// Exploro drops the editor.openFavorite chord from the app's keybindings; keep it here so the
+// picker's own shortcut path stays covered for upstream merges.
+vi.mock(import("../../state/server"), async (importOriginal) => {
+  const { Atom } = await import("effect/reactivity");
+  const { DEFAULT_RESOLVED_KEYBINDINGS } = await import("@t3tools/shared/keybindings");
+  return {
+    ...(await importOriginal()),
+    primaryServerKeybindingsAtom: Atom.make(DEFAULT_RESOLVED_KEYBINDINGS) as never,
+  };
+});
 vi.mock(import("../../remoteOpen"), async (importOriginal) => ({
   ...(await importOriginal()),
   useRemoteOpenState: () => state.remote,

@@ -107,6 +107,7 @@ import {
   setComposerDraftText,
   waitForComposerDraftsLoaded,
 } from "../../state/use-composer-drafts";
+import { EXPLORO_OFFERS_REPOSITORIES } from "../../exploroFeatures";
 
 interface EnvironmentOption {
   readonly environmentId: EnvironmentId;
@@ -128,7 +129,6 @@ const environmentOptionOrder = Order.mapInput(
   }),
   (environment: EnvironmentOption) => ({ label: environment.label }),
 );
-
 function platformFromOs(os: string | null | undefined): string {
   if (os === "windows") return "Win32";
   if (os === "darwin") return "MacIntel";
@@ -626,7 +626,7 @@ export function AddProjectSourceScreen(props: { readonly environmentId?: string 
             {selectedEnvironment.newProjectsRoot !== null ? (
               <ListRow
                 title="New project"
-                subtitle="Start a new Git repository from a name"
+                subtitle="One app you test; Exploro keeps its folder"
                 disabled={!isConnected}
                 icon={
                   <SymbolView
@@ -646,55 +646,59 @@ export function AddProjectSourceScreen(props: { readonly environmentId?: string 
                 }
               />
             ) : null}
-            <ListRow
-              title="Local folder"
-              subtitle={
-                canCreateProject
-                  ? "Browse a folder on disk"
-                  : "This connection cannot add projects."
-              }
-              icon={
-                <SymbolView
-                  name="folder.badge.plus"
-                  size={Platform.OS === "android" ? 24 : 17}
-                  tintColorClassName="accent-icon"
-                  type="monochrome"
+            {EXPLORO_OFFERS_REPOSITORIES ? (
+              <>
+                <ListRow
+                  title="Local folder"
+                  subtitle={
+                    canCreateProject
+                      ? "Browse a folder on disk"
+                      : "This connection cannot add projects."
+                  }
+                  icon={
+                    <SymbolView
+                      name="folder.badge.plus"
+                      size={Platform.OS === "android" ? 24 : 17}
+                      tintColorClassName="accent-icon"
+                      type="monochrome"
+                    />
+                  }
+                  isFirst={selectedEnvironment.newProjectsRoot === null}
+                  disabled={!isConnected || !canCreateProject}
+                  onPress={() =>
+                    navigation.dispatch(
+                      StackActions.push("AddProjectLocal", {
+                        environmentId: selectedEnvironment.environmentId,
+                      }),
+                    )
+                  }
                 />
-              }
-              isFirst={selectedEnvironment.newProjectsRoot === null}
-              disabled={!isConnected || !canCreateProject}
-              onPress={() =>
-                navigation.dispatch(
-                  StackActions.push("AddProjectLocal", {
-                    environmentId: selectedEnvironment.environmentId,
-                  }),
-                )
-              }
-            />
-            {(
-              [
-                "url",
-                ...sortAddProjectProviderSources(
-                  readiness,
-                  selectedEnvironment.offeredSourceControlProviders,
-                ),
-              ] as AddProjectRemoteSource[]
-            ).map((candidate) => (
-              <SourceControlRow
-                key={candidate}
-                source={candidate}
-                selectedEnvironmentId={selectedEnvironment.environmentId}
-                ready={canCloneProject && readiness(candidate).ready}
-                hint={
-                  !canCloneProject
-                    ? "This connection cannot clone projects."
-                    : readiness(candidate).ready
-                      ? addProjectRemoteSourcePathHint(candidate)
-                      : (readiness(candidate).hint ?? "")
-                }
-                isFirst={false}
-              />
-            ))}
+                {(
+                  [
+                    "url",
+                    ...sortAddProjectProviderSources(
+                      readiness,
+                      selectedEnvironment.offeredSourceControlProviders,
+                    ),
+                  ] as AddProjectRemoteSource[]
+                ).map((candidate) => (
+                  <SourceControlRow
+                    key={candidate}
+                    source={candidate}
+                    selectedEnvironmentId={selectedEnvironment.environmentId}
+                    ready={canCloneProject && readiness(candidate).ready}
+                    hint={
+                      !canCloneProject
+                        ? "This connection cannot clone projects."
+                        : readiness(candidate).ready
+                          ? addProjectRemoteSourcePathHint(candidate)
+                          : (readiness(candidate).hint ?? "")
+                    }
+                    isFirst={false}
+                  />
+                ))}
+              </>
+            ) : null}
           </ListSection>
           {discoveryState.isPending ? (
             <AppActivityIndicator colorClassName="accent-icon-muted" />
@@ -1265,7 +1269,7 @@ export function AddProjectNewScreen(props: { readonly environmentId?: string | s
             </Text>
           ) : null}
           {machineRows}
-          {publishTarget !== null ? (
+          {EXPLORO_OFFERS_REPOSITORIES && publishTarget !== null ? (
             <ListSection>
               <ListRow
                 title={`Create private repository on ${publishTarget.definition.label}`}

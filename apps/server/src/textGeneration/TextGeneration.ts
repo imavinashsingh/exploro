@@ -47,7 +47,8 @@ type TextGenerationOp =
   | "generateBranchName"
   | "generateThreadTitle"
   | "generateReviewGuide"
-  | "generateTranscriptionPostProcessing";
+  | "generateTranscriptionPostProcessing"
+  | "generateProjectUnderstanding";
 
 const resolveInstance = (
   registry: ProviderInstanceRegistry.ProviderInstanceRegistry["Service"],
@@ -203,6 +204,17 @@ export const make = Effect.gen(function* () {
           service.generateTranscriptionPostProcessing({ ...input, modelSelection }),
       );
     }),
+    generateProjectUnderstanding: Effect.fn("TextGeneration.generateProjectUnderstanding")(
+      function (input) {
+        return generate(
+          "generateProjectUnderstanding",
+          input.modelSelection,
+          input.projectId,
+          (service, modelSelection) =>
+            service.generateProjectUnderstanding({ ...input, modelSelection }),
+        );
+      },
+    ),
     generateThreadTitle: Effect.fn("TextGeneration.generateThreadTitle")(function (input) {
       return generate(
         "generateThreadTitle",

@@ -48,6 +48,47 @@ Settings that are environment-wide stay read-only while a project is selected. W
 targets disagree, a control shows **Mixed** until you choose one value. Appearance, keyboard,
 and other phone-only settings ignore the filter.
 
+## QA projects and sites
+
+A project is one app you test. Choose **Add project → New project** and give it a name; Exploro
+creates and keeps its folder, so there is nothing to pick on disk. Creating a project needs Git
+installed. To test without one, start a thread with **No project**; those threads work the same
+but keep nothing between sessions.
+
+**Settings → Projects → Sites** lists the sites a project tests, such as staging and production.
+When the first test in a project finishes, the site it opened is added for you. Add, change or
+remove sites there at any time; Exploro never replaces sites you set yourself.
+
+### Project memory
+
+Each finished test in a project leaves memory behind for the next one. Memory stores:
+
+- **Facts**: what a run saw on a page, such as a validation message or where a link goes. Each
+  fact points at the run's screenshot.
+- **Understanding**: how the app works, such as "the dashboard needs a signed-in session",
+  written from the runs and from what you told the agent.
+
+The next test starts with a short brief from this memory and checks it against the live page.
+Understanding is found by meaning with a small model that runs on your computer, so recall works
+offline and sends nothing anywhere.
+Exploro hides passwords you type in chat before it saves anything. Threads with **No project** have
+no memory.
+
+**Settings → Projects → Memory** lists both, and its **Map** shows the app's pages by site with
+which are tested, failing, or seen but not tested yet. Pick a page to see its facts. Delete a fact or item you don't want kept; a deleted
+one is not saved again. Edit or **Confirm** an item to mark it as right; agents never change an
+item you confirmed. To stop a project remembering, turn **Project memory** off. What is already
+saved stays until you delete it. On mobile, memory is shown read-only.
+
+To remember an interrupted test, stop it and choose **Save test to memory** in its test-run panel.
+For a test with **No project**, choose **Create project and save to memory** first. Learning runs in
+the background; failures can be retried in the project's Memory settings.
+
+Set the tested site's app version in **Settings → Projects → Memory** when its release changes.
+Earlier facts on that site become stale and are left out of the next brief until observed again.
+The test-run panel shows the brief's estimated token count and share of the model's context when
+its context size is known.
+
 ## Pin and archive projects
 
 Pinned projects come first in the project pickers: the project picker on a new thread, the

@@ -1,3 +1,5 @@
+import * as ProjectMemory from "../memory/ProjectMemory.ts";
+import * as ProjectUnderstanding from "../memory/ProjectUnderstanding.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
@@ -77,6 +79,8 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(RemoteDelegation)({}),
   Layer.mock(ScheduledTaskService)({}),
   Layer.mock(QaRuns.QaRuns)({}),
+  Layer.mock(ProjectMemory.ProjectMemory)({}),
+  Layer.mock(ProjectUnderstanding.ProjectUnderstanding)({}),
   Layer.mock(QaRecorder.QaRecorder)({}),
   Layer.mock(SecretRequests)({}),
   ServerConfig.layerTest(process.cwd(), { prefix: "t3-agent-context-budget-" }),

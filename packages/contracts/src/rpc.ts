@@ -1,4 +1,20 @@
 import {
+  ProjectMemoryError,
+  ProjectMemoryFactDeleteInput,
+  ProjectMemoryMap,
+  ProjectMemoryMapInput,
+  ProjectMemoryRetryInput,
+  ProjectMemorySaveThreadInput,
+  ProjectMemoryVersionInput,
+  ProjectMemorySnapshot,
+  ProjectMemorySnapshotInput,
+  ProjectUnderstandingDeleteInput,
+  ProjectUnderstandingHistoryInput,
+  ProjectUnderstandingItem,
+  ProjectUnderstandingUpdateInput,
+  ProjectUnderstandingVersion,
+} from "./projectMemory.ts";
+import {
   OrchestrationV2SearchThreadError,
   OrchestrationV2SearchThreadInput,
   OrchestrationV2SearchThreadResult,
@@ -560,6 +576,15 @@ export const WS_METHODS = {
   serverRefreshUsageRates: "server.refreshUsageRates",
 
   scheduledTasksSubscribe: "scheduledTasks.subscribe",
+  projectMemoryMap: "projectMemory.map",
+  projectMemorySnapshot: "projectMemory.snapshot",
+  projectMemorySaveThread: "projectMemory.saveThread",
+  projectMemorySetAppVersion: "projectMemory.setAppVersion",
+  projectMemoryDeleteFact: "projectMemory.deleteFact",
+  projectMemoryItemHistory: "projectMemory.itemHistory",
+  projectMemoryUpdateItem: "projectMemory.updateItem",
+  projectMemoryDeleteItem: "projectMemory.deleteItem",
+  projectMemoryRetryExtraction: "projectMemory.retryExtraction",
   qaRunsSubscribe: "qaRuns.subscribe",
   qaRunsDelete: "qaRuns.delete",
   scheduledTasksUpsert: "scheduledTasks.upsert",
@@ -2031,6 +2056,49 @@ const WsSubscribeServerLifecycleRpc = Rpc.make(WS_METHODS.subscribeServerLifecyc
   stream: true,
 });
 
+const WsProjectMemoryMapRpc = Rpc.make(WS_METHODS.projectMemoryMap, {
+  payload: ProjectMemoryMapInput,
+  success: ProjectMemoryMap,
+  error: Schema.Union([ProjectMemoryError, EnvironmentAuthorizationError]),
+});
+
+const memoryError = Schema.Union([ProjectMemoryError, EnvironmentAuthorizationError]);
+const WsProjectMemorySaveThreadRpc = Rpc.make(WS_METHODS.projectMemorySaveThread, {
+  payload: ProjectMemorySaveThreadInput,
+  error: memoryError,
+});
+const WsProjectMemorySetAppVersionRpc = Rpc.make(WS_METHODS.projectMemorySetAppVersion, {
+  payload: ProjectMemoryVersionInput,
+  error: memoryError,
+});
+const WsProjectMemorySnapshotRpc = Rpc.make(WS_METHODS.projectMemorySnapshot, {
+  payload: ProjectMemorySnapshotInput,
+  success: ProjectMemorySnapshot,
+  error: memoryError,
+});
+const WsProjectMemoryDeleteFactRpc = Rpc.make(WS_METHODS.projectMemoryDeleteFact, {
+  payload: ProjectMemoryFactDeleteInput,
+  error: memoryError,
+});
+const WsProjectMemoryItemHistoryRpc = Rpc.make(WS_METHODS.projectMemoryItemHistory, {
+  payload: ProjectUnderstandingHistoryInput,
+  success: Schema.Array(ProjectUnderstandingVersion),
+  error: memoryError,
+});
+const WsProjectMemoryUpdateItemRpc = Rpc.make(WS_METHODS.projectMemoryUpdateItem, {
+  payload: ProjectUnderstandingUpdateInput,
+  success: ProjectUnderstandingItem,
+  error: memoryError,
+});
+const WsProjectMemoryDeleteItemRpc = Rpc.make(WS_METHODS.projectMemoryDeleteItem, {
+  payload: ProjectUnderstandingDeleteInput,
+  error: memoryError,
+});
+const WsProjectMemoryRetryExtractionRpc = Rpc.make(WS_METHODS.projectMemoryRetryExtraction, {
+  payload: ProjectMemoryRetryInput,
+  error: memoryError,
+});
+
 const WsQaRunsSubscribeRpc = Rpc.make(WS_METHODS.qaRunsSubscribe, {
   payload: QaRunsSubscribeInput,
   success: QaRunsSnapshot,
@@ -2195,6 +2263,15 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerRefreshUsageRatesRpc,
   WsServerSignalProcessRpc,
   WsScheduledTasksSubscribeRpc,
+  WsProjectMemoryMapRpc,
+  WsProjectMemorySnapshotRpc,
+  WsProjectMemorySaveThreadRpc,
+  WsProjectMemorySetAppVersionRpc,
+  WsProjectMemoryDeleteFactRpc,
+  WsProjectMemoryItemHistoryRpc,
+  WsProjectMemoryUpdateItemRpc,
+  WsProjectMemoryDeleteItemRpc,
+  WsProjectMemoryRetryExtractionRpc,
   WsQaRunsSubscribeRpc,
   WsQaRunsDeleteRpc,
   WsScheduledTasksUpsertRpc,

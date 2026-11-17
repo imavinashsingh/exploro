@@ -99,6 +99,11 @@ import * as PortScanner from "./preview/PortScanner.ts";
 import * as ServerBrowser from "./preview/ServerBrowser.ts";
 import * as PreviewAgentActivity from "./preview/PreviewAgentActivity.ts";
 import * as QaRecorder from "./qa/QaRecorder.ts";
+import * as MiniLmEmbedder from "./memory/MiniLmEmbedder.ts";
+import * as ProjectMemory from "./memory/ProjectMemory.ts";
+import * as ProjectMemoryControl from "./memory/ProjectMemoryControl.ts";
+import * as ProjectUnderstanding from "./memory/ProjectUnderstanding.ts";
+import * as UnderstandingExtraction from "./memory/UnderstandingExtraction.ts";
 import * as QaRuns from "./qa/QaRuns.ts";
 import * as DesktopBrowserChannel from "./preview/DesktopBrowserChannel.ts";
 import * as ServerBrowserStream from "./preview/ServerBrowserStream.ts";
@@ -599,6 +604,7 @@ const layerScheduledTaskWebhookOrigin = Layer.effect(
 );
 
 const layerOrchestrationV2Runtime = RuntimeLayer.layerProduction.pipe(
+  Layer.provide(RuntimeLayer.layerProjectMemoryAccess),
   Layer.provide(UsageLimitSources.layerResetFallback),
   Layer.provide(layerScheduledTaskWebhookOrigin),
   Layer.provide(ProviderUsageAnalytics.layer),
@@ -877,7 +883,18 @@ const layerMakeRoutes = Layer.mergeAll(
   // One run store for agents (/mcp) and clients (WebSocket); the recorder follows turns.
   Layer.provide(
     QaRecorder.layer.pipe(
+      // The Memory screen shares the recorder's extraction queue.
+      Layer.provideMerge(ProjectMemoryControl.layer),
+      Layer.provideMerge(
+        UnderstandingExtraction.layer.pipe(Layer.provideMerge(MiniLmEmbedder.layer)),
+      ),
       Layer.provideMerge(QaRuns.layer),
+      Layer.provideMerge(
+        ProjectMemory.layer.pipe(
+          Layer.provideMerge(ProjectUnderstanding.layer),
+          Layer.provide(MiniLmEmbedder.layer),
+        ),
+      ),
       Layer.provide(PreviewAgentActivity.layer),
     ),
   ),

@@ -1,6 +1,7 @@
+import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import { NonNegativeInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { NonNegativeInt, ProjectId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
 export const QA_VERDICTS = ["PASS", "FAIL", "BLOCKED", "INCONCLUSIVE", "SKIPPED"] as const;
 export const QaVerdict = Schema.Literals(QA_VERDICTS);
@@ -14,6 +15,24 @@ export const QaRunId = TrimmedNonEmptyString.check(
   Schema.isPattern(/^[A-Za-z0-9-]+$/),
 );
 export type QaRunId = typeof QaRunId.Type;
+
+/** A site a QA project tests, stored as its origin (`https://shop.test`). */
+export const QaSiteOrigin = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(2048),
+  Schema.isPattern(/^https?:\/\/[^/?#\s]+$/),
+);
+export const QaSiteOrigins = Schema.Array(QaSiteOrigin).check(Schema.isMaxLength(20));
+export type QaSiteOrigins = typeof QaSiteOrigins.Type;
+
+/** The origin of an http(s) URL, or null for anything else. */
+export function qaSiteOrigin(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.origin : null;
+  } catch {
+    return null;
+  }
+}
 
 const QaText = (max: number) => Schema.String.check(Schema.isMaxLength(max));
 
@@ -74,6 +93,8 @@ export type QaRunVideo = typeof QaRunVideo.Type;
 export const QaRun = Schema.Struct({
   runId: QaRunId,
   threadId: ThreadId,
+  /** Null for threads without a project; set when the run finishes, since a thread can move. */
+  projectId: Schema.NullOr(ProjectId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   site: Schema.NullOr(Schema.String),
   startedAt: Schema.String,
   finishedAt: Schema.NullOr(Schema.String),
@@ -92,7 +113,17 @@ export const QaRunsSubscribeInput = Schema.Struct({ threadId: ThreadId });
 export type QaRunsSubscribeInput = typeof QaRunsSubscribeInput.Type;
 
 /** Newest run first. */
-export const QaRunsSnapshot = Schema.Struct({ runs: Schema.Array(QaRun) });
+export const MemoryBriefUsage = Schema.Struct({
+  characters: NonNegativeInt,
+  estimatedTokens: NonNegativeInt,
+});
+export type MemoryBriefUsage = typeof MemoryBriefUsage.Type;
+export const QaRunsSnapshot = Schema.Struct({
+  runs: Schema.Array(QaRun),
+  memoryBriefUsage: Schema.NullOr(MemoryBriefUsage).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+});
 export type QaRunsSnapshot = typeof QaRunsSnapshot.Type;
 
 export const QaRunDeleteInput = Schema.Struct({ threadId: ThreadId, runId: QaRunId });

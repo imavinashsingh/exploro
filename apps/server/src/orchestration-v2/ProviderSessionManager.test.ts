@@ -39,6 +39,7 @@ import { HttpServer } from "effect/http";
 
 import { ProviderWorkspaceMissingError } from "../provider/Errors.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
+import * as ProjectMemoryAccess from "../memory/ProjectMemoryAccess.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
@@ -818,6 +819,8 @@ function runBrowserAccessScenario(input: {
   readonly createThread?: boolean;
   readonly projectExists?: boolean;
   readonly delegatedBy?: ThreadId;
+  /** Whether the thread's project has memory; unset leaves memory out of the server. */
+  readonly projectMemory?: boolean;
 }) {
   return Effect.gen(function* () {
     const state = yield* Ref.make(emptyState);
@@ -884,7 +887,15 @@ function runBrowserAccessScenario(input: {
               },
             },
           }),
-        }),
+        }).pipe(
+          Layer.provide(
+            input.projectMemory === undefined
+              ? Layer.empty
+              : Layer.mock(ProjectMemoryAccess.ProjectMemoryAccess)({
+                  hasMemory: () => Effect.succeed(input.projectMemory === true),
+                }),
+          ),
+        ),
       ),
     );
 
@@ -5625,6 +5636,20 @@ it.effect("ProviderSessionManagerV2 withholds device tools while device support 
       missingProject?.capabilities?.has("device"),
       "agent device access granted device tools with device support off for a missing project",
     );
+  }),
+);
+
+it.effect("ProviderSessionManagerV2 grants memory tools only to threads of a project", () =>
+  Effect.gen(function* () {
+    const scenario = (projectMemory?: boolean) =>
+      runBrowserAccessScenario({
+        enableAgentBrowserAccess: true,
+        projectOverride: true,
+        ...(projectMemory === undefined ? {} : { projectMemory }),
+      }).pipe(Effect.map((config) => config?.capabilities?.has("memory")));
+    assert.isTrue(yield* scenario(true));
+    assert.isFalse(yield* scenario(false), "a scratch thread was granted memory");
+    assert.isFalse(yield* scenario(), "a server without memory granted it");
   }),
 );
 

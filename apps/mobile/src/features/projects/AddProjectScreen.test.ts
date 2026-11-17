@@ -52,6 +52,8 @@ function loadRouters() {
   };
 }
 
+// Exploro hides these flows; the upstream code under test still exists.
+vi.mock("../../exploroFeatures", () => ({ EXPLORO_OFFERS_REPOSITORIES: true }));
 vi.mock("../layout/workspace/useSelectWorkspaceDetail", async () => {
   const { selectWorkspaceDetail } = await import("../layout/workspace/workspace-detail-selection");
   return {

@@ -226,6 +226,18 @@
           ]
         }
       ]
+    },
+    {
+      "bundles": ["desktop"],
+      "license": "Apache-2.0",
+      "name": "all-MiniLM-L6-v2 embedding model",
+      "sourceUrl": "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2",
+      "generatedNotices": [
+        {
+          "licenseId": "Apache-2.0",
+          "copyrights": ["Copyright (c) sentence-transformers"]
+        }
+      ]
     }
   ],
   "packageOverrides": [
@@ -856,6 +868,33 @@
       "name": "iobuffer",
       "license": "MIT",
       "sourceUrl": "https://github.com/image-js/iobuffer"
+    },
+    {
+      "name": "onnxruntime-web",
+      "version": "1.30.0",
+      "sourceUrl": "https://github.com/microsoft/onnxruntime",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) Microsoft Corporation"]
+      }
+    },
+    {
+      "name": "onnxruntime-common",
+      "version": "1.30.0",
+      "sourceUrl": "https://github.com/microsoft/onnxruntime",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) Microsoft Corporation"]
+      }
+    },
+    {
+      "name": "guid-typescript",
+      "version": "1.0.9",
+      "sourceUrl": "https://github.com/NicolasDeveloper/guid-typescript",
+      "generatedNotice": {
+        "licenseId": "ISC",
+        "copyrights": ["Copyright (c) nicolas"]
+      }
     }
   ]
 }
