@@ -25,6 +25,7 @@ import {
 } from "./textGenerationUtils.ts";
 
 export const TranscriptionPostProcessingOutput = Schema.Struct({ transcription: Schema.String });
+export const LocatorHealOutput = Schema.Struct({ ref: Schema.NullOr(Schema.String) });
 
 export type Operation = keyof ProviderTextGeneration;
 
@@ -210,6 +211,18 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
       });
     });
 
+  const generateLocatorHeal: ProviderTextGeneration["generateLocatorHeal"] = Effect.fn(
+    `${name}.generateLocatorHeal`,
+  )(function* (input) {
+    return yield* run({
+      operation: "generateLocatorHeal",
+      cwd: input.cwd,
+      prompt: input.prompt,
+      outputSchema: LocatorHealOutput,
+      modelSelection: input.modelSelection,
+    });
+  });
+
   return {
     generateCommitMessage,
     generatePrContent,
@@ -218,5 +231,6 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
     generateReviewGuide,
     generateTranscriptionPostProcessing,
     generateProjectUnderstanding,
+    generateLocatorHeal,
   } satisfies ProviderTextGeneration;
 }

@@ -5,6 +5,8 @@ import {
   type PreviewAutomationConsoleEntry,
   type PreviewAutomationNetworkEntry,
   type QaCheck,
+  type QaDataRow,
+  type QaVisualResult,
   type QaEvidenceRecordInput,
   QaReplayStep,
   type QaRunDeleteInput,
@@ -44,6 +46,15 @@ import {
 } from "./qaEvidence.ts";
 import { QA_VIDEO_FILE, renderHtmlReport, renderMarkdownReport } from "./qaReport.ts";
 
+/** A replay's comparison with the scenario's baseline, saved beside its other evidence. */
+export interface QaReplayVisual {
+  readonly baseline: Uint8Array;
+  readonly capture: Uint8Array;
+  readonly diffPng: Uint8Array | null;
+  readonly diffRatio: number | null;
+  readonly threshold: number;
+}
+
 /** What the browser showed when the agent recorded a verdict. */
 export interface QaPageCapture {
   readonly url: string | null;
@@ -78,14 +89,22 @@ export class QaRuns extends Context.Service<
     /** Opens a run that replays a suite; fails while the thread has another run open. */
     readonly startRegressionRun: (
       threadId: ThreadId,
-      input: { readonly suiteId: QaSuiteId; readonly site: string | null },
+      input: {
+        readonly suiteId: QaSuiteId;
+        readonly site: string | null;
+        readonly dataRow: QaDataRow | null;
+      },
     ) => Effect.Effect<QaRun, QaRunError>;
     /** Records a replayed scenario's verdict in the open regression run. */
     readonly recordReplayedScenario: (
       threadId: ThreadId,
       input: QaEvidenceRecordInput,
       page: QaPageCapture,
-      replay: { readonly checks: ReadonlyArray<QaCheck>; readonly stepCount: number },
+      replay: {
+        readonly checks: ReadonlyArray<QaCheck>;
+        readonly stepCount: number;
+        readonly visual?: QaReplayVisual | undefined;
+      },
     ) => Effect.Effect<QaScenario, QaRunError>;
     readonly markRecordingStarted: (
       threadId: ThreadId,
@@ -210,13 +229,17 @@ const make = Effect.gen(function* () {
     const open = findOpen(yield* load(threadId));
     if (open?.kind === "regression") return yield* new QaRunError({ message: REPLAY_RUNNING });
     if (open) return open.site === null && site !== null ? yield* save({ ...open, site }) : open;
-    return yield* createRunUnlocked(threadId, site, { kind: "exploratory", suiteId: null });
+    return yield* createRunUnlocked(threadId, site, {
+      kind: "exploratory",
+      suiteId: null,
+      dataRow: null,
+    });
   });
 
   const createRunUnlocked = Effect.fnUntraced(function* (
     threadId: ThreadId,
     site: string | null,
-    origin: Pick<QaRun, "kind" | "suiteId">,
+    origin: Pick<QaRun, "kind" | "suiteId" | "dataRow">,
   ) {
     const startedAt = yield* nowIso;
     const unique = (yield* random.uuidV4()).slice(0, 6);
@@ -302,6 +325,7 @@ const make = Effect.gen(function* () {
     page: QaPageCapture,
     checks: ReadonlyArray<QaCheck>,
     replayStepCount?: number,
+    replayVisual?: QaReplayVisual,
   ) {
     const open = findOpen(yield* load(threadId));
     const replaying = replayStepCount !== undefined;
@@ -324,9 +348,26 @@ const make = Effect.gen(function* () {
     const networkEntries = sanitizeNetworkEntries(page.networkEntries);
     const consolePath = path.join(evidenceDir, `${stem}.console.json`);
     const networkPath = path.join(evidenceDir, `${stem}.network.json`);
+    const visualFile = (kind: string) => path.join(evidenceDir, `${stem}.${kind}.png`);
+    const visual: QaVisualResult | null =
+      replayVisual === undefined
+        ? null
+        : {
+            diffRatio: replayVisual.diffRatio,
+            threshold: replayVisual.threshold,
+            baselinePath: visualFile("baseline"),
+            capturePath: visualFile("capture"),
+            diffPath: replayVisual.diffPng === null ? null : visualFile("diff"),
+          };
     yield* Effect.gen(function* () {
       yield* fileSystem.makeDirectory(evidenceDir, { recursive: true });
       if (screenshotPath !== null && png !== null) yield* fileSystem.writeFile(screenshotPath, png);
+      if (replayVisual !== undefined && visual !== null) {
+        yield* fileSystem.writeFile(visual.baselinePath, replayVisual.baseline);
+        yield* fileSystem.writeFile(visual.capturePath, replayVisual.capture);
+        if (visual.diffPath !== null && replayVisual.diffPng !== null)
+          yield* fileSystem.writeFile(visual.diffPath, replayVisual.diffPng);
+      }
       yield* fileSystem.writeFileString(consolePath, yield* encodeLogJson(consoleEntries));
       yield* fileSystem.writeFileString(networkPath, yield* encodeLogJson(networkEntries));
     }).pipe(Effect.mapError(failure("Could not save the scenario's evidence.")));
@@ -357,6 +398,7 @@ const make = Effect.gen(function* () {
       ...summarizeLogs(consoleEntries, networkEntries, since),
       checks,
       stepCount: replayStepCount ?? (yield* stepCountOf(run)),
+      visual,
     };
     yield* save({ ...run, scenarios: [...run.scenarios, scenario] });
     return scenario;
@@ -419,12 +461,17 @@ const make = Effect.gen(function* () {
     };
     const screenshots = new Map<string, string>();
     for (const scenario of finished.scenarios) {
-      if (scenario.screenshotPath === null) continue;
-      const bytes = yield* fileSystem
-        .readFile(scenario.screenshotPath)
-        .pipe(Effect.orElseSucceed(() => null));
-      if (bytes !== null)
-        screenshots.set(scenario.screenshotPath, Buffer.from(bytes).toString("base64"));
+      const images = [
+        scenario.screenshotPath,
+        scenario.visual?.baselinePath,
+        scenario.visual?.capturePath,
+        scenario.visual?.diffPath,
+      ];
+      for (const image of images) {
+        if (image === null || image === undefined) continue;
+        const bytes = yield* fileSystem.readFile(image).pipe(Effect.orElseSucceed(() => null));
+        if (bytes !== null) screenshots.set(image, Buffer.from(bytes).toString("base64"));
+      }
     }
     yield* fileSystem.writeFileString(reportMarkdownPath, renderMarkdownReport(finished)).pipe(
       Effect.andThen(
@@ -507,6 +554,7 @@ const make = Effect.gen(function* () {
           return yield* createRunUnlocked(threadId, input.site, {
             kind: "regression",
             suiteId: input.suiteId,
+            dataRow: input.dataRow,
           });
         }),
       );
@@ -514,7 +562,14 @@ const make = Effect.gen(function* () {
     recordReplayedScenario: Effect.fn("QaRuns.recordReplayedScenario")(
       function* (threadId, input, page, replay) {
         return yield* lock.withPermit(
-          recordEvidenceUnlocked(threadId, input, page, replay.checks, replay.stepCount),
+          recordEvidenceUnlocked(
+            threadId,
+            input,
+            page,
+            replay.checks,
+            replay.stepCount,
+            replay.visual,
+          ),
         );
       },
     ),

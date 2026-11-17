@@ -298,7 +298,16 @@ export const check = async (
   for (const assertion of input.assertions) {
     results.push(await checkAssertion(page, assertion, timeoutMs));
   }
-  return { results };
+  if (input.capture === undefined) return { results };
+  const png = await page.screenshot({
+    animations: "disabled",
+    caret: "hide",
+    scale: "css",
+    mask: input.capture.masks.map((selector) => page.locator(selector)),
+    maskColor: "#FF00FF",
+    timeout: timeoutMs,
+  });
+  return { results, capture: png.toString("base64") };
 };
 
 export type PointerReporter = (
