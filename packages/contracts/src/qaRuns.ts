@@ -2,6 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import { NonNegativeInt, ProjectId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { PreviewAutomationAssertion, PreviewAutomationDurableTarget } from "./previewAutomation.ts";
 
 export const QA_VERDICTS = ["PASS", "FAIL", "BLOCKED", "INCONCLUSIVE", "SKIPPED"] as const;
 export const QaVerdict = Schema.Literals(QA_VERDICTS);
@@ -45,6 +46,8 @@ export const QaEvidenceRecordInput = Schema.Struct({
   actual: Schema.optional(QaText(2000)),
   severity: Schema.optional(QaBugSeverity),
   steps: Schema.optional(Schema.Array(QaText(500)).check(Schema.isMaxLength(30))),
+  /** What proves the verdict, checked against the live page before it is saved. */
+  checks: Schema.optional(Schema.Array(PreviewAutomationAssertion).check(Schema.isMaxLength(10))),
 });
 export type QaEvidenceRecordInput = typeof QaEvidenceRecordInput.Type;
 
@@ -55,6 +58,66 @@ export const QaFailedRequest = Schema.Struct({
   errorText: Schema.optional(Schema.String),
 });
 export type QaFailedRequest = typeof QaFailedRequest.Type;
+
+/** One browser action a regression replays, targeted so it survives navigation. */
+const Target = PreviewAutomationDurableTarget;
+const Modifiers = Schema.Array(Schema.Literals(["Alt", "Control", "Meta", "Shift"]));
+export const QaReplayStep = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("navigate"), url: Schema.String }),
+  Schema.Struct({
+    kind: Schema.Literal("click"),
+    target: Target,
+    button: Schema.optional(Schema.Literals(["left", "right", "middle"])),
+    clickCount: Schema.optional(Schema.Int),
+  }),
+  Schema.Struct({ kind: Schema.Literal("clickAt"), x: Schema.Finite, y: Schema.Finite }),
+  Schema.Struct({
+    kind: Schema.Literal("type"),
+    target: Schema.NullOr(Target),
+    /** `{{secret:N}}` stands for the Nth password the user gave in the thread. */
+    text: Schema.String,
+    clear: Schema.optional(Schema.Boolean),
+  }),
+  Schema.Struct({ kind: Schema.Literal("hover"), target: Target }),
+  Schema.Struct({
+    kind: Schema.Literal("select"),
+    target: Target,
+    values: Schema.Array(Schema.String),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("press"),
+    key: Schema.String,
+    modifiers: Schema.optional(Modifiers),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("scroll"),
+    target: Schema.NullOr(Target),
+    deltaX: Schema.optional(Schema.Finite),
+    deltaY: Schema.optional(Schema.Finite),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("waitFor"),
+    target: Schema.NullOr(Target),
+    text: Schema.optional(Schema.String),
+    urlIncludes: Schema.optional(Schema.String),
+  }),
+  /** An action the replay cannot repeat; scenarios after it cannot be saved. */
+  Schema.Struct({
+    kind: Schema.Literal("unreplayable"),
+    action: Schema.String,
+    reason: Schema.String,
+  }),
+]);
+export type QaReplayStep = typeof QaReplayStep.Type;
+
+/** A check that held on the live page when the agent recorded its verdict. */
+export const QaCheck = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("textVisible"), text: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal("urlIncludes"), value: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal("elementVisible"), target: Target }),
+  Schema.Struct({ kind: Schema.Literal("valueEquals"), target: Target, value: Schema.String }),
+]);
+export type QaCheck = typeof QaCheck.Type;
 
 export const QaScenario = Schema.Struct({
   index: NonNegativeInt,
@@ -81,6 +144,9 @@ export const QaScenario = Schema.Struct({
   /** The first few, so the panel can show them without reading the log files. */
   consoleErrors: Schema.Array(Schema.String),
   failedRequests: Schema.Array(QaFailedRequest),
+  checks: Schema.Array(QaCheck).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  /** How many browser steps the run had taken when this verdict was recorded. */
+  stepCount: Schema.NullOr(NonNegativeInt).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
 });
 export type QaScenario = typeof QaScenario.Type;
 
@@ -90,9 +156,17 @@ export const QaRunVideo = Schema.Struct({
 });
 export type QaRunVideo = typeof QaRunVideo.Type;
 
+export const QaSuiteId = QaRunId;
+export type QaSuiteId = typeof QaSuiteId.Type;
+
 export const QaRun = Schema.Struct({
   runId: QaRunId,
   threadId: ThreadId,
+  /** A regression run replays a saved suite without a model. */
+  kind: Schema.Literals(["exploratory", "regression"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("exploratory" as const)),
+  ),
+  suiteId: Schema.NullOr(QaSuiteId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   /** Null for threads without a project; set when the run finishes, since a thread can move. */
   projectId: Schema.NullOr(ProjectId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   site: Schema.NullOr(Schema.String),
@@ -131,6 +205,77 @@ export type QaRunDeleteInput = typeof QaRunDeleteInput.Type;
 
 export const QaRunDeleteResult = Schema.Struct({ runId: QaRunId });
 export type QaRunDeleteResult = typeof QaRunDeleteResult.Type;
+
+export const QaSuiteScenario = Schema.Struct({
+  scenario: Schema.String,
+  stepCount: NonNegativeInt,
+  checks: Schema.Array(QaCheck),
+});
+export type QaSuiteScenario = typeof QaSuiteScenario.Type;
+
+/** A passed run saved so it can be replayed without a model. */
+export const QaSuite = Schema.Struct({
+  suiteId: QaSuiteId,
+  name: TrimmedNonEmptyString,
+  createdAt: Schema.String,
+  projectId: Schema.NullOr(ProjectId),
+  /** Replays run in this thread, and its passwords fill `{{secret:N}}`. */
+  sourceThreadId: ThreadId,
+  sourceRunId: QaRunId,
+  site: Schema.NullOr(Schema.String),
+  steps: Schema.Array(QaReplayStep),
+  scenarios: Schema.Array(QaSuiteScenario),
+});
+export type QaSuite = typeof QaSuite.Type;
+
+export const QaSuiteSummary = Schema.Struct({
+  suiteId: QaSuiteId,
+  name: Schema.String,
+  createdAt: Schema.String,
+  projectId: Schema.NullOr(ProjectId),
+  sourceThreadId: ThreadId,
+  site: Schema.NullOr(Schema.String),
+  scenarioCount: NonNegativeInt,
+  stepCount: NonNegativeInt,
+});
+export type QaSuiteSummary = typeof QaSuiteSummary.Type;
+
+export const QaSuitesSnapshot = Schema.Struct({ suites: Schema.Array(QaSuiteSummary) });
+export type QaSuitesSnapshot = typeof QaSuitesSnapshot.Type;
+
+export const QaSuiteCreateInput = Schema.Struct({
+  threadId: ThreadId,
+  runId: QaRunId,
+  name: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(120))),
+});
+export type QaSuiteCreateInput = typeof QaSuiteCreateInput.Type;
+
+/** A scenario of the run the suite left out, and why. */
+export const QaSuiteSkippedScenario = Schema.Struct({
+  scenario: Schema.String,
+  reason: Schema.String,
+});
+export type QaSuiteSkippedScenario = typeof QaSuiteSkippedScenario.Type;
+
+export const QaSuiteCreateResult = Schema.Struct({
+  suite: QaSuiteSummary,
+  skipped: Schema.Array(QaSuiteSkippedScenario),
+});
+export type QaSuiteCreateResult = typeof QaSuiteCreateResult.Type;
+
+export const QaSuiteDeleteInput = Schema.Struct({ suiteId: QaSuiteId });
+export type QaSuiteDeleteInput = typeof QaSuiteDeleteInput.Type;
+export const QaSuiteDeleteResult = Schema.Struct({ suiteId: QaSuiteId });
+export type QaSuiteDeleteResult = typeof QaSuiteDeleteResult.Type;
+
+export const QaSuiteRunInput = Schema.Struct({
+  suiteId: QaSuiteId,
+  /** Replay against another origin, such as staging instead of production. */
+  baseUrl: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(2048))),
+});
+export type QaSuiteRunInput = typeof QaSuiteRunInput.Type;
+export const QaSuiteRunStarted = Schema.Struct({ threadId: ThreadId, runId: QaRunId });
+export type QaSuiteRunStarted = typeof QaSuiteRunStarted.Type;
 
 export class QaRunError extends Schema.TaggedError<QaRunError>()("QaRunError", {
   message: Schema.String,

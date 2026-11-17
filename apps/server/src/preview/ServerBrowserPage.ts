@@ -3,6 +3,10 @@
 import {
   type BrowserRecordingFrameRate,
   PROVIDER_SEND_TURN_MAX_FILE_BYTES,
+  type PreviewAutomationAssertion,
+  type PreviewAutomationCheckInput,
+  type PreviewAutomationCheckResult,
+  type PreviewAutomationDurableTarget,
   type PreviewAutomationClickInput,
   type PreviewAutomationConsoleEntry,
   type PreviewAutomationDragInput,
@@ -153,6 +157,148 @@ const targetLocator = (
   }
   // Playwright's strict locators reject ambiguous controls rather than acting on row one.
   return page.locator(selector);
+};
+
+// Playwright exposes a locator's selector only as code text; replay needs the selector itself.
+const selectorOf = (locator: Locator) =>
+  (locator as unknown as { readonly _selector: string })._selector;
+const DURABLE_TARGET_TIMEOUT_MS = 2_000;
+
+/**
+ * The element a ref or selector names now, as a selector that still finds it after the page
+ * changes. Null when there is no target, or the element cannot be named without its ref.
+ */
+export const durableTarget = async (
+  page: Page,
+  input: { readonly locator?: string | undefined; readonly selector?: string | undefined },
+): Promise<PreviewAutomationDurableTarget | null> => {
+  const given = input.locator ?? input.selector;
+  if (given === undefined) return null;
+  // A selector already finds its element again; normalizing it could narrow what it matches.
+  if (!/^\s*aria-ref\s*=/.test(given)) return { selector: given, display: given };
+  try {
+    const locator = targetLocator(page, input);
+    if (locator === null) return null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const normalized = await Promise.race([
+      locator.normalize(),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), DURABLE_TARGET_TIMEOUT_MS);
+      }),
+    ]).finally(() => clearTimeout(timer));
+    const selector = normalized === null ? null : selectorOf(normalized);
+    if (normalized !== null && selector !== null && !selector.includes("aria-ref=")) {
+      return { selector, display: normalized.toString() };
+    }
+  } catch {
+    // A ref whose element is gone cannot be named.
+  }
+  return null;
+};
+
+const ASSERTION_POLL_MS = 100;
+
+/** Polls `holds` until it is true or `timeoutMs` passes; a throw counts as not yet. */
+const holdsWithin = async (holds: () => Promise<boolean>, timeoutMs: number) => {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (await holds().catch(() => false)) return true;
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, ASSERTION_POLL_MS));
+  }
+};
+
+const checkAssertion = async (
+  page: Page,
+  assertion: PreviewAutomationAssertion,
+  timeoutMs: number,
+): Promise<PreviewAutomationCheckResult["results"][number]> => {
+  switch (assertion.kind) {
+    case "textVisible": {
+      const ok = await holdsWithin(
+        () =>
+          page
+            .evaluate(
+              `(document.body?.innerText ?? "").includes(${JSON.stringify(assertion.text)})`,
+            )
+            .then((found) => found === true),
+        timeoutMs,
+      );
+      return { ok, actual: ok ? "" : "The page does not show this text.", target: null };
+    }
+    case "urlIncludes": {
+      const ok = await holdsWithin(async () => page.url().includes(assertion.value), timeoutMs);
+      return { ok, actual: ok ? "" : `The URL is ${page.url()}.`, target: null };
+    }
+    case "elementVisible":
+    case "valueEquals": {
+      const target = await durableTarget(page, { locator: assertion.locator });
+      const locator = page.locator(target?.selector ?? assertion.locator);
+      if (target === null && /^\s*aria-ref\s*=/.test(assertion.locator)) {
+        return { ok: false, actual: "This element ref is stale. Take a fresh snapshot.", target };
+      }
+      if (assertion.kind === "elementVisible") {
+        const ok = await holdsWithin(
+          async () => (await locator.count()) === 1 && (await locator.isVisible()),
+          timeoutMs,
+        );
+        const count = await locator.count().catch(() => 0);
+        return {
+          ok,
+          actual: ok
+            ? ""
+            : count === 0
+              ? "No element matches."
+              : count > 1
+                ? `${count} elements match.`
+                : "The element is hidden.",
+          target,
+        };
+      }
+      const ok = await holdsWithin(
+        async () => (await locator.inputValue({ timeout: ASSERTION_POLL_MS })) === assertion.value,
+        timeoutMs,
+      );
+      const value = ok
+        ? assertion.value
+        : await locator.inputValue({ timeout: ASSERTION_POLL_MS }).catch(() => null);
+      return {
+        ok,
+        actual: ok ? "" : value === null ? "No field matches." : `The value is "${value}".`,
+        target,
+      };
+    }
+  }
+};
+
+const NETWORK_QUIET_MAX_MS = 3_000;
+
+/**
+ * Waits until the page has loaded and its network has gone quiet, so the next step acts on the
+ * page an action led to rather than the one it left. Bounded: a page that never goes quiet,
+ * such as one that polls, only costs the cap.
+ */
+export const settle = async (page: Page, timeoutMs: number) => {
+  const deadline = Date.now() + timeoutMs;
+  const left = () => Math.max(1, deadline - Date.now());
+  await page.waitForLoadState("load", { timeout: left() }).catch(constVoid);
+  await page
+    .waitForLoadState("networkidle", { timeout: Math.min(left(), NETWORK_QUIET_MAX_MS) })
+    .catch(constVoid);
+};
+
+/** Whether each assertion holds within the timeout, checked in order. */
+export const check = async (
+  page: Page,
+  input: PreviewAutomationCheckInput,
+): Promise<PreviewAutomationCheckResult> => {
+  const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  if (input.settle === true) await settle(page, timeoutMs);
+  const results: Array<PreviewAutomationCheckResult["results"][number]> = [];
+  for (const assertion of input.assertions) {
+    results.push(await checkAssertion(page, assertion, timeoutMs));
+  }
+  return { results };
 };
 
 export type PointerReporter = (

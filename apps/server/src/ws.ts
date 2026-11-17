@@ -128,6 +128,7 @@ import * as ThreadMessageIntake from "./orchestration-v2/ThreadMessageIntake.ts"
 import * as DocumentText from "./provider/DocumentText.ts";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
 import * as QaRuns from "./qa/QaRuns.ts";
+import * as QaSuites from "./qa/QaSuites.ts";
 import * as SecretRequests from "./secrets/SecretRequests.ts";
 import * as GuestShareService from "./guest/GuestShareService.ts";
 import {
@@ -1475,6 +1476,7 @@ export const layerWsRpc = (
       const providerSessionManager = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
       const qaRuns = yield* QaRuns.QaRuns;
+      const qaSuites = yield* QaSuites.QaSuites;
       const projectMemory = yield* ProjectMemory.ProjectMemory;
       const memoryControl = yield* ProjectMemoryControl.ProjectMemoryControl;
       const secretRequests = yield* SecretRequests.SecretRequests;
@@ -2315,6 +2317,16 @@ export const layerWsRpc = (
         [WS_METHODS.qaRunsDelete]: (input) =>
           Effect.annotateCurrentSpan({ "thread.id": input.threadId }).pipe(
             Effect.andThen(qaRuns.deleteRun(input)),
+          ),
+        [WS_METHODS.qaSuitesSubscribe]: () => qaSuites.subscribe,
+        [WS_METHODS.qaSuitesCreate]: (input) =>
+          Effect.annotateCurrentSpan({ "thread.id": input.threadId }).pipe(
+            Effect.andThen(qaSuites.create(input)),
+          ),
+        [WS_METHODS.qaSuitesDelete]: (input) => qaSuites.delete(input.suiteId),
+        [WS_METHODS.qaSuitesRun]: (input) =>
+          Effect.annotateCurrentSpan({ "qa_suite.id": input.suiteId }).pipe(
+            Effect.andThen(qaSuites.start(input)),
           ),
         [WS_METHODS.scheduledTasksUpsert]: (input) => scheduledTasks.upsert(input),
         [WS_METHODS.scheduledTasksSetEnabled]: (input) =>
@@ -3593,6 +3605,7 @@ export const layer = Layer.unwrap(
     const peerLinks = yield* PeerLinks.PeerLinks;
     const peerLinkRequests = yield* PeerLinkRequests.PeerLinkRequests;
     const qaRuns = yield* QaRuns.QaRuns;
+    const qaSuites = yield* QaSuites.QaSuites;
     const projectMemory = yield* ProjectMemory.ProjectMemory;
     const memoryControl = yield* ProjectMemoryControl.ProjectMemoryControl;
     const sql = yield* SqlClient.SqlClient;
@@ -3691,6 +3704,7 @@ export const layer = Layer.unwrap(
               Layer.provide(Layer.succeed(PeerLinks.PeerLinks, peerLinks)),
               // One run store for every connection and for agents, so changes reach all clients.
               Layer.provide(Layer.succeed(QaRuns.QaRuns, qaRuns)),
+              Layer.provide(Layer.succeed(QaSuites.QaSuites, qaSuites)),
               Layer.provide(Layer.succeed(ProjectMemory.ProjectMemory, projectMemory)),
               Layer.provide(
                 Layer.succeed(ProjectMemoryControl.ProjectMemoryControl, memoryControl),

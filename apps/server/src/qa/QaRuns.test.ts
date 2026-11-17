@@ -160,4 +160,58 @@ it.layer(NodeServices.layer)("QaRuns", (it) => {
       }),
     ),
   );
+
+  it.effect("places each verdict after the steps taken so far, and keeps them on disk", () =>
+    withQaRuns(
+      Effect.gen(function* () {
+        const qaRuns = yield* QaRuns.QaRuns;
+        const navigate = { kind: "navigate", url: "https://shop.test/login" } as const;
+        const press = { kind: "press", key: "Enter" } as const;
+        const check = { kind: "textVisible", text: "Welcome" } as const;
+        yield* qaRuns.appendStep(threadId, navigate);
+        const first = yield* qaRuns.recordEvidence(
+          threadId,
+          { scenario: "Login page", verdict: "PASS", note: "ok" },
+          page(),
+          [check],
+        );
+        yield* qaRuns.appendStep(threadId, press);
+        const second = yield* qaRuns.recordEvidence(
+          threadId,
+          { scenario: "Login", verdict: "PASS", note: "ok" },
+          page(),
+        );
+        assert.deepStrictEqual([first.stepCount, second.stepCount], [1, 2]);
+        assert.deepStrictEqual(first.checks, [check]);
+        const finished = yield* qaRuns.finishRun(threadId, { projectId: null });
+        assert.deepStrictEqual(yield* qaRuns.readSteps(finished!), [navigate, press]);
+      }),
+    ),
+  );
+
+  it.effect("keeps an agent's evidence and turn end out of a running replay", () =>
+    withQaRuns(
+      Effect.gen(function* () {
+        const qaRuns = yield* QaRuns.QaRuns;
+        const input = { scenario: "Home loads", verdict: "PASS", note: "ok" } as const;
+        const replay = yield* qaRuns.startRegressionRun(threadId, {
+          suiteId: "suite-1",
+          site: "https://shop.test",
+        });
+        const refused = yield* qaRuns.recordEvidence(threadId, input, page()).pipe(Effect.flip);
+        assert.include(refused.message, "regression replay is running");
+        yield* qaRuns.appendStep(threadId, { kind: "press", key: "Enter" });
+        assert.isNull(yield* qaRuns.finishRun(threadId, { projectId: null }));
+        const replayed = yield* qaRuns.recordReplayedScenario(threadId, input, page(), {
+          checks: [],
+          stepCount: 0,
+        });
+        assert.strictEqual(replayed.stepCount, 0);
+        const finished = yield* qaRuns.finishRun(threadId, { projectId: null, kind: "regression" });
+        assert.strictEqual(finished?.runId, replay.runId);
+        assert.strictEqual(finished?.kind, "regression");
+        assert.deepStrictEqual(yield* qaRuns.readSteps(finished!), []);
+      }),
+    ),
+  );
 });
