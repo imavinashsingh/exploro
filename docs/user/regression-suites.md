@@ -37,10 +37,54 @@ like any other run.
 
 ## What the verdicts mean
 
-- **PASS**: every saved check held.
-- **FAIL**: the steps ran, but a check did not hold. This is a regression in the site.
+- **PASS**: every saved check held, and the page looks like its baseline.
+- **FAIL**: the steps ran, but a check did not hold, or the page looks different from its
+  baseline (**FAIL (visual)**). This is a regression in the site.
 - **INCONCLUSIVE**: a step could not run, usually because the page changed. The test needs
   updating; it is not a verdict on the site. Scenarios after a broken step are not run.
+
+## Visual checks
+
+Each replay draws the page at a fixed size with animations off, and compares every scenario with
+a baseline screenshot. The first replay saves the baseline. Later replays fail when more of the
+page differs than the suite allows (1% of pixels by default). The scenario shows the baseline,
+the new capture and the difference; if the new look is intended, choose **Accept as new
+baseline**.
+
+In the suite's settings, list selectors for content that changes every run, such as a clock, so
+both captures hide it. Mask an element that keeps the same size: a mask covers the element's box,
+so text that grows or shrinks still moves what is around it.
+
+## Data sets
+
+To replay a suite with different values, open its settings (the gear beside the suite):
+
+1. Under **Data set**, paste or import a CSV. The first row names the parameters, and each later
+   row is one replay.
+2. Under **Texts**, replace a recorded value with `{{param:name}}`, for example typing
+   `{{param:email}}` or checking that the page shows `Welcome {{param:name}}`.
+
+Each row's run is labelled with its row number under **Test run**.
+
+## Running several suites
+
+**Run all in project** replays every suite of the project, and **Run selected** replays the ones
+you tick. Replays of different threads run side by side, each in its own browser context; the
+rest show **Queued** until a slot frees up. Set how many run at once in **Settings → Maintenance
+→ Regression replays at once** (2 by default). The last batch's summary links to the thread that
+holds each run.
+
+## Self-healing
+
+Self-healing is off by default. Turn it on in a suite's settings when you expect small UI
+changes. When a step's element is gone, the suite asks a model to find the same element on the
+page as it is now. By default this is the provider and model the suite was recorded with; you
+can pick another, and a provider that cannot do it says "Not available with this provider". Each
+call uses that provider's quota.
+
+Healing only proposes. The scenario stays inconclusive, and the suite shows the old and new
+element with **Accept and rerun** and **Dismiss**. Healing never adds steps, never changes checks
+and never passes a scenario. Accepting updates the step and replays the suite with no AI.
 
 ## Good to know
 

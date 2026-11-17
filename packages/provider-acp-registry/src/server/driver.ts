@@ -136,6 +136,7 @@ const makeUnsupportedTextGeneration = (): ProviderTextGeneration => {
     generateReviewGuide: () => unsupported("generateReviewGuide"),
     generateTranscriptionPostProcessing: () => unsupported("generateTranscriptionPostProcessing"),
     generateProjectUnderstanding: () => unsupported("generateProjectUnderstanding"),
+    generateLocatorHeal: () => unsupported("generateLocatorHeal"),
   };
 };
 

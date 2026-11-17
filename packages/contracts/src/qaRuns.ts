@@ -2,6 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import { NonNegativeInt, ProjectId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { ModelSelection } from "./modelSelection.ts";
 import { PreviewAutomationAssertion, PreviewAutomationDurableTarget } from "./previewAutomation.ts";
 
 export const QA_VERDICTS = ["PASS", "FAIL", "BLOCKED", "INCONCLUSIVE", "SKIPPED"] as const;
@@ -119,6 +120,17 @@ export const QaCheck = Schema.Union([
 ]);
 export type QaCheck = typeof QaCheck.Type;
 
+export const QaVisualResult = Schema.Struct({
+  /** Share of pixels that differ from the baseline, 0 to 1; null when the baseline was just saved. */
+  diffRatio: Schema.NullOr(Schema.Finite),
+  threshold: Schema.Finite,
+  baselinePath: Schema.String,
+  /** The masked, fixed-viewport capture compared with the baseline. */
+  capturePath: Schema.String,
+  diffPath: Schema.NullOr(Schema.String),
+});
+export type QaVisualResult = typeof QaVisualResult.Type;
+
 export const QaScenario = Schema.Struct({
   index: NonNegativeInt,
   scenario: Schema.String,
@@ -147,6 +159,8 @@ export const QaScenario = Schema.Struct({
   checks: Schema.Array(QaCheck).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   /** How many browser steps the run had taken when this verdict was recorded. */
   stepCount: Schema.NullOr(NonNegativeInt).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  /** A replay's visual comparison with the suite's baseline for this scenario. */
+  visual: Schema.NullOr(QaVisualResult).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
 });
 export type QaScenario = typeof QaScenario.Type;
 
@@ -159,6 +173,12 @@ export type QaRunVideo = typeof QaRunVideo.Type;
 export const QaSuiteId = QaRunId;
 export type QaSuiteId = typeof QaSuiteId.Type;
 
+export const QaDataRow = Schema.Struct({
+  index: NonNegativeInt,
+  values: Schema.Record(Schema.String, Schema.String),
+});
+export type QaDataRow = typeof QaDataRow.Type;
+
 export const QaRun = Schema.Struct({
   runId: QaRunId,
   threadId: ThreadId,
@@ -167,6 +187,8 @@ export const QaRun = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed("exploratory" as const)),
   ),
   suiteId: Schema.NullOr(QaSuiteId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  /** The data set row a regression run replayed with, by its 0-based index. */
+  dataRow: Schema.NullOr(QaDataRow).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   /** Null for threads without a project; set when the run finishes, since a thread can move. */
   projectId: Schema.NullOr(ProjectId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   site: Schema.NullOr(Schema.String),
@@ -213,6 +235,42 @@ export const QaSuiteScenario = Schema.Struct({
 });
 export type QaSuiteScenario = typeof QaSuiteScenario.Type;
 
+/** How a replay compares each scenario's look with its baseline. */
+export const QaSuiteVisual = Schema.Struct({
+  /** Share of pixels allowed to differ before the scenario fails, 0 to 1. */
+  threshold: Schema.Finite.check(Schema.isBetween({ minimum: 0, maximum: 1 })),
+  /** Selectors for content that changes every run, such as clocks; hidden in both captures. */
+  masks: Schema.Array(QaText(500)).check(Schema.isMaxLength(20)),
+});
+export type QaSuiteVisual = typeof QaSuiteVisual.Type;
+export const DEFAULT_QA_SUITE_VISUAL: QaSuiteVisual = { threshold: 0.01, masks: [] };
+
+export const QaParamName = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{1,40}$/));
+
+/** Rows of parameters; each row is one replay, and `{{param:name}}` reads its column. */
+export const QaDataSet = Schema.Struct({
+  columns: Schema.Array(QaParamName).check(Schema.isMaxLength(20)),
+  rows: Schema.Array(Schema.Array(QaText(2000))).check(Schema.isMaxLength(100)),
+});
+export type QaDataSet = typeof QaDataSet.Type;
+
+export const QaSuiteHealing = Schema.Struct({
+  enabled: Schema.Boolean,
+  /** Null uses the provider and model the suite was recorded with. */
+  modelSelection: Schema.NullOr(ModelSelection),
+});
+export type QaSuiteHealing = typeof QaSuiteHealing.Type;
+
+/** A new target a healing turn found for a step whose element was gone; the user decides. */
+export const QaHealProposal = Schema.Struct({
+  stepIndex: NonNegativeInt,
+  before: PreviewAutomationDurableTarget,
+  after: PreviewAutomationDurableTarget,
+  runId: QaRunId,
+  proposedAt: Schema.String,
+});
+export type QaHealProposal = typeof QaHealProposal.Type;
+
 /** A passed run saved so it can be replayed without a model. */
 export const QaSuite = Schema.Struct({
   suiteId: QaSuiteId,
@@ -225,6 +283,15 @@ export const QaSuite = Schema.Struct({
   site: Schema.NullOr(Schema.String),
   steps: Schema.Array(QaReplayStep),
   scenarios: Schema.Array(QaSuiteScenario),
+  visual: QaSuiteVisual.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_QA_SUITE_VISUAL))),
+  dataSet: QaDataSet.pipe(Schema.withDecodingDefault(Effect.succeed({ columns: [], rows: [] }))),
+  healing: QaSuiteHealing.pipe(
+    Schema.withDecodingDefault(Effect.succeed({ enabled: false, modelSelection: null })),
+  ),
+  recordedWith: Schema.NullOr(ModelSelection).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  proposals: Schema.Array(QaHealProposal).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
 });
 export type QaSuite = typeof QaSuite.Type;
 
@@ -237,10 +304,48 @@ export const QaSuiteSummary = Schema.Struct({
   site: Schema.NullOr(Schema.String),
   scenarioCount: NonNegativeInt,
   stepCount: NonNegativeInt,
+  dataRowCount: NonNegativeInt,
+  healingEnabled: Schema.Boolean,
+  proposals: Schema.Array(QaHealProposal),
 });
 export type QaSuiteSummary = typeof QaSuiteSummary.Type;
 
-export const QaSuitesSnapshot = Schema.Struct({ suites: Schema.Array(QaSuiteSummary) });
+export const QaVerdictCounts = Schema.Struct({
+  pass: NonNegativeInt,
+  fail: NonNegativeInt,
+  inconclusive: NonNegativeInt,
+});
+export type QaVerdictCounts = typeof QaVerdictCounts.Type;
+
+/** One replay in a batch: a suite, with one data row when the suite has a data set. */
+export const QaRegressionJob = Schema.Struct({
+  jobId: Schema.String,
+  suiteId: QaSuiteId,
+  suiteName: Schema.String,
+  threadId: ThreadId,
+  dataRow: Schema.NullOr(QaDataRow),
+  status: Schema.Literals(["queued", "running", "done", "failed"]),
+  runId: Schema.NullOr(QaRunId),
+  counts: Schema.NullOr(QaVerdictCounts),
+  /** Why the replay could not start. */
+  error: Schema.NullOr(Schema.String),
+});
+export type QaRegressionJob = typeof QaRegressionJob.Type;
+
+export const QaRegressionBatch = Schema.Struct({
+  batchId: Schema.String,
+  createdAt: Schema.String,
+  label: Schema.String,
+  projectId: Schema.NullOr(ProjectId),
+  jobs: Schema.Array(QaRegressionJob),
+});
+export type QaRegressionBatch = typeof QaRegressionBatch.Type;
+
+export const QaSuitesSnapshot = Schema.Struct({
+  suites: Schema.Array(QaSuiteSummary),
+  /** Recent batches since the server started, newest first. */
+  batches: Schema.Array(QaRegressionBatch).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+});
 export type QaSuitesSnapshot = typeof QaSuitesSnapshot.Type;
 
 export const QaSuiteCreateInput = Schema.Struct({
@@ -268,14 +373,52 @@ export type QaSuiteDeleteInput = typeof QaSuiteDeleteInput.Type;
 export const QaSuiteDeleteResult = Schema.Struct({ suiteId: QaSuiteId });
 export type QaSuiteDeleteResult = typeof QaSuiteDeleteResult.Type;
 
-export const QaSuiteRunInput = Schema.Struct({
+export const QaSuiteGetInput = Schema.Struct({ suiteId: QaSuiteId });
+export type QaSuiteGetInput = typeof QaSuiteGetInput.Type;
+
+/** Changes to a suite. Edited steps and checks may change only their text, never their shape. */
+export const QaSuiteUpdateInput = Schema.Struct({
   suiteId: QaSuiteId,
+  name: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(120))),
+  visual: Schema.optional(QaSuiteVisual),
+  dataSet: Schema.optional(QaDataSet),
+  healing: Schema.optional(QaSuiteHealing),
+  steps: Schema.optional(Schema.Array(QaReplayStep)),
+  scenarios: Schema.optional(Schema.Array(QaSuiteScenario)),
+});
+export type QaSuiteUpdateInput = typeof QaSuiteUpdateInput.Type;
+
+export const QaSuiteRunInput = Schema.Struct({
+  suiteIds: Schema.Array(QaSuiteId).check(Schema.isMinLength(1), Schema.isMaxLength(50)),
   /** Replay against another origin, such as staging instead of production. */
   baseUrl: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(2048))),
+  /** False replays with healing off even where a suite turns it on. */
+  heal: Schema.optional(Schema.Boolean),
+  label: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(120))),
 });
 export type QaSuiteRunInput = typeof QaSuiteRunInput.Type;
-export const QaSuiteRunStarted = Schema.Struct({ threadId: ThreadId, runId: QaRunId });
+export const QaSuiteRunStarted = Schema.Struct({ batchId: Schema.String });
 export type QaSuiteRunStarted = typeof QaSuiteRunStarted.Type;
+
+export const QaSuiteAcceptBaselineInput = Schema.Struct({
+  suiteId: QaSuiteId,
+  threadId: ThreadId,
+  runId: QaRunId,
+  scenarioIndex: NonNegativeInt,
+});
+export type QaSuiteAcceptBaselineInput = typeof QaSuiteAcceptBaselineInput.Type;
+
+export const QaSuiteResolveProposalInput = Schema.Struct({
+  suiteId: QaSuiteId,
+  stepIndex: NonNegativeInt,
+  accept: Schema.Boolean,
+});
+export type QaSuiteResolveProposalInput = typeof QaSuiteResolveProposalInput.Type;
+/** The rerun an accepted fix started, with no AI. */
+export const QaSuiteResolveProposalResult = Schema.Struct({
+  batchId: Schema.NullOr(Schema.String),
+});
+export type QaSuiteResolveProposalResult = typeof QaSuiteResolveProposalResult.Type;
 
 export class QaRunError extends Schema.TaggedError<QaRunError>()("QaRunError", {
   message: Schema.String,

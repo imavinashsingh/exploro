@@ -45,7 +45,7 @@ export class RegressStartError extends Schema.TaggedError<RegressStartError>()(
 }
 
 const SuiteList = Schema.Struct({ suites: Schema.Array(QaSuiteSummary) });
-const RunResult = Schema.Struct({ run: QaRun });
+const RunResult = Schema.Struct({ runs: Schema.Array(QaRun) });
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
 /** Picks suites by id or name; `--all` takes every one. */
@@ -107,30 +107,41 @@ export const regressCommand = Command.make("regress", {
             return yield* new RegressStartError({
               detail: `No regression suite is named '${selected.unknown}'. Run 'exploro regress' to list them.`,
             });
+          // All at once: the server's queue decides how many replay in parallel.
+          const results = yield* Effect.forEach(
+            selected.suites,
+            (suite) =>
+              tools
+                .call(
+                  "qa_regression_run",
+                  {
+                    suiteId: suite.suiteId,
+                    ...Option.match(flags.url, {
+                      onNone: () => ({}),
+                      onSome: (url) => ({ baseUrl: url }),
+                    }),
+                  },
+                  RunResult,
+                )
+                .pipe(Effect.map(({ runs }) => ({ suite, runs }))),
+            { concurrency: "unbounded" },
+          );
           const finished: Array<QaRun> = [];
-          for (const suite of selected.suites) {
-            const { run } = yield* tools.call(
-              "qa_regression_run",
-              {
-                suiteId: suite.suiteId,
-                ...Option.match(flags.url, {
-                  onNone: () => ({}),
-                  onSome: (url) => ({ baseUrl: url }),
-                }),
-              },
-              RunResult,
-            );
-            finished.push(run);
-            if (flags.json) continue;
-            yield* Console.log(`${suite.name} · ${run.scenarios.length} scenarios`);
-            for (const scenario of run.scenarios) {
-              yield* Console.log(
-                `  ${scenario.verdict.padEnd(12)} ${scenario.scenario}${
-                  scenario.verdict === "PASS" ? "" : `  ${scenario.actual ?? scenario.note}`
-                }`,
-              );
+          for (const { suite, runs } of results) {
+            for (const run of runs) {
+              finished.push(run);
+              if (flags.json) continue;
+              const row = run.dataRow === null ? "" : ` · row ${run.dataRow.index + 1}`;
+              yield* Console.log(`${suite.name}${row} · ${run.scenarios.length} scenarios`);
+              for (const scenario of run.scenarios) {
+                yield* Console.log(
+                  `  ${scenario.verdict.padEnd(12)} ${scenario.scenario}${
+                    scenario.verdict === "PASS" ? "" : `  ${scenario.actual ?? scenario.note}`
+                  }`,
+                );
+              }
+              if (run.reportHtmlPath !== null) yield* Console.log(`Report: ${run.reportHtmlPath}`);
             }
-            if (run.reportHtmlPath !== null) yield* Console.log(`Report: ${run.reportHtmlPath}`);
           }
           return finished;
         }),

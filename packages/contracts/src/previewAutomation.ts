@@ -535,6 +535,10 @@ export const PreviewAutomationCheckInput = Schema.Struct({
   settle: Schema.optional(Schema.Boolean),
   /** How long each assertion may wait to hold. */
   timeoutMs: OptionalTimeoutMs,
+  /** Also capture the viewport for a visual comparison: animations off, caret hidden, masks blanked. */
+  capture: Schema.optional(
+    Schema.Struct({ masks: Schema.Array(Schema.String).check(Schema.isMaxLength(20)) }),
+  ),
 });
 export type PreviewAutomationCheckInput = typeof PreviewAutomationCheckInput.Type;
 
@@ -547,6 +551,8 @@ export const PreviewAutomationCheckResult = Schema.Struct({
       target: Schema.NullOr(PreviewAutomationDurableTarget),
     }),
   ),
+  /** Base64 PNG, when `capture` was asked for. */
+  capture: Schema.optional(Schema.String),
 });
 export type PreviewAutomationCheckResult = typeof PreviewAutomationCheckResult.Type;
 

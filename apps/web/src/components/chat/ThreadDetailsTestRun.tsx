@@ -143,6 +143,80 @@ function EvidenceVideo(props: {
   );
 }
 
+const percent = (ratio: number) => `${(ratio * 100).toFixed(2)}%`;
+
+/** The replay's capture beside the suite's baseline, with the way to accept a new look. */
+function VisualEvidence(props: {
+  readonly environmentId: EnvironmentId;
+  readonly threadRef: ScopedThreadRef;
+  readonly run: QaRun;
+  readonly scenario: QaScenario;
+  readonly visual: NonNullable<QaScenario["visual"]>;
+}) {
+  const { visual } = props;
+  const canAccept = useAtomValue(
+    serverEnvironment.acceptQaBaseline.permissionAtom(props.environmentId),
+  );
+  const accept = useAtomCommand(serverEnvironment.acceptQaBaseline, {
+    label: "accept regression baseline",
+  });
+  const [accepted, setAccepted] = useState(false);
+  const differs = visual.diffRatio !== null && visual.diffRatio > visual.threshold;
+  const images = [
+    ["Baseline", visual.baselinePath],
+    ["Replay", visual.capturePath],
+    ["Difference", visual.diffPath],
+  ].filter((image): image is [string, string] => image[1] !== null);
+  const acceptBaseline = async () => {
+    if (props.run.suiteId === null) return;
+    const result = await accept({
+      environmentId: props.environmentId,
+      input: {
+        suiteId: props.run.suiteId,
+        threadId: props.threadRef.threadId,
+        runId: props.run.runId,
+        scenarioIndex: props.scenario.index,
+      },
+    });
+    if (result._tag === "Success") setAccepted(true);
+  };
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-muted-foreground">
+        {visual.diffRatio === null
+          ? "Visual: no baseline yet; this capture is now the baseline."
+          : `Visual: ${percent(visual.diffRatio)} of pixels differ (allowed ${percent(visual.threshold)}).`}
+      </span>
+      {visual.diffRatio === null ? null : (
+        <div className="grid grid-cols-3 gap-1">
+          {images.map(([label, path]) => (
+            <div key={label} className="flex min-w-0 flex-col gap-0.5">
+              <span className="text-2xs text-muted-foreground">{label}</span>
+              <EvidenceImage
+                environmentId={props.environmentId}
+                threadRef={props.threadRef}
+                path={path}
+                alt={`${label}: ${props.scenario.scenario}`}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+      {differs && canAccept && props.run.suiteId !== null ? (
+        <ThreadDetailsControl
+          size="xs"
+          variant="ghost"
+          part="meta"
+          disabled={accepted}
+          onClick={() => void acceptBaseline()}
+        >
+          {accepted ? "Accepted as new baseline" : "Accept as new baseline"}
+        </ThreadDetailsControl>
+      ) : null}
+    </div>
+  );
+}
+
 function ScenarioEvidence(props: {
   readonly environmentId: EnvironmentId;
   readonly threadRef: ScopedThreadRef;
@@ -198,6 +272,15 @@ function ScenarioEvidence(props: {
       ) : (
         <p className="m-0 text-muted-foreground">No screenshot</p>
       )}
+      {scenario.visual ? (
+        <VisualEvidence
+          environmentId={props.environmentId}
+          threadRef={props.threadRef}
+          run={props.run}
+          scenario={scenario}
+          visual={scenario.visual}
+        />
+      ) : null}
       {props.run.video && scenario.videoOffsetMs !== null ? (
         <div className="flex flex-col gap-1">
           <span className="text-muted-foreground">
@@ -418,6 +501,18 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
                   Regression
                 </Badge>
               ) : null}
+              {run.dataRow === null ? null : (
+                <>
+                  <Badge size="sm" variant="outline">
+                    Row {run.dataRow.index + 1}
+                  </Badge>
+                  <span className="min-w-0 truncate text-2xs text-muted-foreground">
+                    {Object.entries(run.dataRow.values)
+                      .map(([name, value]) => `${name}=${value}`)
+                      .join(", ")}
+                  </span>
+                </>
+              )}
               <span className="text-2xs text-muted-foreground">
                 {run.finishedAt === null ? "Running" : runStartedLabel(run)}
               </span>

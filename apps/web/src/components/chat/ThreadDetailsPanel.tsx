@@ -222,6 +222,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                 <ThreadDetailsRegression
                   environmentId={props.environmentId}
                   threadId={props.threadId}
+                  projectId={props.projectId}
                 />
               ) : null}
 

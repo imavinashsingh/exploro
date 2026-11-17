@@ -146,7 +146,11 @@ export const layer = McpToolAccess.toLayer(QaToolkit, {
   qa_regression_run: McpToolAccess.writes(({ suiteId, baseUrl }) =>
     Effect.gen(function* () {
       const suites = yield* QaSuites.QaSuites;
-      return { run: yield* suites.run({ suiteId, ...(baseUrl === undefined ? {} : { baseUrl }) }) };
+      const { runs } = yield* suites.run({
+        suiteIds: [suiteId],
+        ...(baseUrl === undefined ? {} : { baseUrl }),
+      });
+      return { runs };
     }),
   ),
   qa_report_finish: McpToolAccess.actsAsCaller(() =>

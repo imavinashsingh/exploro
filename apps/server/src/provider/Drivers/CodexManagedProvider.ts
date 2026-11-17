@@ -293,6 +293,8 @@ export const makeManagedCodexProvider = Effect.fn("makeManagedCodexProvider")(fu
       ),
     generateProjectUnderstanding: (value) =>
       protect("generateProjectUnderstanding", nativeGeneration.generateProjectUnderstanding(value)),
+    generateLocatorHeal: (value) =>
+      protect("generateLocatorHeal", nativeGeneration.generateLocatorHeal(value)),
   };
   return {
     instanceId,

@@ -413,6 +413,12 @@ import {
   QaSuiteDeleteResult,
   QaSuiteRunInput,
   QaSuiteRunStarted,
+  QaSuite,
+  QaSuiteGetInput,
+  QaSuiteUpdateInput,
+  QaSuiteAcceptBaselineInput,
+  QaSuiteResolveProposalInput,
+  QaSuiteResolveProposalResult,
   QaSuitesSnapshot,
 } from "./qaRuns.ts";
 import { SecretRequestAnswerInput, SecretRequestError } from "./secretRequest.ts";
@@ -598,6 +604,10 @@ export const WS_METHODS = {
   qaSuitesCreate: "qaSuites.create",
   qaSuitesDelete: "qaSuites.delete",
   qaSuitesRun: "qaSuites.run",
+  qaSuitesGet: "qaSuites.get",
+  qaSuitesUpdate: "qaSuites.update",
+  qaSuitesAcceptBaseline: "qaSuites.acceptBaseline",
+  qaSuitesResolveProposal: "qaSuites.resolveProposal",
   scheduledTasksUpsert: "scheduledTasks.upsert",
   scheduledTasksSetEnabled: "scheduledTasks.setEnabled",
   scheduledTasksDelete: "scheduledTasks.delete",
@@ -2145,6 +2155,26 @@ const WsQaSuitesRunRpc = Rpc.make(WS_METHODS.qaSuitesRun, {
   success: QaSuiteRunStarted,
   error: qaRunErrors,
 });
+const WsQaSuitesGetRpc = Rpc.make(WS_METHODS.qaSuitesGet, {
+  payload: QaSuiteGetInput,
+  success: QaSuite,
+  error: qaRunErrors,
+});
+const WsQaSuitesUpdateRpc = Rpc.make(WS_METHODS.qaSuitesUpdate, {
+  payload: QaSuiteUpdateInput,
+  success: QaSuite,
+  error: qaRunErrors,
+});
+const WsQaSuitesAcceptBaselineRpc = Rpc.make(WS_METHODS.qaSuitesAcceptBaseline, {
+  payload: QaSuiteAcceptBaselineInput,
+  success: Schema.Void,
+  error: qaRunErrors,
+});
+const WsQaSuitesResolveProposalRpc = Rpc.make(WS_METHODS.qaSuitesResolveProposal, {
+  payload: QaSuiteResolveProposalInput,
+  success: QaSuiteResolveProposalResult,
+  error: qaRunErrors,
+});
 
 const WsScheduledTasksSubscribeRpc = Rpc.make(WS_METHODS.scheduledTasksSubscribe, {
   payload: ScheduledTaskListInput,
@@ -2312,6 +2342,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsQaSuitesCreateRpc,
   WsQaSuitesDeleteRpc,
   WsQaSuitesRunRpc,
+  WsQaSuitesGetRpc,
+  WsQaSuitesUpdateRpc,
+  WsQaSuitesAcceptBaselineRpc,
+  WsQaSuitesResolveProposalRpc,
   WsScheduledTasksUpsertRpc,
   WsScheduledTasksSetEnabledRpc,
   WsScheduledTasksDeleteRpc,

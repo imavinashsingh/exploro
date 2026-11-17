@@ -24,6 +24,21 @@ function videoLine(run: QaRun): string {
   return `video unavailable${run.videoUnavailableReason ? `: ${run.videoUnavailableReason}` : ""}`;
 }
 
+const percent = (ratio: number) => `${(ratio * 100).toFixed(2)}%`;
+
+/** How the scenario's look compared with its baseline, in words. */
+export function describeVisual(visual: NonNullable<QaScenario["visual"]>): string {
+  if (visual.diffRatio === null) return "No baseline yet; this capture is now the baseline.";
+  return `${percent(visual.diffRatio)} of pixels differ from the baseline (allowed ${percent(visual.threshold)}).`;
+}
+
+const visualImages = (visual: NonNullable<QaScenario["visual"]>) =>
+  [
+    ["Baseline", visual.baselinePath],
+    ["Replay", visual.capturePath],
+    ["Difference", visual.diffPath],
+  ].filter((image): image is [string, string] => image[1] !== null);
+
 function markdownScenario(scenario: QaScenario): string {
   const lines = [`### ${scenario.index + 1}. ${scenario.scenario}: ${scenario.verdict}`, ""];
   if (scenario.downgradeReason) lines.push(`> ${scenario.downgradeReason}`, "");
@@ -45,6 +60,11 @@ function markdownScenario(scenario: QaScenario): string {
   if (scenario.screenshotPath) {
     lines.push("", `![${scenario.scenario}](${evidenceRef(scenario.screenshotPath)})`);
   }
+  if (scenario.visual) {
+    lines.push("", `**Visual:** ${describeVisual(scenario.visual)}`, "");
+    for (const [label, path] of visualImages(scenario.visual))
+      lines.push(`![${label}](${evidenceRef(path)})`);
+  }
   return lines.join("\n");
 }
 
@@ -54,6 +74,9 @@ export function renderMarkdownReport(run: QaRun): string {
   return [
     `# QA report${run.site ? `: ${run.site}` : ""}`,
     "",
+    ...(run.dataRow
+      ? [`- **Data row ${run.dataRow.index + 1}:** ${dataRowLabel(run.dataRow)}`]
+      : []),
     `- **Started:** ${run.startedAt}`,
     `- **Finished:** ${run.finishedAt ?? "not finished"}`,
     `- **Video:** ${videoLine(run)}`,
@@ -67,6 +90,11 @@ export function renderMarkdownReport(run: QaRun): string {
     "",
   ].join("\n");
 }
+
+const dataRowLabel = (row: NonNullable<QaRun["dataRow"]>) =>
+  Object.entries(row.values)
+    .map(([name, value]) => `${name}=${value}`)
+    .join(", ");
 
 const escapeHtml = (text: string) =>
   text.replace(
@@ -83,7 +111,23 @@ const VERDICT_COLORS: Record<QaVerdict, string> = {
   SKIPPED: "#6b7280",
 };
 
-function htmlScenario(scenario: QaScenario, screenshot: string | null, hasVideo: boolean): string {
+function htmlScenario(
+  scenario: QaScenario,
+  imageBase64: (path: string) => string | null,
+  hasVideo: boolean,
+): string {
+  const screenshot = scenario.screenshotPath ? imageBase64(scenario.screenshotPath) : null;
+  const visual = scenario.visual
+    ? `<p><strong>Visual:</strong> ${escapeHtml(describeVisual(scenario.visual))}</p>
+<div class="visual">${visualImages(scenario.visual)
+        .map(([label, path]) => {
+          const data = imageBase64(path);
+          return data === null
+            ? ""
+            : `<figure><figcaption>${label}</figcaption><img alt="${label}" src="data:image/png;base64,${data}"></figure>`;
+        })
+        .join("")}</div>`
+    : "";
   const facts = [
     scenario.severity ? ["Severity", scenario.severity] : null,
     scenario.expected ? ["Expected", scenario.expected] : null,
@@ -105,14 +149,12 @@ ${scenario.steps.length > 0 ? `<ol>${scenario.steps.map((step) => `<li>${escapeH
 ${scenario.consoleErrors.length > 0 ? `<pre>${escapeHtml(scenario.consoleErrors.join("\n"))}</pre>` : ""}
 ${video}
 ${screenshot ? `<img alt="${escapeHtml(scenario.scenario)}" src="data:image/png;base64,${screenshot}">` : ""}
+${visual}
 </section>`;
 }
 
 /** Self-contained: screenshots are inlined, the video is the file beside the report. */
-export function renderHtmlReport(
-  run: QaRun,
-  screenshotBase64: (path: string) => string | null,
-): string {
+export function renderHtmlReport(run: QaRun, imageBase64: (path: string) => string | null): string {
   const counts = verdictCounts(run);
   const title = `QA report${run.site ? `: ${run.site}` : ""}`;
   return `<!doctype html>
@@ -130,9 +172,11 @@ body{font:15px/1.5 system-ui,sans-serif;color:var(--fg);background:var(--bg);max
 .note{color:var(--muted);font-style:italic}
 dl{display:grid;grid-template-columns:max-content 1fr;gap:2px 12px}dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere}
 img,video{max-width:100%;border:1px solid var(--line);border-radius:6px}
+.visual{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}figure{margin:0}figcaption{color:var(--muted);font-size:13px}
 pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;background:rgba(127,127,127,.12);padding:8px;border-radius:6px}
 </style></head><body>
 <h1>${escapeHtml(title)}</h1>
+${run.dataRow ? `<p>Data row ${run.dataRow.index + 1}: ${escapeHtml(dataRowLabel(run.dataRow))}</p>` : ""}
 <p>Started ${escapeHtml(run.startedAt)}${run.finishedAt ? `, finished ${escapeHtml(run.finishedAt)}` : ""}</p>
 <div class="summary">${QA_VERDICTS.map((verdict) => `<span>${verdict} ${counts[verdict]}</span>`).join("")}</div>
 ${run.video ? `<video controls preload="metadata" src="evidence/${QA_VIDEO_FILE}"></video>` : `<p class="note">${escapeHtml(videoLine(run))}</p>`}
@@ -141,13 +185,7 @@ ${
   run.scenarios.length === 0
     ? "<p>No scenarios were recorded.</p>"
     : run.scenarios
-        .map((scenario) =>
-          htmlScenario(
-            scenario,
-            scenario.screenshotPath ? screenshotBase64(scenario.screenshotPath) : null,
-            run.video !== null,
-          ),
-        )
+        .map((scenario) => htmlScenario(scenario, imageBase64, run.video !== null))
         .join("\n")
 }
 </body></html>
