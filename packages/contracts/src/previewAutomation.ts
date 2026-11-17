@@ -459,11 +459,7 @@ export const PreviewAutomationActInput = Schema.Struct({
   button: Schema.optional(Schema.Literals(["left", "right", "middle"])),
   clickCount: Schema.optional(Schema.Int),
   text: Schema.optional(Schema.String),
-  secretRef: Schema.optional(
-    SecretRef.annotate({
-      description: "type only, in place of `text`: a `request_secret` ref, typed unseen.",
-    }),
-  ),
+  secretRef: Schema.optional(SecretRef),
   clear: Schema.optional(Schema.Boolean),
   values: Schema.optional(Schema.Array(Schema.String)),
   source: Schema.optional(Locator),
