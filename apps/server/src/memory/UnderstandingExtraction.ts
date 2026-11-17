@@ -26,7 +26,11 @@ import * as ProjectMemory from "./ProjectMemory.ts";
 import * as ProjectUnderstanding from "./ProjectUnderstanding.ts";
 import { memoryEnvironment } from "./projectMemoryFacts.ts";
 import { hideProvidedSecrets, providedSecrets } from "./providedSecrets.ts";
-import { buildExtractionPrompt, planUnderstandingWrites } from "./understandingPrompt.ts";
+import {
+  buildExtractionPrompt,
+  planFactReplacements,
+  planUnderstandingWrites,
+} from "./understandingPrompt.ts";
 
 /**
  * Learns understanding from finished runs in the background, one structured generation per run,
@@ -94,8 +98,14 @@ const make = Effect.gen(function* () {
     const records = yield* threads.getThreadRecords(threadId, ["messages"], {
       messageRoles: ["user"],
     });
+    // Server-made "user" messages, such as an answer to the agent's question, quote agent text.
     const typed = records.messages
-      .filter((message) => !message.streaming && message.text.trim().length > 0)
+      .filter(
+        (message) =>
+          !message.streaming &&
+          message.creationSource !== "server" &&
+          message.text.trim().length > 0,
+      )
       .map((message) => message.text);
     // The model never sees the user's passwords, so it cannot copy them into memory.
     const secrets = providedSecrets(typed);
@@ -112,10 +122,25 @@ const make = Effect.gen(function* () {
       [...facts.map((fact) => `${fact.key} ${fact.value}`), ...userMessages].join("\n"),
       { limit: 15 },
     );
+    const runFactIds = new Set(facts.map((fact) => fact.factId));
+    const pages = new Map(
+      facts.map((fact) => [`${fact.environment} ${fact.route} ${fact.kind}`, fact] as const),
+    );
+    const earlier = (yield* Effect.forEach([...pages.values()], (fact) =>
+      memory.lookupFacts(projectId, {
+        environment: fact.environment,
+        route: fact.route,
+        kind: fact.kind,
+        limit: 20,
+      }),
+    ))
+      .flat()
+      .filter((fact) => !runFactIds.has(fact.factId) && fact.author !== "user");
     const input = {
       projectTitle: project.value.title,
       site: environment,
       facts,
+      earlier,
       related: related.items.map(({ item }) => item),
       userMessages,
     };
@@ -152,6 +177,7 @@ const make = Effect.gen(function* () {
         };
       }),
     );
+    yield* memory.supersedeFacts(projectId, planFactReplacements(output, input));
     yield* understanding.saveItems(projectId, writes, { environment });
   });
 

@@ -49,8 +49,37 @@ export interface RunResultFact {
   readonly observedAt: string;
 }
 
-/** One `result` fact per scenario that has a page on an http(s) site. */
-export function resultFactsFor(run: QaRun): ReadonlyArray<RunResultFact> {
+const withoutFragment = (url: string) => url.split("#", 1)[0];
+
+/**
+ * The page a scenario opened when the site redirected it to `pageUrl`: its first request was a
+ * same-site GET redirect that ended on `pageUrl`. A redirect after a form POST is not one.
+ */
+export function openedBeforeRedirect(
+  requests: ReadonlyArray<unknown>,
+  pageUrl: string,
+): string | null {
+  const isRequest = (
+    entry: unknown,
+  ): entry is { readonly url: string; readonly method?: unknown; readonly status?: unknown } =>
+    typeof entry === "object" && entry !== null && "url" in entry && typeof entry.url === "string";
+  const [first, ...rest] = requests.filter(isRequest);
+  if (first === undefined || first.method !== "GET") return null;
+  if (typeof first.status !== "number" || first.status < 300 || first.status >= 400) return null;
+  const environment = memoryEnvironment(first.url);
+  if (environment === null || environment !== memoryEnvironment(pageUrl)) return null;
+  const landed = withoutFragment(pageUrl);
+  return rest.some((entry) => withoutFragment(entry.url) === landed) ? first.url : null;
+}
+
+/**
+ * One `result` fact per scenario that has a page on an http(s) site, filed under the page the
+ * scenario opened (`opened`, by scenario index) when a redirect moved it elsewhere.
+ */
+export function resultFactsFor(
+  run: QaRun,
+  opened: ReadonlyMap<number, string> = new Map(),
+): ReadonlyArray<RunResultFact> {
   return run.scenarios.flatMap((scenario) => {
     const url = scenario.pageUrl ?? run.site;
     const environment = url === null ? null : memoryEnvironment(url);
@@ -72,7 +101,7 @@ export function resultFactsFor(run: QaRun): ReadonlyArray<RunResultFact> {
         observedAt: scenario.recordedAt,
         input: redactFactInput({
           environment,
-          route: memoryRoute(url),
+          route: memoryRoute(opened.get(scenario.index) ?? url),
           kind: "result",
           key: scenario.scenario,
           value:

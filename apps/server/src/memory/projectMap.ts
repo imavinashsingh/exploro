@@ -18,6 +18,35 @@ const isFail = (value: string) => value === "FAIL" || value.startsWith("FAIL ");
 const navigationTarget = (value: string) =>
   value.replace(/^\s*(?:→|->|=>)\s*/, "").split(/\s+/, 1)[0] ?? "";
 
+const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+
+/**
+ * The pages a dependency is about: the cited page its statement names first, by path or by the
+ * path's last segment ("Dashboard needs…" → /dashboard). Other cited pages are prerequisites.
+ * When it names none, every cited page.
+ */
+function dependentPages(
+  statement: string,
+  cited: ReadonlyMap<string, ProjectMemoryMapPage>,
+): ReadonlyArray<string> {
+  const text = statement.toLowerCase();
+  const position = (route: string) => {
+    const segment = route.split("/").findLast((part) => part !== "" && !part.startsWith(":"));
+    const found = [
+      route === "/"
+        ? -1
+        : text.search(new RegExp(`${escape(route.toLowerCase())}(?![\\w/-])`, "u")),
+      segment === undefined
+        ? -1
+        : text.search(new RegExp(`\\b${escape(segment.toLowerCase())}\\b`, "u")),
+    ].filter((index) => index >= 0);
+    return found.length === 0 ? Infinity : Math.min(...found);
+  };
+  const ranked = [...cited].map(([key, page]) => [key, position(page.route)] as const);
+  const first = Math.min(...ranked.map(([, index]) => index));
+  return ranked.filter(([, index]) => index === first).map(([key]) => key);
+}
+
 export function buildProjectMap(
   facts: ReadonlyArray<ProjectMemoryFact>,
   understanding: ReadonlyArray<ProjectUnderstandingItem> = [],
@@ -93,10 +122,13 @@ export function buildProjectMap(
       const fact = byId.get(id);
       if (fact === undefined || fact.projectId !== item.projectId) continue;
       const key = pageKey(fact.environment, fact.route);
-      const page = pages.get(key)!;
-      touched.set(key, page);
-      if (item.kind === "dependency")
+      touched.set(key, pages.get(key)!);
+    }
+    if (item.kind === "dependency") {
+      for (const key of dependentPages(item.statement, touched)) {
+        const page = pages.get(key)!;
         pages.set(key, { ...page, needs: [...new Set([...page.needs, item.statement])] });
+      }
     }
     if (item.kind === "workflow" && touched.size > 0) {
       workflows.push({

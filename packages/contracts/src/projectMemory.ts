@@ -137,6 +137,10 @@ export const ProjectUnderstandingExtraction = Schema.Struct({
       userQuote: Schema.NullOr(Schema.String),
     }),
   ),
+  /** Earlier facts that a fact of this run restates in other words. */
+  replacedFacts: Schema.optionalKey(
+    Schema.Array(Schema.Struct({ factId: Schema.String, byFactId: Schema.String })),
+  ),
 });
 export type ProjectUnderstandingExtraction = typeof ProjectUnderstandingExtraction.Type;
 

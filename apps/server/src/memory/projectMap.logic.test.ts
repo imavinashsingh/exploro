@@ -40,11 +40,12 @@ const pages = (
 const item = (
   kind: "dependency" | "workflow",
   citedFactIds: ReadonlyArray<string>,
+  statement = "signed-in session",
 ): ProjectUnderstandingItem => ({
   itemId: kind,
   projectId: ProjectId.make("shop"),
   kind,
-  statement: "signed-in session",
+  statement,
   status: "verified",
   author: "agent",
   version: 1,
@@ -125,6 +126,21 @@ describe("project map", () => {
       ["signed-in session"],
     ]);
     expect(map.workflows[0]?.pages.map((page) => page.route)).toEqual(["/dashboard", "/login"]);
+
+    // A statement that names one of its pages labels only that page, not the prerequisite.
+    const named = (statement: string) =>
+      pages(
+        buildProjectMap(
+          [fact("a", "/login"), fact("b", "/secure"), fact("c", "/account/settings")],
+          [item("dependency", ["a", "b", "c"], statement)],
+        ).environments[0]!.tree,
+      )
+        .filter((page) => page.needs.length > 0)
+        .map((page) => page.route);
+    expect(named("/secure is only reached after a successful login at /login")).toEqual([
+      "/secure",
+    ]);
+    expect(named("Settings need a signed-in session")).toEqual(["/account/settings"]);
   });
 
   it("collapses branches after the first 50 names and caps text output", () => {

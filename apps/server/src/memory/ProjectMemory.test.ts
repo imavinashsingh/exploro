@@ -73,12 +73,17 @@ const withMemory = <A, E>(
 /** A finished run in `projectId` with one scenario per entry. */
 const finishedRun = (
   projectId: ProjectId | null,
-  scenarios: ReadonlyArray<{ scenario: string; verdict: "PASS" | "FAIL"; url: string }>,
+  scenarios: ReadonlyArray<{
+    scenario: string;
+    verdict: "PASS" | "FAIL";
+    url: string;
+    requests?: QaRuns.QaPageCapture["networkEntries"];
+  }>,
   thread = threadId,
 ) =>
   Effect.gen(function* () {
     const qaRuns = yield* QaRuns.QaRuns;
-    for (const { scenario, verdict, url } of scenarios) {
+    for (const { scenario, verdict, url, requests = [] } of scenarios) {
       yield* qaRuns.recordEvidence(
         thread,
         {
@@ -87,7 +92,7 @@ const finishedRun = (
           note: `${scenario}: ${verdict}`,
           severity: verdict === "FAIL" ? "major" : undefined,
         },
-        page(url),
+        { ...page(url), networkEntries: requests },
       );
     }
     return (yield* qaRuns.finishRun(thread, { projectId }))!;
@@ -172,11 +177,57 @@ it.layer(NodeServices.layer)("ProjectMemory", (it) => {
         const run = yield* finishedRun(shop, [
           { scenario: "Login works", verdict: "PASS", url: "https://shop.test/login?next=/" },
           { scenario: "Order opens", verdict: "FAIL", url: "https://shop.test/orders/4812" },
+          // Opening a guarded page redirects; the result belongs to the page that was opened.
+          {
+            scenario: "Account needs a session",
+            verdict: "PASS",
+            url: "https://shop.test/login",
+            requests: [
+              {
+                url: "https://shop.test/account",
+                method: "GET",
+                status: 302,
+                failed: false,
+                timestamp: "t",
+              },
+              {
+                url: "https://shop.test/login",
+                method: "GET",
+                status: 200,
+                failed: false,
+                timestamp: "t",
+              },
+            ],
+          },
+          // Submitting a form redirects too, but the result is about where it landed.
+          {
+            scenario: "Sign in lands on the dashboard",
+            verdict: "PASS",
+            url: "https://shop.test/dashboard",
+            requests: [
+              {
+                url: "https://shop.test/login",
+                method: "POST",
+                status: 303,
+                failed: false,
+                timestamp: "t",
+              },
+              {
+                url: "https://shop.test/dashboard",
+                method: "GET",
+                status: 200,
+                failed: false,
+                timestamp: "t",
+              },
+            ],
+          },
         ]);
         const facts = yield* memory.lookupFacts(shop, { kind: "result" });
         assert.deepStrictEqual(
           facts.map((row) => [row.route, row.key, row.value, row.author]).toSorted(),
           [
+            ["/account", "Account needs a session", "PASS", "server"],
+            ["/dashboard", "Sign in lands on the dashboard", "PASS", "server"],
             ["/login", "Login works", "PASS", "server"],
             ["/orders/:id", "Order opens", "FAIL major", "server"],
           ],

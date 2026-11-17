@@ -71,7 +71,9 @@ const withUnderstanding = <A, E>(
     readonly memoryOff?: boolean;
     readonly embedder?: Layer.Layer<MemoryEmbedder.MemoryEmbedder>;
     readonly generate?: Generate;
-    readonly userMessages?: ReadonlyArray<string>;
+    readonly userMessages?: ReadonlyArray<
+      string | { readonly text: string; readonly creationSource: string }
+    >;
   } = {},
 ) =>
   Effect.gen(function* () {
@@ -81,7 +83,11 @@ const withUnderstanding = <A, E>(
       thread: { projectId: shop, deletedAt: null },
       runs: options.active ? [{ status: "running" }] : [],
       runtimeRequests: [],
-      messages: (options.userMessages ?? []).map((text) => ({ text, streaming: false })),
+      messages: (options.userMessages ?? []).map((message) =>
+        typeof message === "string"
+          ? { text: message, streaming: false, creationSource: "web" }
+          : { ...message, streaming: false },
+      ),
     };
     return yield* body.pipe(
       Effect.provide(
@@ -471,6 +477,8 @@ it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
         userMessages: [
           "Coupons only apply at checkout. Please retest the cart.",
           "Sign in as admin, the password is s3cret_pw.",
+          // An answer to the agent's question carries the question's text, which the user never wrote.
+          { text: "Admins skip checkout. May I test as admin?\nYes", creationSource: "server" },
         ],
         generate: (input) => {
           // The model never sees a password the user gave, so it cannot learn it.
@@ -533,6 +541,73 @@ it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
         },
       },
     ),
+  );
+
+  it.effect(
+    "replaces an earlier fact that a run restates in other words, until that run goes",
+    () =>
+      withUnderstanding(
+        Effect.gen(function* () {
+          const extraction = yield* UnderstandingExtraction.UnderstandingExtraction;
+          const memory = yield* ProjectMemory.ProjectMemory;
+          const first = yield* finishedRun(shop, [
+            { scenario: "Locked out user is rejected", verdict: "PASS", path: "/login" },
+          ]);
+          const second = yield* finishedRun(shop, [
+            { scenario: "locked_out_user cannot sign in", verdict: "FAIL", path: "/login" },
+          ]);
+          yield* extraction.enqueue(second.run);
+          yield* extraction.extract(second.run.runId);
+          const current = () =>
+            memory
+              .lookupFacts(shop, { kind: "result" })
+              .pipe(Effect.map((facts) => facts.map((fact) => [fact.key, fact.supersededBy])));
+          assert.deepStrictEqual(yield* current(), [["locked_out_user cannot sign in", null]]);
+          assert.strictEqual(
+            (yield* memory.lookupFacts(shop, { status: "superseded" }))[0]?.supersededBy,
+            second.facts[0]?.factId,
+          );
+
+          const rule = yield* memory.putFact(shop, {
+            environment: site,
+            route: "/login",
+            kind: "result",
+            key: "Locked out users must be refused",
+            value: "PASS",
+            evidence: [],
+            author: "user",
+          });
+          assert.strictEqual(
+            yield* memory.supersedeFacts(shop, [
+              { factId: rule!.factId, byFactId: second.facts[0]!.factId },
+              { factId: second.facts[0]!.factId, byFactId: first.facts[0]!.factId },
+            ]),
+            0,
+          );
+
+          yield* memory.forgetRun(second.run.runId);
+          assert.deepStrictEqual((yield* current()).toSorted(), [
+            ["Locked out user is rejected", null],
+            ["Locked out users must be refused", null],
+          ]);
+        }),
+        {
+          generate: (input) => {
+            const id = (key: string) =>
+              new RegExp(`\\[([^\\]]+)\\] result \\S+ "${key}"`).exec(input.prompt)?.[1] ?? "";
+            const earlier = id("Locked out user is rejected");
+            const latest = id("locked_out_user cannot sign in");
+            return Effect.succeed({
+              items: [],
+              replacedFacts: [
+                { factId: earlier, byFactId: latest },
+                // Not an earlier fact the model was shown.
+                { factId: latest, byFactId: latest },
+              ],
+            });
+          },
+        },
+      ),
   );
 
   it.effect("records a failed extraction without touching the run, and retries it", () =>

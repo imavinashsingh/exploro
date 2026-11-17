@@ -33,6 +33,7 @@ import { qaThreadFolder } from "../qa/qaEvidence.ts";
 import {
   memoryEnvironment,
   memoryRoute,
+  openedBeforeRedirect,
   projectOrigins,
   redactFactInput,
   resultFactsFor,
@@ -81,6 +82,14 @@ export class ProjectMemory extends Context.Service<
       projectId: ProjectId,
       factId: string,
     ) => Effect.Effect<void, ProjectMemoryError>;
+    /**
+     * Marks earlier facts as superseded by a newer fact that says the same thing in other words.
+     * Skips pairs on different sites or kinds, user facts, and replacements that are not newer.
+     */
+    readonly supersedeFacts: (
+      projectId: ProjectId,
+      replacements: ReadonlyArray<{ readonly factId: string; readonly byFactId: string }>,
+    ) => Effect.Effect<number, ProjectMemoryError>;
     /** Writes one `result` fact per scenario of a finished run that belongs to a project. */
     readonly recordRun: (
       run: QaRun,
@@ -129,6 +138,8 @@ const decodeLogJson = Schema.decodeUnknownOption(
 );
 
 const DEFAULT_LOOKUP_LIMIT = 100;
+// A run that could not check a scenario says nothing new about it.
+const isObservedVerdict = (value: string) => /^(PASS|FAIL)\b/u.test(value);
 
 const isProjectMemoryError = Schema.is(ProjectMemoryError);
 const failure = (message: string) => (cause: unknown) =>
@@ -347,6 +358,15 @@ const make = Effect.gen(function* () {
   const deleteRows = Effect.fnUntraced(function* (rows: ReadonlyArray<FactRow>) {
     for (const row of rows) {
       yield* sql`DELETE FROM project_memory_facts WHERE fact_id = ${row.factId}`;
+      // Facts this one replaced under another key are the latest knowledge again.
+      if (row.status === "current") {
+        yield* sql`
+          UPDATE project_memory_facts SET status = 'current', superseded_by = NULL
+          WHERE superseded_by = ${row.factId}
+            AND NOT (environment = ${row.environment} AND route = ${row.route}
+              AND kind = ${row.kind} AND fact_key = ${row.key})
+        `;
+      }
       yield* sql`
         UPDATE project_memory_facts SET superseded_by = ${row.supersededBy}
         WHERE superseded_by = ${row.factId}
@@ -533,6 +553,43 @@ const make = Effect.gen(function* () {
       Effect.mapError(failure("Could not delete the fact.")),
     ),
 
+    supersedeFacts: Effect.fn("ProjectMemory.supersedeFacts")(
+      function* (projectId, replacements) {
+        return yield* sql.withTransaction(
+          Effect.gen(function* () {
+            let replaced = 0;
+            for (const { factId, byFactId } of replacements) {
+              if (factId === byFactId) continue;
+              const rows = yield* sql`
+                ${selectFacts}
+                WHERE project_id = ${projectId} AND fact_id IN (${factId}, ${byFactId})
+                  AND status IN ('current', 'stale')
+              `.pipe(Effect.flatMap(decodeRows));
+              const old = rows.find((row) => row.factId === factId);
+              const by = rows.find((row) => row.factId === byFactId);
+              if (
+                old === undefined ||
+                by === undefined ||
+                old.author === "user" ||
+                old.environment !== by.environment ||
+                old.kind !== by.kind ||
+                old.observedAt > by.observedAt ||
+                (by.kind === "result" && !isObservedVerdict(by.value))
+              )
+                continue;
+              yield* sql`
+                UPDATE project_memory_facts SET status = 'superseded', superseded_by = ${byFactId}
+                WHERE fact_id = ${factId}
+              `;
+              replaced += 1;
+            }
+            return replaced;
+          }),
+        );
+      },
+      Effect.mapError(failure("Could not replace the facts.")),
+    ),
+
     recordRun: Effect.fn("ProjectMemory.recordRun")(
       function* (run, secrets = []) {
         const projectId = run.projectId;
@@ -544,8 +601,20 @@ const make = Effect.gen(function* () {
             AND json_extract(evidence.value, '$.runId') = ${run.runId}
         `;
         const recordedScenarios = new Set(recorded.map((row) => row.scenarioIndex));
+        const opened = new Map<number, string>();
+        for (const scenario of run.scenarios) {
+          if (scenario.pageUrl === null || scenario.networkPath === null) continue;
+          const requests = decodeLogJson(
+            yield* fileSystem
+              .readFileString(scenario.networkPath)
+              .pipe(Effect.orElseSucceed(() => "")),
+          );
+          if (requests._tag === "None") continue;
+          const url = openedBeforeRedirect(requests.value, scenario.pageUrl);
+          if (url !== null) opened.set(scenario.index, url);
+        }
         let written = 0;
-        for (const { input, observedAt } of resultFactsFor(run)) {
+        for (const { input, observedAt } of resultFactsFor(run, opened)) {
           if (recordedScenarios.has(input.evidence[0]?.scenarioIndex ?? -1)) continue;
           if ((yield* write(projectId, input, observedAt, secrets)) !== null) written += 1;
         }
