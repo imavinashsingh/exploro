@@ -206,6 +206,23 @@ it.effect("a saved answer becomes a one-use ref, and the thread only learns it w
   ),
 );
 
+it.effect("a saved answer asked to be remembered hands its label and site to the consumer", () =>
+  withService(({ service }) =>
+    Effect.gen(function* () {
+      yield* service.answer({
+        threadId,
+        turnItemId,
+        answer: { type: "save", secret: "ghp_secret", remember: true },
+      });
+      const ref = Option.getOrThrow(yield* service.savedRef({ threadId, turnItemId }));
+      assert.deepStrictEqual(yield* service.consumeDetailed({ ref, projectId }), {
+        value: "ghp_secret",
+        remember: { label: "GitHub token", site: "https://github.com" },
+      });
+    }),
+  ),
+);
+
 it.effect("a secret provider reference is read once and saved like a typed value", () =>
   withService(({ service, dispatched }) =>
     Effect.gen(function* () {

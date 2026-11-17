@@ -98,6 +98,7 @@ import * as PreviewManager from "./preview/Manager.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
 import * as ServerBrowser from "./preview/ServerBrowser.ts";
 import * as PreviewAgentActivity from "./preview/PreviewAgentActivity.ts";
+import * as QaSavedSecrets from "./qa/QaSavedSecrets.ts";
 import * as QaSuites from "./qa/QaSuites.ts";
 import * as QaRecorder from "./qa/QaRecorder.ts";
 import * as MiniLmEmbedder from "./memory/MiniLmEmbedder.ts";
@@ -885,6 +886,7 @@ const layerMakeRoutes = Layer.mergeAll(
   Layer.provide(
     QaSuites.layer.pipe(
       Layer.provide(PreviewAgentActivity.layer),
+      Layer.provideMerge(QaSavedSecrets.layer),
       Layer.provideMerge(
         QaRecorder.layer.pipe(
           // The Memory screen shares the recorder's extraction queue.

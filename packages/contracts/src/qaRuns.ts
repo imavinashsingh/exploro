@@ -74,7 +74,7 @@ export const QaReplayStep = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("type"),
     target: Schema.NullOr(Target),
-    /** `{{secret:N}}` stands for the Nth password the user gave in the thread. */
+    /** `{{secret:N}}` is the Nth password given in the thread; `{{saved:<id>}}` a remembered one. */
     text: Schema.String,
     clear: Schema.optional(Schema.Boolean),
   }),
@@ -240,7 +240,27 @@ export const QaSuiteSummary = Schema.Struct({
 });
 export type QaSuiteSummary = typeof QaSuiteSummary.Type;
 
-export const QaSuitesSnapshot = Schema.Struct({ suites: Schema.Array(QaSuiteSummary) });
+export const QaSavedSecretId = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(64),
+  Schema.isPattern(/^qa-secret-[0-9a-f]+$/),
+);
+export type QaSavedSecretId = typeof QaSavedSecretId.Type;
+
+/** A password the user chose to remember for a project's suites; the value stays on the server. */
+export const QaSavedSecret = Schema.Struct({
+  secretId: QaSavedSecretId,
+  projectId: ProjectId,
+  label: Schema.String,
+  /** The sign-in page's origin, or null when the card named none. */
+  site: Schema.NullOr(Schema.String),
+  savedAt: Schema.String,
+});
+export type QaSavedSecret = typeof QaSavedSecret.Type;
+
+export const QaSuitesSnapshot = Schema.Struct({
+  suites: Schema.Array(QaSuiteSummary),
+  savedSecrets: Schema.Array(QaSavedSecret).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+});
 export type QaSuitesSnapshot = typeof QaSuitesSnapshot.Type;
 
 export const QaSuiteCreateInput = Schema.Struct({
@@ -267,6 +287,9 @@ export const QaSuiteDeleteInput = Schema.Struct({ suiteId: QaSuiteId });
 export type QaSuiteDeleteInput = typeof QaSuiteDeleteInput.Type;
 export const QaSuiteDeleteResult = Schema.Struct({ suiteId: QaSuiteId });
 export type QaSuiteDeleteResult = typeof QaSuiteDeleteResult.Type;
+
+export const QaSavedSecretForgetInput = Schema.Struct({ secretId: QaSavedSecretId });
+export type QaSavedSecretForgetInput = typeof QaSavedSecretForgetInput.Type;
 
 export const QaSuiteRunInput = Schema.Struct({
   suiteId: QaSuiteId,

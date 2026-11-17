@@ -113,6 +113,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.qaSuitesCreate]: "qaRuns",
   [WS_METHODS.qaSuitesDelete]: "qaRuns",
   [WS_METHODS.qaSuitesRun]: "qaRuns",
+  [WS_METHODS.qaSuitesForgetSecret]: "qaRuns",
   [WS_METHODS.scheduledTasksUpsert]: "scheduledTasks",
   [WS_METHODS.scheduledTasksSetEnabled]: "scheduledTasks",
   [WS_METHODS.scheduledTasksDelete]: "scheduledTasks",

@@ -2328,6 +2328,8 @@ export const layerWsRpc = (
           Effect.annotateCurrentSpan({ "qa_suite.id": input.suiteId }).pipe(
             Effect.andThen(qaSuites.start(input)),
           ),
+        [WS_METHODS.qaSuitesForgetSecret]: (input) =>
+          qaSuites.forgetSecret(input.secretId).pipe(Effect.as(input)),
         [WS_METHODS.scheduledTasksUpsert]: (input) => scheduledTasks.upsert(input),
         [WS_METHODS.scheduledTasksSetEnabled]: (input) =>
           Effect.annotateCurrentSpan({ "scheduled_task.id": input.id }).pipe(

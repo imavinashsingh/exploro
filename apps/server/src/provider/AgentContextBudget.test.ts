@@ -40,6 +40,7 @@ import { PullRequestReviewGuideService } from "../pullRequest/PullRequestReviewG
 import { PullRequestService } from "../pullRequest/PullRequestService.ts";
 import { ScheduledTaskService } from "../scheduledTasks/ScheduledTaskService.ts";
 import { SecretRequests } from "../secrets/SecretRequests.ts";
+import { QaSavedSecrets } from "../qa/QaSavedSecrets.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import { SourceControlRepositoryService } from "../sourceControl/SourceControlRepositoryService.ts";
 import { GitVcsDriver } from "../vcs/GitVcsDriver.ts";
@@ -85,6 +86,7 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(ProjectUnderstanding.ProjectUnderstanding)({}),
   Layer.mock(QaRecorder.QaRecorder)({}),
   Layer.mock(SecretRequests)({}),
+  Layer.mock(QaSavedSecrets)({}),
   ServerConfig.layerTest(process.cwd(), { prefix: "t3-agent-context-budget-" }),
   Layer.mock(ServerEnvironment)({}),
   Layer.mock(ServerSecretStore)({}),

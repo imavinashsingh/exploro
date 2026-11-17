@@ -5,6 +5,7 @@ import {
   EnvironmentId,
   PreviewTabId,
   ProviderInstanceId,
+  QaSavedSecretId,
   SecretRef,
   SecretRequestError,
   ThreadId,
@@ -28,6 +29,7 @@ import * as McpToolAccess from "../../McpToolAccess.ts";
 import { liveThreadsLayer } from "../../McpToolAccess.testkit.ts";
 import * as PreviewAutomationBroker from "../../PreviewAutomationBroker.ts";
 import * as QaRecorder from "../../../qa/QaRecorder.ts";
+import * as QaSavedSecrets from "../../../qa/QaSavedSecrets.ts";
 import * as SecretRequests from "../../../secrets/SecretRequests.ts";
 import { layerStandard } from "./handlers.ts";
 import { claimPreviewRecording } from "./recordingClaim.ts";
@@ -133,23 +135,31 @@ it.effect("preview_open navigates the opened tab to a dev server in one tool cal
           stepPerformed: (_threadId, step) => Effect.sync(() => void loggedSteps.push(step)),
         }),
         Layer.mock(SecretRequests.SecretRequests)({}),
+        Layer.mock(QaSavedSecrets.QaSavedSecrets)({}),
       ).pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
     ),
   ),
 );
 
 const ref = SecretRef.make(`secret-ref:${"a".repeat(32)}`);
+const rememberedRef = SecretRef.make(`secret-ref:${"b".repeat(32)}`);
+const passwordField = { selector: 'internal:label="Password"i', display: "getByLabel('Password')" };
+const remembered: Array<{ readonly label: string; readonly value: string }> = [];
 
-/** A store holding one one-use secret. */
-const secretRequestsWith = (saved: SecretRef, value: string) => {
-  let available = true;
+/** One-use secrets; the second asks to be remembered for suites. */
+const secretRequestsLayer = () => {
+  const refs = new Map<SecretRef, { value: string; remember?: SecretRequests.RememberRequest }>([
+    [ref, { value: "hunter2!" }],
+    [rememberedRef, { value: "s3cret!", remember: { label: "Shop password", site: null } }],
+  ]);
   return Layer.mock(SecretRequests.SecretRequests)({
-    consume: (input) =>
+    consumeDetailed: (input) =>
       Effect.suspend(() => {
-        if (!available || input.ref !== saved)
+        const stored = refs.get(input.ref);
+        if (stored === undefined)
           return Effect.fail(new SecretRequestError({ reason: "ref_unavailable" }));
-        available = false;
-        return Effect.succeed(value);
+        refs.delete(input.ref);
+        return Effect.succeed({ value: stored.value, remember: stored.remember });
       }),
   });
 };
@@ -173,7 +183,7 @@ it.effect("preview_act types a secretRef's value unseen and consumes it once", (
         connectionId: event.connectionId,
         requestId: event.request.requestId,
         ok: true,
-        result: {},
+        result: { recordedTarget: passwordField },
       });
     }).pipe(Effect.forkScoped);
     yield* Deferred.await(connected);
@@ -199,6 +209,15 @@ it.effect("preview_act types a secretRef's value unseen and consumes it once", (
     const both = yield* Effect.flip(act({ secretRef: ref, text: "x" }));
     expect(both.message).toContain("not both");
     expect(requests.filter((request) => request.operation === "type")).toHaveLength(1);
+
+    remembered.length = 0;
+    yield* act({ secretRef: rememberedRef });
+    expect(remembered).toEqual([{ label: "Shop password", value: "s3cret!" }]);
+    expect(loggedSteps.at(-1)).toEqual({
+      kind: "type",
+      target: passwordField,
+      text: "{{saved:qa-secret-0a}}",
+    });
   }).pipe(
     Effect.provideService(McpInvocationContext.McpInvocationContext, {
       environmentId: EnvironmentId.make("environment-1"),
@@ -219,7 +238,14 @@ it.effect("preview_act types a secretRef's value unseen and consumes it once", (
         Layer.mock(QaRecorder.QaRecorder)({
           stepPerformed: (_threadId, step) => Effect.sync(() => void loggedSteps.push(step)),
         }),
-        secretRequestsWith(ref, "hunter2!"),
+        secretRequestsLayer(),
+        Layer.mock(QaSavedSecrets.QaSavedSecrets)({
+          remember: (input) =>
+            Effect.sync(() => {
+              remembered.push({ label: input.label, value: input.value });
+              return QaSavedSecretId.make("qa-secret-0a");
+            }),
+        }),
       ).pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
     ),
   ),

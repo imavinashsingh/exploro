@@ -46,5 +46,9 @@ like any other run.
 
 - Passwords are never saved in a suite. A replay uses the passwords you gave in the thread the
   suite came from, so keep that thread.
+- A password entered on a sign-in card is used once and then discarded, so a suite stops at that
+  step. Tick **Remember for this project's regression suites** on the card to keep it for replays.
+  Entering a new password for the same sign-in replaces the old one. Saved passwords are listed
+  under Regression suites in the thread details, where you can remove them.
 - A replay cannot start while an agent is working in that thread.
 - Deleting a suite keeps the runs it already made.
