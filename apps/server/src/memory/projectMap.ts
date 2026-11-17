@@ -14,9 +14,11 @@ const MAP_HEADER =
 const compare = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0);
 const pageKey = (environment: string, route: string) => JSON.stringify([environment, route]);
 const isFail = (value: string) => value === "FAIL" || value.startsWith("FAIL ");
-// Navigation values are written as "→ /dashboard (valid login)": the target is the first word.
+// Values look like "→ /dashboard (valid login)", "/settings" or "… redirects to /login …": the
+// target is the path or URL at the start, after an arrow, or after "to". Other prose links nothing.
+const NAVIGATION_TARGET = /(?:^|→|->|=>|\bto\b)\s*((?:https?:\/\/|\/)[^\s"'<>]*)/iu;
 const navigationTarget = (value: string) =>
-  value.replace(/^\s*(?:→|->|=>)\s*/, "").split(/\s+/, 1)[0] ?? "";
+  NAVIGATION_TARGET.exec(value.trim())?.[1]?.replace(/[.,;:!?)\]]+$/u, "") ?? null;
 
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 
@@ -78,8 +80,9 @@ export function buildProjectMap(
     if (fact.kind === "navigation") {
       // Resolve relative links against the source page; cross-origin links own their environment.
       try {
-        const target = new URL(navigationTarget(fact.value), `${fact.environment}${fact.route}`);
-        if (target.protocol === "http:" || target.protocol === "https:") {
+        const written = navigationTarget(fact.value);
+        const target = new URL(written ?? "", `${fact.environment}${fact.route}`);
+        if (written !== null && (target.protocol === "http:" || target.protocol === "https:")) {
           const route = memoryRoute(target.pathname);
           ensurePage(target.origin, route);
           navigation = [

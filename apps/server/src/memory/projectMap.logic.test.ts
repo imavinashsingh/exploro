@@ -114,6 +114,22 @@ describe("project map", () => {
       "/dashboard",
       "/login",
     ]);
+    // Agents also write navigation as a sentence; only a path after "to" or an arrow is a target.
+    const prose = buildProjectMap([
+      fact("g", "/secure", {
+        kind: "navigation",
+        value: 'Signed out, /secure redirects to /login with flash "Login first!"',
+      }),
+      fact("h", "/help", { kind: "navigation", value: "Opens a chat window" }),
+    ]);
+    expect(pages(prose.environments[0]!.tree).map((page) => page.route)).toEqual([
+      "/help",
+      "/login",
+      "/secure",
+    ]);
+    expect(pages(prose.environments[0]!.tree)[2]?.navigation.map((link) => link.route)).toEqual([
+      "/login",
+    ]);
   });
 
   it("labels dependencies on cited current pages and preserves workflow citation order", () => {
