@@ -197,6 +197,7 @@ it.layer(NodeServices.layer)("QaRuns", (it) => {
         const replay = yield* qaRuns.startRegressionRun(threadId, {
           suiteId: "suite-1",
           site: "https://shop.test",
+          dataRow: null,
         });
         const refused = yield* qaRuns.recordEvidence(threadId, input, page()).pipe(Effect.flip);
         assert.include(refused.message, "regression replay is running");

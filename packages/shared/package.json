@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./csv": {
+      "types": "./src/csv.ts",
+      "import": "./src/csv.ts"
+    },
     "./png": {
       "types": "./src/png.ts",
       "import": "./src/png.ts"

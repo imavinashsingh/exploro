@@ -26,6 +26,7 @@ import type { ProviderTextGeneration } from "@t3tools/provider-core/server/textG
 import {
   generatedThreadTitle,
   investigationUnsupported,
+  LocatorHealOutput,
   TranscriptionPostProcessingOutput,
 } from "@t3tools/provider-core/server/textGenerationOperations";
 import {
@@ -369,6 +370,16 @@ export const makeMuseTextGeneration = Effect.fn("makeMuseTextGeneration")(functi
         modelSelection: input.modelSelection,
       });
     });
+  const generateLocatorHeal: ProviderTextGeneration["generateLocatorHeal"] = Effect.fn(
+    "MuseTextGeneration.generateLocatorHeal",
+  )(function* (input) {
+    return yield* runMuseJson({
+      operation: "generateLocatorHeal",
+      prompt: input.prompt,
+      outputSchema: LocatorHealOutput,
+      modelSelection: input.modelSelection,
+    });
+  });
   const generateReviewGuide: ProviderTextGeneration["generateReviewGuide"] = () =>
     Effect.fail(investigationUnsupported("generateReviewGuide", "Muse Code"));
   return {
@@ -379,5 +390,6 @@ export const makeMuseTextGeneration = Effect.fn("makeMuseTextGeneration")(functi
     generateReviewGuide,
     generateTranscriptionPostProcessing,
     generateProjectUnderstanding,
+    generateLocatorHeal,
   } satisfies ProviderTextGeneration;
 });

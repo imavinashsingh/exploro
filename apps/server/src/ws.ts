@@ -2325,11 +2325,15 @@ export const layerWsRpc = (
           ),
         [WS_METHODS.qaSuitesDelete]: (input) => qaSuites.delete(input.suiteId),
         [WS_METHODS.qaSuitesRun]: (input) =>
-          Effect.annotateCurrentSpan({ "qa_suite.id": input.suiteId }).pipe(
+          Effect.annotateCurrentSpan({ "qa_suite.ids": input.suiteIds.join(",") }).pipe(
             Effect.andThen(qaSuites.start(input)),
           ),
         [WS_METHODS.qaSuitesForgetSecret]: (input) =>
           qaSuites.forgetSecret(input.secretId).pipe(Effect.as(input)),
+        [WS_METHODS.qaSuitesGet]: (input) => qaSuites.get(input.suiteId),
+        [WS_METHODS.qaSuitesUpdate]: (input) => qaSuites.update(input),
+        [WS_METHODS.qaSuitesAcceptBaseline]: (input) => qaSuites.acceptBaseline(input),
+        [WS_METHODS.qaSuitesResolveProposal]: (input) => qaSuites.resolveProposal(input),
         [WS_METHODS.scheduledTasksUpsert]: (input) => scheduledTasks.upsert(input),
         [WS_METHODS.scheduledTasksSetEnabled]: (input) =>
           Effect.annotateCurrentSpan({ "scheduled_task.id": input.id }).pipe(
