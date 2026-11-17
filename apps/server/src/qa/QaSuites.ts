@@ -31,12 +31,14 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
+import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
@@ -81,6 +83,7 @@ const HEAL_RESOLVE_TIMEOUT_MS = 2_000;
 /** Every replay draws at this size, so captures compare across runs and machines. */
 const REPLAY_VIEWPORT = { width: 1280, height: 800 } as const;
 const KEPT_BATCHES = 10;
+const isQaRunError = Schema.is(QaRunError);
 
 export interface QaRegressionResult {
   readonly batch: QaRegressionBatch;
@@ -186,8 +189,12 @@ const make = Effect.gen(function* () {
   const suitesDir = path.join(config.stateDir, "qa-suites");
   const suitePath = (suiteId: QaSuiteId) => path.join(suitesDir, `${suiteId}.json`);
   const baselineDir = (suiteId: QaSuiteId) => path.join(suitesDir, "baselines", suiteId);
-  const baselinePath = (suiteId: QaSuiteId, scenarioIndex: number) =>
-    path.join(baselineDir(suiteId), `${scenarioIndex}.png`);
+  // Each data row keeps its own baselines: rows may show different content on purpose.
+  const baselinePath = (suiteId: QaSuiteId, scenarioIndex: number, row: QaDataRow | null) =>
+    path.join(
+      baselineDir(suiteId),
+      row === null ? `${scenarioIndex}.png` : `row-${row.index}-${scenarioIndex}.png`,
+    );
   let cache: ReadonlyArray<QaSuite> | null = null;
   // Batches are a view of this server's queue; the runs they link to are what persists.
   let batches: Array<QaRegressionBatch> = [];
@@ -452,14 +459,19 @@ const make = Effect.gen(function* () {
     return { steps, scenarios: withParams.scenarios };
   });
 
-  const readBaseline = (suiteId: QaSuiteId, index: number) =>
-    fileSystem.readFile(baselinePath(suiteId, index)).pipe(Effect.orElseSucceed(() => null));
+  const readBaseline = (suiteId: QaSuiteId, index: number, row: QaDataRow | null) =>
+    fileSystem.readFile(baselinePath(suiteId, index, row)).pipe(Effect.orElseSucceed(() => null));
 
-  const writeBaseline = (suiteId: QaSuiteId, index: number, png: Uint8Array) =>
+  const writeBaseline = (
+    suiteId: QaSuiteId,
+    index: number,
+    row: QaDataRow | null,
+    png: Uint8Array,
+  ) =>
     fileSystem
       .makeDirectory(baselineDir(suiteId), { recursive: true })
       .pipe(
-        Effect.andThen(fileSystem.writeFile(baselinePath(suiteId, index), png)),
+        Effect.andThen(fileSystem.writeFile(baselinePath(suiteId, index, row), png)),
         Effect.mapError(failure("Could not save the baseline screenshot.")),
       );
 
@@ -647,7 +659,12 @@ const make = Effect.gen(function* () {
             ? []
             : [{ check: describeCheck(check), actual: result?.actual ?? "Not checked." }];
         });
-        const visual = yield* compareVisual(suite, scenarioIndex, checked.result.capture);
+        const visual = yield* compareVisual(
+          suite,
+          scenarioIndex,
+          run.dataRow,
+          checked.result.capture,
+        );
         const looksDifferent =
           visual !== undefined && visual.diffRatio !== null && visual.diffRatio > visual.threshold;
         const visualNote =
@@ -702,13 +719,14 @@ const make = Effect.gen(function* () {
   const compareVisual = Effect.fn("QaSuites.compareVisual")(function* (
     suite: QaSuite,
     scenarioIndex: number,
+    row: QaDataRow | null,
     captureBase64: string | undefined,
   ) {
     if (captureBase64 === undefined) return undefined;
     const capture = Uint8Array.from(Buffer.from(captureBase64, "base64"));
-    const baseline = yield* readBaseline(suite.suiteId, scenarioIndex);
+    const baseline = yield* readBaseline(suite.suiteId, scenarioIndex, row);
     if (baseline === null) {
-      yield* writeBaseline(suite.suiteId, scenarioIndex, capture).pipe(
+      yield* writeBaseline(suite.suiteId, scenarioIndex, row, capture).pipe(
         Effect.ignore({ log: true }),
       );
       return {
@@ -773,12 +791,19 @@ const make = Effect.gen(function* () {
       });
       yield* updateJob(job.jobId, { runId: run.runId });
       return yield* replay(suite, run, prepared, entry.heal);
-    }).pipe(Effect.result);
-    if (outcome._tag === "Success") {
-      yield* updateJob(job.jobId, { status: "done", counts: countsOf(outcome.success) });
-      yield* Deferred.succeed(entry.done, outcome.success);
+    }).pipe(Effect.exit);
+    if (Exit.isSuccess(outcome)) {
+      yield* updateJob(job.jobId, { status: "done", counts: countsOf(outcome.value) });
+      yield* Deferred.succeed(entry.done, outcome.value);
     } else {
-      yield* updateJob(job.jobId, { status: "failed", error: outcome.failure.message });
+      // A defect must still end the job, or its thread never replays again and `run` never returns.
+      const error = Cause.squash(outcome.cause);
+      yield* updateJob(job.jobId, {
+        status: "failed",
+        error: isQaRunError(error)
+          ? error.message
+          : `The replay stopped unexpectedly: ${error instanceof Error ? error.message : String(error)}`,
+      });
       yield* Deferred.succeed(entry.done, null);
     }
     yield* pump;
@@ -880,7 +905,7 @@ const make = Effect.gen(function* () {
     const capture = yield* fileSystem
       .readFile(visual.capturePath)
       .pipe(Effect.mapError(failure("The replay's capture is gone.")));
-    yield* writeBaseline(suite.suiteId, input.scenarioIndex, capture);
+    yield* writeBaseline(suite.suiteId, input.scenarioIndex, run.dataRow, capture);
   });
 
   const resolveProposal = Effect.fn("QaSuites.resolveProposal")(function* (

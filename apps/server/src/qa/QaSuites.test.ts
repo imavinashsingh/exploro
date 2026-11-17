@@ -65,6 +65,8 @@ interface Browser {
   /** Texts the page never shows. */
   absent: ReadonlyArray<string>;
   changedLook: boolean;
+  /** The page looks different once this text was typed. */
+  changedAfterTyping?: string;
   /** While set, the browser answers nothing until it completes. */
   hold?: Deferred.Deferred<void>;
 }
@@ -97,7 +99,19 @@ const fakeBrowser = (browser: Browser) =>
                   ? { ok: false, actual: "The page does not show this text.", target: null }
                   : { ok: true, actual: "", target: null },
             ),
-            ...(input.capture === undefined ? {} : { capture: capturePng(browser.changedLook) }),
+            ...(input.capture === undefined
+              ? {}
+              : {
+                  capture: capturePng(
+                    browser.changedLook ||
+                      (browser.changedAfterTyping !== undefined &&
+                        (
+                          browser.requests.findLast((sent) => sent.operation === "type")?.input as
+                            | { readonly text?: string }
+                            | undefined
+                        )?.text === browser.changedAfterTyping),
+                  ),
+                }),
           };
         case "waitFor":
           return String(input.locator).startsWith("aria-ref=")
@@ -145,6 +159,7 @@ const fakeBrowser = (browser: Browser) =>
 const layer = (options: {
   readonly parallelRuns?: number;
   readonly healRequests?: Array<string>;
+  readonly healCrashes?: boolean;
 }) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -194,7 +209,9 @@ const layer = (options: {
         Layer.mock(TextGeneration.TextGeneration)({
           generateLocatorHeal: (input) => {
             options.healRequests?.push(input.prompt);
-            return Effect.succeed({ ref: "t3-1-e5" });
+            return options.healCrashes === true
+              ? Effect.die(new Error("provider crashed"))
+              : Effect.succeed({ ref: "t3-1-e5" });
           },
         }),
       ),
@@ -384,6 +401,7 @@ it.layer(NodeServices.layer)("QaSuites", (it) => {
         missing: [],
         absent: ["Welcome bob"],
         changedLook: false,
+        changedAfterTyping: "bob",
       };
       yield* Effect.gen(function* () {
         const suites = yield* QaSuites.QaSuites;
@@ -424,12 +442,22 @@ it.layer(NodeServices.layer)("QaSuites", (it) => {
             ["done", { pass: 0, fail: 1, inconclusive: 0 }],
           ],
         );
+        // Each row keeps its own baseline, so bob's page is never compared with ann's.
+        assert.deepStrictEqual(
+          runs.map((run) => run.scenarios[0]!.visual?.diffRatio),
+          [null, null],
+        );
+        const again = yield* suites.run({ suiteIds: [suite.suiteId] });
+        assert.deepStrictEqual(
+          again.runs.map((run) => run.scenarios[0]!.visual?.diffRatio),
+          [0, 0],
+        );
       }).pipe(Effect.provide(yield* layer({})));
 
       const typed = browser.requests
         .filter((request) => request.operation === "type")
         .map((request) => (request.input as { text: string }).text);
-      assert.deepStrictEqual(typed, ["ann", "bob"]);
+      assert.deepStrictEqual(typed, ["ann", "bob", "ann", "bob"]);
     }),
   );
 
@@ -467,6 +495,32 @@ it.layer(NodeServices.layer)("QaSuites", (it) => {
         const opens = browser.requests.filter((request) => request.operation === "open");
         assert.strictEqual(opens.length, 2);
       }).pipe(Effect.provide(yield* layer({ parallelRuns: 1 })));
+    }),
+  );
+
+  it.effect("fails a replay that crashes and frees its thread for the next one", () =>
+    Effect.gen(function* () {
+      const browser: Browser = { requests: [], missing: ["Pay"], absent: [], changedLook: false };
+      yield* Effect.gen(function* () {
+        const suites = yield* QaSuites.QaSuites;
+        yield* fakeBrowser(browser);
+        const { suite } = yield* saveSuite(threadId, [
+          { step: { kind: "click", target: target("Pay") } },
+          { scenario: "Checkout", checks: [{ kind: "textVisible", text: "Receipt" }] },
+        ]);
+        yield* suites.update({
+          suiteId: suite.suiteId,
+          healing: { enabled: true, modelSelection: null },
+        });
+        const crashed = yield* suites.run({ suiteIds: [suite.suiteId] });
+        assert.deepStrictEqual(crashed.runs, []);
+        assert.deepStrictEqual(
+          crashed.batch.jobs.map((job) => [job.status, job.error]),
+          [["failed", "The replay stopped unexpectedly: provider crashed"]],
+        );
+        const next = yield* suites.run({ suiteIds: [suite.suiteId], heal: false });
+        assert.deepStrictEqual(verdicts(next.runs[0]!), [["Checkout", "INCONCLUSIVE"]]);
+      }).pipe(Effect.provide(yield* layer({ healCrashes: true })));
     }),
   );
 

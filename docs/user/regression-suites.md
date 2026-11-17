@@ -51,6 +51,10 @@ page differs than the suite allows (1% of pixels by default). The scenario shows
 the new capture and the difference; if the new look is intended, choose **Accept as new
 baseline**.
 
+Baselines belong to the server that drew them. Another server, such as a terminal `t3` server next
+to the desktop app, can draw text a little differently and fail every visual check, so accept new
+baselines after moving a suite to another server.
+
 In the suite's settings, list selectors for content that changes every run, such as a clock, so
 both captures hide it. Mask an element that keeps the same size: a mask covers the element's box,
 so text that grows or shrinks still moves what is around it.
@@ -64,7 +68,8 @@ To replay a suite with different values, open its settings (the gear beside the 
 2. Under **Texts**, replace a recorded value with `{{param:name}}`, for example typing
    `{{param:email}}` or checking that the page shows `Welcome {{param:name}}`.
 
-Each row's run is labelled with its row number under **Test run**.
+Each row's run is labelled with its row number under **Test run**. Each row also keeps its own
+visual baselines by row number, so after reordering rows, accept new baselines.
 
 ## Running several suites
 
