@@ -564,6 +564,9 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.keepAwakeWhileAgentsWork !== DEFAULT_UNIFIED_SETTINGS.keepAwakeWhileAgentsWork
       ? ["Keep awake while agents work"]
       : []),
+    ...(settings.qaRegressionParallelRuns !== DEFAULT_UNIFIED_SETTINGS.qaRegressionParallelRuns
+      ? ["Regression replays at once"]
+      : []),
     ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
       ? ["New thread mode"]
       : []),
@@ -688,6 +691,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       continueThreadsAfterServerUpdate: DEFAULT_UNIFIED_SETTINGS.continueThreadsAfterServerUpdate,
       backgroundActivity: DEFAULT_UNIFIED_SETTINGS.backgroundActivity,
       keepAwakeWhileAgentsWork: DEFAULT_UNIFIED_SETTINGS.keepAwakeWhileAgentsWork,
+      qaRegressionParallelRuns: DEFAULT_UNIFIED_SETTINGS.qaRegressionParallelRuns,
       backgroundActivityProfile: DEFAULT_UNIFIED_SETTINGS.backgroundActivityProfile,
       automaticGitFetchInterval: DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval,
       providerHealthRefreshInterval: DEFAULT_UNIFIED_SETTINGS.providerHealthRefreshInterval,
@@ -2256,6 +2260,50 @@ export function MaintenanceSettingsPanel() {
               }
               aria-label="Keep awake while agents work"
             />
+          }
+        />
+        <SettingsRow
+          serverScoped
+          settingKeys={["qaRegressionParallelRuns"]}
+          {...searchableSetting("regression-parallel-runs")}
+          description="How many regression suite replays run at the same time. The rest wait in a queue. Each replay has its own browser context."
+          resetAction={
+            settings.qaRegressionParallelRuns !==
+            DEFAULT_UNIFIED_SETTINGS.qaRegressionParallelRuns ? (
+              <SettingResetButton
+                label="regression replays at once"
+                onClick={() =>
+                  updateSettings({
+                    qaRegressionParallelRuns: DEFAULT_UNIFIED_SETTINGS.qaRegressionParallelRuns,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={String(settings.qaRegressionParallelRuns)}
+              onValueChange={(value) => {
+                const runs = Number(value);
+                if (Number.isInteger(runs) && runs >= 1 && runs <= 8)
+                  updateSettings({ qaRegressionParallelRuns: runs });
+              }}
+            >
+              <SelectTrigger
+                size="sm"
+                className="w-full sm:w-24"
+                aria-label="Regression replays at once"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {["1", "2", "3", "4", "6", "8"].map((runs) => (
+                  <SelectItem hideIndicator key={runs} value={runs}>
+                    {runs}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
           }
         />
       </SettingsSection>

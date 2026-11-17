@@ -124,6 +124,18 @@ export interface ProjectUnderstandingGenerationInput {
 
 export type ProjectUnderstandingGenerationResult = ProjectUnderstandingExtraction;
 
+/** Finds, in a page's accessibility tree, the element a saved test step meant. */
+export interface LocatorHealGenerationInput {
+  cwd: string;
+  prompt: string;
+  modelSelection: ModelSelection;
+  projectId?: ProjectId | null | undefined;
+}
+
+export interface LocatorHealGenerationResult {
+  ref: string | null;
+}
+
 export interface ProviderTextGeneration {
   readonly generateTranscriptionPostProcessing: (
     input: TranscriptionPostProcessingInput,
@@ -152,4 +164,8 @@ export interface ProviderTextGeneration {
   readonly generateProjectUnderstanding: (
     input: ProjectUnderstandingGenerationInput,
   ) => Effect.Effect<ProjectUnderstandingGenerationResult, TextGenerationError>;
+
+  readonly generateLocatorHeal: (
+    input: LocatorHealGenerationInput,
+  ) => Effect.Effect<LocatorHealGenerationResult, TextGenerationError>;
 }

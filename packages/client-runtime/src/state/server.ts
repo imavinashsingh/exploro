@@ -1843,6 +1843,23 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:qa-suite:forget-secret",
       tag: WS_METHODS.qaSuitesForgetSecret,
     }),
+    // A command, not a query: the settings dialog reads the suite fresh each time it opens.
+    getQaSuite: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:qa-suite:get",
+      tag: WS_METHODS.qaSuitesGet,
+    }),
+    updateQaSuite: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:qa-suite:update",
+      tag: WS_METHODS.qaSuitesUpdate,
+    }),
+    acceptQaBaseline: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:qa-suite:accept-baseline",
+      tag: WS_METHODS.qaSuitesAcceptBaseline,
+    }),
+    resolveQaHealProposal: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:qa-suite:resolve-proposal",
+      tag: WS_METHODS.qaSuitesResolveProposal,
+    }),
     deleteScheduledTask: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:scheduled-task:delete",
       tag: WS_METHODS.scheduledTasksDelete,

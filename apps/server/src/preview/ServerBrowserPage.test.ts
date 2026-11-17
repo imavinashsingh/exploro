@@ -19,6 +19,7 @@ import {
 } from "vite-plus/test";
 
 import * as ServerBrowserPage from "./ServerBrowserPage.ts";
+import { compareScreenshots } from "../qa/qaVisual.ts";
 import { SessionControl } from "./SessionControl.ts";
 
 const decodeEvaluateInput = Schema.decodeUnknownSync(PreviewAutomationEvaluateInput);
@@ -670,6 +671,25 @@ describe("server browser element refs", () => {
     };
     expect(await replay(false)).toBe(false);
     expect(await replay(true)).toBe(true);
+  });
+
+  it("captures for a visual diff hide masked content and freeze animations", async () => {
+    await page.setContent(
+      `<style>@keyframes spin{to{transform:rotate(360deg)}}.spin{width:40px;height:40px;background:red;animation:spin 1s linear infinite}</style>` +
+        `<h1>Orders</h1><time class="clock" style="display:inline-block;width:240px"></time><div class="spin"></div>` +
+        `<script>setInterval(() => document.querySelector(".clock").textContent = String(performance.now()), 16)</script>`,
+    );
+    const capture = async (masks: ReadonlyArray<string>) => {
+      const { capture: png } = await ServerBrowserPage.check(page, {
+        assertions: [],
+        capture: { masks },
+      });
+      return Uint8Array.from(Buffer.from(png!, "base64"));
+    };
+    const [first, second] = [await capture([".clock"]), await capture([".clock"])];
+    expect(compareScreenshots(first, second).diffRatio).toBe(0);
+    const unmasked = [await capture([]), await capture([])];
+    expect(compareScreenshots(unmasked[0]!, unmasked[1]!).diffRatio).toBeGreaterThan(0);
   });
 });
 

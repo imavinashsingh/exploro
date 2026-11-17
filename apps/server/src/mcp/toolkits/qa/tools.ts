@@ -161,12 +161,12 @@ const QaRegressionListTool = Tool.make("qa_regression_list", {
 
 const QaRegressionRunTool = Tool.make("qa_regression_run", {
   description:
-    "Replay a regression suite in a fresh browser tab without a model, and wait for its verdicts. PASS: every saved check held. FAIL: a step ran but a check failed. INCONCLUSIVE: a step could not run, so the test needs updating; that is not a product bug. Runs in the thread the suite was saved from. `baseUrl` replays against another origin, such as staging.",
+    "Replay a regression suite in a fresh browser tab without a model, and wait for its verdicts: one run, or one per data set row. PASS: every saved check held and the page looks like its baseline. FAIL: a check failed or the page looks different. INCONCLUSIVE: a step could not run, so the test needs updating; that is not a product bug. Runs in the thread the suite was saved from. `baseUrl` replays against another origin, such as staging.",
   parameters: Schema.Struct({
     suiteId: QaSuiteId,
     baseUrl: Schema.optional(Schema.String.check(Schema.isMaxLength(2048))),
   }),
-  success: Schema.Struct({ run: QaRun }),
+  success: Schema.Struct({ runs: Schema.Array(QaRun) }),
   failure,
   dependencies: regressionDependencies,
 })

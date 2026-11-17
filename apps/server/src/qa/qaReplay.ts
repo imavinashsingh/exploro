@@ -263,3 +263,114 @@ export function rebaseUrl(url: string, suiteOrigin: string | null, baseUrl: stri
     return url;
   }
 }
+
+const PARAM = /\{\{param:([A-Za-z0-9_-]{1,40})\}\}/g;
+
+type Editable = {
+  readonly steps: ReadonlyArray<QaReplayStep>;
+  readonly scenarios: ReadonlyArray<QaSuiteScenario>;
+};
+
+/** Every text a user may edit in a suite: they can hold `{{param:name}}`, the rest can't change. */
+function mapText(suite: Editable, map: (text: string) => string): Editable {
+  const steps = suite.steps.map((step): QaReplayStep => {
+    switch (step.kind) {
+      case "navigate":
+        return { ...step, url: map(step.url) };
+      case "type":
+        return { ...step, text: map(step.text) };
+      case "select":
+        return { ...step, values: step.values.map(map) };
+      case "waitFor":
+        return {
+          ...step,
+          ...(step.text === undefined ? {} : { text: map(step.text) }),
+          ...(step.urlIncludes === undefined ? {} : { urlIncludes: map(step.urlIncludes) }),
+        };
+      default:
+        return step;
+    }
+  });
+  const scenarios = suite.scenarios.map((scenario) => ({
+    ...scenario,
+    checks: scenario.checks.map((check): QaCheck => {
+      switch (check.kind) {
+        case "textVisible":
+          return { ...check, text: map(check.text) };
+        case "urlIncludes":
+        case "valueEquals":
+          return { ...check, value: map(check.value) };
+        case "elementVisible":
+          return check;
+      }
+    }),
+  }));
+  return { steps, scenarios };
+}
+
+/** Why an edit is refused, or null when it changed only the text of steps and checks. */
+export function editRefusal(before: Editable, after: Editable): string | null {
+  const blank = (suite: Editable) => JSON.stringify(mapText(suite, () => ""));
+  return blank(before) === blank(after)
+    ? null
+    : "Only the text of steps and checks can change. Steps, targets and checks cannot be added, removed or reordered.";
+}
+
+export function paramNames(suite: Editable): ReadonlyArray<string> {
+  const names = new Set<string>();
+  mapText(suite, (text) => {
+    for (const [, name] of text.matchAll(PARAM)) names.add(name!);
+    return text;
+  });
+  return [...names];
+}
+
+/** The suite with one data row's values in place of its `{{param:name}}`, or the first one missing. */
+export function applyParams(
+  suite: Editable,
+  values: Readonly<Record<string, string>>,
+): Editable | { readonly missing: string } {
+  let missing: string | null = null;
+  const filled = mapText(suite, (text) =>
+    text.replace(PARAM, (placeholder, name: string) => {
+      const value = values[name];
+      if (value === undefined) missing ??= name;
+      return value ?? placeholder;
+    }),
+  );
+  return missing === null ? filled : { missing };
+}
+
+/** The element a step acts on, which healing may replace. */
+export function stepTarget(step: QaReplayStep): Target | null {
+  switch (step.kind) {
+    case "click":
+    case "hover":
+    case "select":
+      return step.target;
+    case "type":
+    case "scroll":
+    case "waitFor":
+      return step.target;
+    default:
+      return null;
+  }
+}
+
+export function withTarget(step: QaReplayStep, target: Target): QaReplayStep {
+  return stepTarget(step) === null ? step : ({ ...step, target } as QaReplayStep);
+}
+
+/** Asks for the element the step meant, in the page as it is now. Its answer is only a proposal. */
+export function healPrompt(step: QaReplayStep, accessibilityTree: string): string {
+  return [
+    "A saved browser test could not find the element for one step. The page may have changed.",
+    `The step: ${describeStep(step)}`,
+    `Its saved locator: ${stepTarget(step)?.selector ?? "none"}`,
+    "Here is the page's accessibility tree. Each element has a [ref=...].",
+    "Pick the one element the step most likely meant. If none clearly matches, answer null.",
+    'Answer JSON only: {"ref": "<the ref, without brackets>"} or {"ref": null}.',
+    "",
+    accessibilityTree,
+  ].join("\n");
+}

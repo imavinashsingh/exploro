@@ -48,7 +48,8 @@ type TextGenerationOp =
   | "generateThreadTitle"
   | "generateReviewGuide"
   | "generateTranscriptionPostProcessing"
-  | "generateProjectUnderstanding";
+  | "generateProjectUnderstanding"
+  | "generateLocatorHeal";
 
 const resolveInstance = (
   registry: ProviderInstanceRegistry.ProviderInstanceRegistry["Service"],
@@ -215,6 +216,14 @@ export const make = Effect.gen(function* () {
         );
       },
     ),
+    generateLocatorHeal: Effect.fn("TextGeneration.generateLocatorHeal")(function (input) {
+      return generate(
+        "generateLocatorHeal",
+        input.modelSelection,
+        input.projectId,
+        (service, modelSelection) => service.generateLocatorHeal({ ...input, modelSelection }),
+      );
+    }),
     generateThreadTitle: Effect.fn("TextGeneration.generateThreadTitle")(function (input) {
       return generate(
         "generateThreadTitle",

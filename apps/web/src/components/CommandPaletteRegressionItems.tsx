@@ -4,7 +4,7 @@ import { RepeatIcon } from "lucide-react";
 
 import { useEnvironmentQuery } from "../state/query";
 import { serverEnvironment } from "../state/server";
-import { useRunRegressionSuite } from "./chat/ThreadDetailsRegression";
+import { useRunRegressionSuites } from "./chat/ThreadDetailsRegression";
 import {
   ADDON_ICON_CLASS,
   ITEM_ICON_CLASS,
@@ -19,7 +19,7 @@ export function useCommandPaletteRegressionItem(
     environmentId === null ? null : serverEnvironment.qaSuitesLive({ environmentId, input: {} }),
   );
   const canRun = useAtomValue(serverEnvironment.runQaSuite.permissionAtom(environmentId));
-  const runSuite = useRunRegressionSuite(environmentId);
+  const runSuites = useRunRegressionSuites(environmentId);
   const suites = suitesQuery.data?.suites ?? [];
   if (environmentId === null || !canRun || suites.length === 0) return null;
   return {
@@ -33,15 +33,30 @@ export function useCommandPaletteRegressionItem(
       {
         value: "regression-suites",
         label: "Run regression suite",
-        items: suites.map((suite) => ({
-          kind: "action",
-          value: `regression-suite:${suite.suiteId}`,
-          title: suite.name,
-          description: `${suite.scenarioCount} scenarios${suite.site ? ` · ${suite.site}` : ""}`,
-          searchTerms: [suite.name, suite.site ?? "", "regression", "suite"],
-          icon: <RepeatIcon className={ITEM_ICON_CLASS} />,
-          run: () => runSuite(suite),
-        })),
+        items: [
+          ...(suites.length > 1
+            ? [
+                {
+                  kind: "action" as const,
+                  value: "regression-suite:all",
+                  title: "Run all regression suites",
+                  description: `${suites.length} suites, queued by the server`,
+                  searchTerms: ["all", "regression", "suites", "batch"],
+                  icon: <RepeatIcon className={ITEM_ICON_CLASS} />,
+                  run: () => runSuites(suites, "All suites"),
+                },
+              ]
+            : []),
+          ...suites.map((suite) => ({
+            kind: "action" as const,
+            value: `regression-suite:${suite.suiteId}`,
+            title: suite.name,
+            description: `${suite.scenarioCount} scenarios${suite.site ? ` · ${suite.site}` : ""}`,
+            searchTerms: [suite.name, suite.site ?? "", "regression", "suite"],
+            icon: <RepeatIcon className={ITEM_ICON_CLASS} />,
+            run: () => runSuites([suite]),
+          })),
+        ],
       },
     ],
   };
