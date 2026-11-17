@@ -12,6 +12,8 @@ import {
   ProjectMemoryError,
   ProjectMemoryFactKind,
   QaScenario,
+  QaSuiteId,
+  QaSuiteSummary,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { McpSchema, Tool, Toolkit } from "effect/ai";
@@ -21,6 +23,7 @@ import * as PreviewAutomationBroker from "../../PreviewAutomationBroker.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as QaRecorder from "../../../qa/QaRecorder.ts";
 import * as QaRuns from "../../../qa/QaRuns.ts";
+import * as QaSuites from "../../../qa/QaSuites.ts";
 
 const dependencies = [
   McpInvocationContext.McpInvocationContext,
@@ -34,12 +37,15 @@ const failure = Schema.Union([PreviewAutomationError, OrchestratorMcpFailure, Qa
 
 const QaEvidenceRecordTool = Tool.make("qa_evidence_record", {
   description:
-    "Record one scenario's verdict with evidence. Takes a full screenshot of the tab and saves its console and network logs to this run's evidence folder. Call it once per verdict, right after you observed the result, while the page still shows it. A PASS or FAIL without a screenshot is stored as INCONCLUSIVE. For a FAIL, give `expected`, `actual`, `severity` and `steps` so it reads as a bug report.",
+    "Record one scenario's verdict with evidence. Takes a full screenshot of the tab and saves its console and network logs to this run's evidence folder. Call it once per verdict, right after you observed the result, while the page still shows it. A PASS or FAIL without a screenshot is stored as INCONCLUSIVE. For a FAIL, give `expected`, `actual`, `severity` and `steps` so it reads as a bug report. For a PASS, give `checks` that prove it (textVisible, urlIncludes, elementVisible or valueEquals with `locator='aria-ref=<ref>'`): each is checked on the live page now, and only those that hold are kept, so the run can be replayed later without a model. `droppedChecks` says which did not hold.",
   parameters: Schema.Struct({
     ...QaEvidenceRecordInput.fields,
     tabId: Schema.optional(PreviewTabId),
   }),
-  success: QaScenario,
+  success: Schema.Struct({
+    ...QaScenario.fields,
+    droppedChecks: Schema.Array(Schema.Struct({ check: Schema.String, reason: Schema.String })),
+  }),
   failure,
   dependencies,
 })
@@ -136,7 +142,41 @@ const MemoryRecallTool = Tool.make("memory_recall", {
   .annotate(Tool.Destructive, false)
   .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenWithoutMemory);
 
+const regressionDependencies = [
+  McpInvocationContext.McpInvocationContext,
+  ThreadManagementService.ThreadManagementService,
+  QaSuites.QaSuites,
+];
+
+const QaRegressionListTool = Tool.make("qa_regression_list", {
+  description:
+    "List saved regression suites: passed QA runs a replay repeats without a model. Each has a suiteId for qa_regression_run.",
+  success: Schema.Struct({ suites: Schema.Array(QaSuiteSummary) }),
+  failure,
+  dependencies: regressionDependencies,
+})
+  .annotate(Tool.Title, "List regression suites")
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false);
+
+const QaRegressionRunTool = Tool.make("qa_regression_run", {
+  description:
+    "Replay a regression suite in a fresh browser tab without a model, and wait for its verdicts. PASS: every saved check held. FAIL: a step ran but a check failed. INCONCLUSIVE: a step could not run, so the test needs updating; that is not a product bug. Runs in the thread the suite was saved from. `baseUrl` replays against another origin, such as staging.",
+  parameters: Schema.Struct({
+    suiteId: QaSuiteId,
+    baseUrl: Schema.optional(Schema.String.check(Schema.isMaxLength(2048))),
+  }),
+  success: Schema.Struct({ run: QaRun }),
+  failure,
+  dependencies: regressionDependencies,
+})
+  .annotate(Tool.Title, "Run regression suite")
+  .annotate(Tool.OpenWorld, true)
+  .annotate(Tool.Destructive, false);
+
 export const QaToolkit = Toolkit.make(
+  QaRegressionListTool,
+  QaRegressionRunTool,
   QaEvidenceRecordTool,
   QaReportFinishTool,
   MemoryMapTool,

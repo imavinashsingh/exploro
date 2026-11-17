@@ -36,6 +36,8 @@ const dependencies = [
   ThreadManagementService.ThreadManagementService,
   PreviewAutomationBroker.PreviewAutomationBroker,
 ];
+// Tools that change the page log a replayable step for the thread's QA run.
+const loggingDependencies = [...dependencies, QaRecorder.QaRecorder];
 
 const PreviewToolFailure = Schema.Union([PreviewAutomationError, OrchestratorMcpFailure]);
 
@@ -85,7 +87,7 @@ const PreviewOpenTool = browserTool(
     ),
     success: PreviewAutomationStatus,
     failure: PreviewToolFailure,
-    dependencies: [...dependencies, QaRecorder.QaRecorder],
+    dependencies: loggingDependencies,
   })
     .annotate(Tool.Title, "Open browser preview")
     .annotate(Tool.Destructive, false),
@@ -98,7 +100,7 @@ const PreviewDialogTool = browserTool(
     parameters: PreviewAutomationDialogInput,
     success: PreviewAutomationStatus,
     failure: PreviewToolFailure,
-    dependencies,
+    dependencies: loggingDependencies,
   }).annotate(Tool.Title, "Resolve browser dialog"),
 );
 
@@ -109,7 +111,7 @@ const PreviewNavigateTool = safeBrowserTool(
     parameters: PreviewAutomationNavigateInput,
     success: PreviewAutomationStatus,
     failure: PreviewToolFailure,
-    dependencies,
+    dependencies: loggingDependencies,
   }).annotate(Tool.Title, "Navigate browser preview"),
 );
 
@@ -120,7 +122,7 @@ const PreviewResizeTool = safeBrowserTool(
     parameters: PreviewAutomationResizeInput,
     success: Schema.Struct({ ...PreviewAutomationResizeResult.fields, ...presentationFields }),
     failure: PreviewToolFailure,
-    dependencies,
+    dependencies: loggingDependencies,
   })
     .annotate(Tool.Title, "Resize browser viewport")
     .annotate(Tool.Idempotent, true),
@@ -176,7 +178,7 @@ const PreviewActTool = browserTool(
       PreviewActionResult,
     ]),
     failure: PreviewToolFailure,
-    dependencies,
+    dependencies: loggingDependencies,
   }).annotate(Tool.Title, "Act in preview page"),
 );
 
@@ -206,7 +208,7 @@ const PreviewWaitForTool = readonlyBrowserTool(
     parameters: PreviewAutomationWaitForInput,
     success: PreviewActionResult,
     failure: PreviewToolFailure,
-    dependencies,
+    dependencies: loggingDependencies,
   }).annotate(Tool.Title, "Wait for preview page condition"),
 );
 

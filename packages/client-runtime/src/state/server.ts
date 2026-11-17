@@ -1521,6 +1521,10 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:qa-runs:live",
       tag: WS_METHODS.qaRunsSubscribe,
     }),
+    qaSuitesLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:server:qa-suites:live",
+      tag: WS_METHODS.qaSuitesSubscribe,
+    }),
     // A cold transcript scan is measured in seconds, so keep the result around
     // long enough that switching windows or re-rendering does not rescan. With
     // nothing to show yet, the server's last scan answers first, then a plain
@@ -1822,6 +1826,18 @@ export function createServerEnvironmentAtoms<R, E>(
     deleteQaRun: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:qa-run:delete",
       tag: WS_METHODS.qaRunsDelete,
+    }),
+    createQaSuite: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:qa-suite:create",
+      tag: WS_METHODS.qaSuitesCreate,
+    }),
+    deleteQaSuite: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:qa-suite:delete",
+      tag: WS_METHODS.qaSuitesDelete,
+    }),
+    runQaSuite: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:qa-suite:run",
+      tag: WS_METHODS.qaSuitesRun,
     }),
     deleteScheduledTask: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:scheduled-task:delete",

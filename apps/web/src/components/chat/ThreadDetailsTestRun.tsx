@@ -45,6 +45,7 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
+import { SaveRunAsRegression } from "./ThreadDetailsRegression";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import {
   THREAD_DETAILS_PANEL_ICON_CLASS,
@@ -412,6 +413,11 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
               )}
             >
               <VerdictSummary run={run} />
+              {run.kind === "regression" ? (
+                <Badge size="sm" variant="outline">
+                  Regression
+                </Badge>
+              ) : null}
               <span className="text-2xs text-muted-foreground">
                 {run.finishedAt === null ? "Running" : runStartedLabel(run)}
               </span>
@@ -523,6 +529,11 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
                   Evidence folder
                 </ThreadDetailsControl>
               ) : null}
+              <SaveRunAsRegression
+                environmentId={props.environmentId}
+                threadId={props.threadId}
+                run={run}
+              />
               {canDelete ? (
                 <ThreadDetailsControl
                   size="xs"

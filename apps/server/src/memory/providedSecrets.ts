@@ -12,6 +12,11 @@ const LOOKS_SECRET = /[\d_\W]/u;
 
 /** Passwords the user typed in chat ("the password is secret_sauce"), longest first. */
 export function providedSecrets(texts: ReadonlyArray<string>): ReadonlyArray<string> {
+  return [...providedSecretsInOrder(texts)].sort((left, right) => right.length - left.length);
+}
+
+/** The same passwords in the order the user gave them, so each keeps its number. */
+function providedSecretsInOrder(texts: ReadonlyArray<string>): ReadonlyArray<string> {
   const found = new Set<string>();
   for (const text of texts) {
     for (const match of text.matchAll(PASSWORD_GIVEN)) {
@@ -20,7 +25,7 @@ export function providedSecrets(texts: ReadonlyArray<string>): ReadonlyArray<str
       if (secret.length >= 3 && LOOKS_SECRET.test(secret)) found.add(secret);
     }
   }
-  return [...found].sort((left, right) => right.length - left.length);
+  return [...found];
 }
 
 export function hideProvidedSecrets(text: string, secrets: ReadonlyArray<string>): string {
@@ -36,4 +41,17 @@ export const threadProvidedSecrets = (
     .getThreadRecords(threadId, ["messages"], { messageRoles: ["user"] })
     .pipe(
       Effect.map((records) => providedSecrets(records.messages.map((message) => message.text))),
+    );
+
+/** The thread's passwords in the order given; a saved suite's `{{secret:N}}` counts in it. */
+export const threadProvidedSecretsInOrder = (
+  threads: ThreadManagementService.ThreadManagementService["Service"],
+  threadId: ThreadId,
+) =>
+  threads
+    .getThreadRecords(threadId, ["messages"], { messageRoles: ["user"] })
+    .pipe(
+      Effect.map((records) =>
+        providedSecretsInOrder(records.messages.map((message) => message.text)),
+      ),
     );

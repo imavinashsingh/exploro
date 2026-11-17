@@ -68,6 +68,7 @@ import { ProjectToolkit } from "./toolkits/project/tools.ts";
 import { ThreadToolkit } from "./toolkits/thread/tools.ts";
 import * as QaRecorder from "../qa/QaRecorder.ts";
 import * as QaRuns from "../qa/QaRuns.ts";
+import * as QaSuites from "../qa/QaSuites.ts";
 import { QaToolkit } from "./toolkits/qa/tools.ts";
 
 const environmentId = EnvironmentId.make("environment-mcp-test");
@@ -108,9 +109,13 @@ const layerTest = McpHttpServer.layerPreviewToolkit.pipe(
         isScratchProject: () => Effect.succeed(true),
       }),
       Layer.mock(QaRuns.QaRuns)({}),
+      Layer.mock(QaSuites.QaSuites)({}),
       Layer.mock(ProjectMemory.ProjectMemory)({}),
       Layer.mock(ProjectUnderstanding.ProjectUnderstanding)({}),
-      Layer.mock(QaRecorder.QaRecorder)({ browserOpened: () => Effect.void }),
+      Layer.mock(QaRecorder.QaRecorder)({
+        browserOpened: () => Effect.void,
+        stepPerformed: () => Effect.void,
+      }),
     ),
   ),
   Layer.provideMerge(PreviewAutomationBroker.layer),

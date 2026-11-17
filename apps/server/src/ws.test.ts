@@ -124,6 +124,7 @@ import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
 import * as QaRuns from "./qa/QaRuns.ts";
+import * as QaSuites from "./qa/QaSuites.ts";
 import * as SecretRequests from "./secrets/SecretRequests.ts";
 import * as GuestShareService from "./guest/GuestShareService.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
@@ -867,6 +868,7 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(ReviewService.ReviewService)({}),
   Layer.mock(ScheduledTasks.ScheduledTaskService)({}),
   Layer.mock(QaRuns.QaRuns)({}),
+  Layer.mock(QaSuites.QaSuites)({}),
   Layer.mock(ProjectMemory.ProjectMemory)({}),
   Layer.mock(ProjectMemoryControl.ProjectMemoryControl)({}),
   Layer.mock(SecretRequests.SecretRequests)({}),

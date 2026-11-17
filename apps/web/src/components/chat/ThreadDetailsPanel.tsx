@@ -25,6 +25,7 @@ import { ThreadDetailsCard } from "./ThreadDetailsCard";
 import { OpenInPicker } from "./OpenInPicker";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { ThreadDetailsTarget } from "./ThreadDetailsTarget";
+import { ThreadDetailsRegression } from "./ThreadDetailsRegression";
 import { ThreadDetailsTestRun } from "./ThreadDetailsTestRun";
 import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
 import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
@@ -214,6 +215,13 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                     serverConfig !== undefined && project !== null && memoryNote === null
                   }
                   contextMaxTokens={props.usage.contextWindow?.maxTokens ?? null}
+                />
+              ) : null}
+
+              {density === "full" && !props.draftId && visible.testRun ? (
+                <ThreadDetailsRegression
+                  environmentId={props.environmentId}
+                  threadId={props.threadId}
                 />
               ) : null}
 

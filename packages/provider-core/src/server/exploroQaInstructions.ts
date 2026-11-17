@@ -99,7 +99,14 @@ Exploro records the run's video on its own. For each verdict, call \`qa_evidence
 after you observed the result, while the page still shows it. It saves a screenshot and the console
 and network logs to the run's evidence folder. Pass the scenario, the verdict, and a note quoting the
 exact visible text you saw. For a FAIL, also pass \`expected\`, \`actual\`, \`severity\` and \`steps\`. A PASS
-or FAIL without a screenshot is stored as INCONCLUSIVE.`,
+or FAIL without a screenshot is stored as INCONCLUSIVE.
+
+For a PASS, also pass \`checks\`: what the page shows that proves it, such as
+\`{"kind": "textVisible", "text": "Welcome back"}\`, \`{"kind": "urlIncludes", "value": "/dashboard"}\`,
+or \`elementVisible\` / \`valueEquals\` with \`locator='aria-ref=<ref>'\` from your latest snapshot. Exploro
+checks each on the live page before saving it and returns \`droppedChecks\` for any that did not hold.
+Saved checks let the user replay the run later as a regression suite without a model, so pick ones
+that prove the result, not ones that are true of every page.`,
   `## Project memory
 
 A thread in a project starts with a "Project memory from earlier runs" brief when there is one, and

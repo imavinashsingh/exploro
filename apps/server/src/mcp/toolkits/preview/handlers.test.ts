@@ -7,6 +7,7 @@ import {
   ProviderInstanceId,
   ThreadId,
   type PreviewAutomationRequest,
+  type QaReplayStep,
 } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -29,8 +30,11 @@ import { layerStandard } from "./handlers.ts";
 import { claimPreviewRecording } from "./recordingClaim.ts";
 import { PreviewStandardToolkit } from "./tools.ts";
 
+const loggedSteps: QaReplayStep[] = [];
+
 it.effect("preview_open navigates the opened tab to a dev server in one tool call", () =>
   Effect.gen(function* () {
+    loggedSteps.length = 0;
     const scope = yield* McpInvocationContext.McpInvocationContext;
     const broker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
     const connected = yield* Deferred.make<void>();
@@ -61,7 +65,17 @@ it.effect("preview_open navigates the opened tab to a dev server in one tool cal
         connectionId: event.connectionId,
         requestId: event.request.requestId,
         ok: true,
-        result: event.request.operation === "open" ? { ...status, url: "about:blank" } : status,
+        result:
+          event.request.operation === "open"
+            ? { ...status, url: "about:blank" }
+            : event.request.operation === "click"
+              ? {
+                  recordedTarget: {
+                    selector: 'internal:role=button[name="Save"i]',
+                    display: "getByRole('button')",
+                  },
+                }
+              : status,
       });
     }).pipe(Effect.forkScoped);
     yield* Deferred.await(connected);
@@ -83,6 +97,17 @@ it.effect("preview_open navigates the opened tab to a dev server in one tool cal
     ]);
     expect(requests[1]?.tabId).toBe(tabId);
     expect(requests[1]?.tabIdExplicit).toBe(true);
+    // The replay opens where the target led, not the url the target replaced.
+    expect(loggedSteps).toEqual([{ kind: "navigate", url: status.url }]);
+
+    const clicked = yield* toolkit
+      .handle("preview_act", { action: "click", locator: "aria-ref=e3" })
+      .pipe(Stream.unwrap, Stream.runCollect);
+    expect(JSON.stringify(clicked.at(-1)?.result)).not.toContain("recordedTarget");
+    expect(loggedSteps.at(-1)).toEqual({
+      kind: "click",
+      target: { selector: 'internal:role=button[name="Save"i]', display: "getByRole('button')" },
+    });
   }).pipe(
     Effect.provideService(McpInvocationContext.McpInvocationContext, {
       environmentId: EnvironmentId.make("environment-1"),
@@ -100,7 +125,10 @@ it.effect("preview_open navigates the opened tab to a dev server in one tool cal
       Layer.mergeAll(
         PreviewAutomationBroker.layer,
         liveThreadsLayer,
-        Layer.mock(QaRecorder.QaRecorder)({ browserOpened: () => Effect.void }),
+        Layer.mock(QaRecorder.QaRecorder)({
+          browserOpened: () => Effect.void,
+          stepPerformed: (_threadId, step) => Effect.sync(() => void loggedSteps.push(step)),
+        }),
       ).pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
     ),
   ),

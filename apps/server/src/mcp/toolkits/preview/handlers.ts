@@ -14,13 +14,16 @@ import {
   type PreviewAutomationSnapshot,
   type PreviewAutomationSnapshotMetadata,
   type PreviewAutomationStatus,
+  type PreviewAutomationDurableTarget,
   type PreviewTabId,
+  type QaReplayStep,
 } from "@t3tools/contracts";
 
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as PreviewAutomationBroker from "../../PreviewAutomationBroker.ts";
 import * as QaRecorder from "../../../qa/QaRecorder.ts";
+import { actStep, waitStep } from "../../../qa/qaReplay.ts";
 import { claimPreviewRecording } from "./recordingClaim.ts";
 import { PreviewSnapshotToolkit, PreviewStandardToolkit, PreviewToolkit } from "./tools.ts";
 
@@ -101,13 +104,43 @@ const invokeTargeted = <A extends object>(
   );
 };
 
+/** Logs a step for the thread's QA run; a logging failure never fails the agent's action. */
+const logStep = Effect.fn("PreviewToolkit.logStep")(function* (step: QaReplayStep) {
+  const scope = yield* McpInvocationContext.requireThreadMcpCapability("preview").pipe(
+    Effect.option,
+  );
+  if (scope._tag === "None") return;
+  yield* (yield* QaRecorder.QaRecorder).stepPerformed(scope.value.thread.threadId, step);
+});
+
+/** Splits off the target the browser named for the step, which the agent does not need. */
+const takeRecordedTarget = <A extends object>(result: A) => {
+  const { recordedTarget, ...rest } = result as A & {
+    readonly recordedTarget?: PreviewAutomationDurableTarget;
+  };
+  return { target: recordedTarget ?? null, result: rest };
+};
+
+const requestedUrl = (input: {
+  readonly url?: string | undefined;
+  readonly target?: { readonly kind: string; readonly url?: string } | undefined;
+}) => input.url ?? (input.target?.kind === "url" ? input.target.url : undefined);
+
 const decodeActInput = Record.map(PreviewAutomationActInputs, (schema) =>
   Schema.decodeUnknownEffect(schema),
 );
 
 const handlers = {
   preview_dialog: McpToolAccess.actsAsCaller((input) =>
-    invokeTargeted<PreviewAutomationStatus>("dialog", input),
+    invokeTargeted<PreviewAutomationStatus>("dialog", input).pipe(
+      Effect.tap(() =>
+        logStep({
+          kind: "unreplayable",
+          action: "dialog",
+          reason: "Answering a dialog is not replayed yet.",
+        }),
+      ),
+    ),
   ),
   preview_status: McpToolAccess.readsAsCaller((input) =>
     invokeTargeted<PreviewAutomationStatus>("status", input ?? {}),
@@ -130,14 +163,30 @@ const handlers = {
             });
       const scope = yield* McpInvocationContext.requireThreadMcpCapability("preview");
       yield* (yield* QaRecorder.QaRecorder).browserOpened(scope, result);
+      const startUrl = (target === undefined ? url : undefined) ?? result.url;
+      if (startUrl !== null && /^https?:\/\//i.test(startUrl))
+        yield* logStep({ kind: "navigate", url: startUrl });
       return result;
     }),
   ),
   preview_navigate: McpToolAccess.actsAsCaller((input) =>
-    invokeTargeted<PreviewAutomationStatus>("navigate", input, input.timeoutMs),
+    invokeTargeted<PreviewAutomationStatus>("navigate", input, input.timeoutMs).pipe(
+      Effect.tap((status) => {
+        const url = requestedUrl(input) ?? status.url;
+        return url === null ? Effect.void : logStep({ kind: "navigate", url });
+      }),
+    ),
   ),
   preview_resize: McpToolAccess.actsAsCaller((input) =>
-    invokeTargeted<PreviewAutomationResizeResult>("resize", input, input.timeoutMs),
+    invokeTargeted<PreviewAutomationResizeResult>("resize", input, input.timeoutMs).pipe(
+      Effect.tap(() =>
+        logStep({
+          kind: "unreplayable",
+          action: "resize",
+          reason: "Viewport changes are not replayed yet.",
+        }),
+      ),
+    ),
   ),
   preview_set_appearance: McpToolAccess.actsAsCaller((input) =>
     invokeTargeted<PreviewAutomationSetColorSchemeResult>("setColorScheme", input),
@@ -164,6 +213,11 @@ const handlers = {
           action,
           decoded,
           "timeoutMs" in decoded ? decoded.timeoutMs : undefined,
+        ).pipe(
+          Effect.flatMap((raw) => {
+            const { target, result } = takeRecordedTarget(raw);
+            return logStep(actStep(action, decoded, target)).pipe(Effect.as(result));
+          }),
         ),
       ),
     ),
@@ -177,7 +231,13 @@ const handlers = {
     ),
   ),
   preview_wait_for: McpToolAccess.readsAsCaller((input) =>
-    invokeTargeted<object>("waitFor", input, input.timeoutMs),
+    invokeTargeted<object>("waitFor", input, input.timeoutMs).pipe(
+      Effect.flatMap((raw) => {
+        const { target, result } = takeRecordedTarget(raw);
+        const hadLocator = input.locator !== undefined || input.selector !== undefined;
+        return logStep(waitStep(input, hadLocator, target)).pipe(Effect.as(result));
+      }),
+    ),
   ),
   preview_recording_start: McpToolAccess.actsAsCaller((input) =>
     invokeTargeted<PreviewAutomationRecordingStatus>("recordingStart", input ?? {}),

@@ -39,6 +39,7 @@ import {
   type PreviewAutomationTypeInput,
   type PreviewAutomationUploadInput,
   type PreviewAutomationWaitForInput,
+  type PreviewAutomationCheckInput,
   PreviewClearProfileError,
   type PreviewEvent,
   type PreviewNavStatus,
@@ -418,6 +419,7 @@ const READ_OPERATIONS: ReadonlySet<PreviewAutomationRequest["operation"]> = new 
   "status",
   "snapshot",
   "waitFor",
+  "check",
 ]);
 
 const AGENT_TAB_LIMIT = 8;
@@ -2473,6 +2475,21 @@ const make = Effect.gen(function* () {
     );
   };
 
+  /**
+   * Names the target before acting, while its ref is still valid, so a QA run can replay the
+   * step later. The MCP handler takes `recordedTarget` off before the agent sees the result.
+   */
+  const withRecordedTarget = async (
+    tab: ServerTab,
+    input: { readonly locator?: string | undefined; readonly selector?: string | undefined },
+    run: () => Promise<unknown>,
+  ) => {
+    const recordedTarget = await ServerBrowserPage.durableTarget(tab.page, input);
+    const result = await run();
+    if (recordedTarget === null) return result;
+    return { ...(typeof result === "object" && result !== null ? result : {}), recordedTarget };
+  };
+
   const requireTab = async (request: PreviewAutomationRequest) => {
     if (!request.agentSessionId)
       throw new BrowserControlInterrupted({
@@ -2850,18 +2867,27 @@ const make = Effect.gen(function* () {
           ...(input as PreviewAutomationClickInput),
           timeoutMs: Math.max(1, Math.floor(deadlineMs - performance.now())),
         };
-        await recordAction(tab, "click", () =>
-          ServerBrowserPage.click(tab.page, clickInput, pointerFor(tab)),
+        return withRecordedTarget(tab, clickInput, () =>
+          recordAction(tab, "click", () =>
+            ServerBrowserPage.click(tab.page, clickInput, pointerFor(tab)),
+          ).then(constVoid),
         );
-        return undefined;
       }
       case "hover":
-        return recordAction(tab, "hover", () =>
-          ServerBrowserPage.hover(tab.page, input as PreviewAutomationHoverInput, pointerFor(tab)),
+        return withRecordedTarget(tab, input as PreviewAutomationHoverInput, () =>
+          recordAction(tab, "hover", () =>
+            ServerBrowserPage.hover(
+              tab.page,
+              input as PreviewAutomationHoverInput,
+              pointerFor(tab),
+            ),
+          ),
         );
       case "select":
-        return recordAction(tab, "select", () =>
-          ServerBrowserPage.select(tab.page, input as PreviewAutomationSelectInput),
+        return withRecordedTarget(tab, input as PreviewAutomationSelectInput, () =>
+          recordAction(tab, "select", () =>
+            ServerBrowserPage.select(tab.page, input as PreviewAutomationSelectInput),
+          ),
         );
       case "drag":
         return recordAction(tab, "drag", () =>
@@ -2872,16 +2898,20 @@ const make = Effect.gen(function* () {
           uploadFiles(tab, input as PreviewAutomationUploadInput),
         );
       case "type":
-        return recordAction(tab, "type", () =>
-          ServerBrowserPage.type(tab.page, input as PreviewAutomationTypeInput),
+        return withRecordedTarget(tab, input as PreviewAutomationTypeInput, () =>
+          recordAction(tab, "type", () =>
+            ServerBrowserPage.type(tab.page, input as PreviewAutomationTypeInput),
+          ),
         );
       case "press":
         return recordAction(tab, "press", () =>
           ServerBrowserPage.press(tab.page, input as PreviewAutomationPressInput),
         );
       case "scroll":
-        return recordAction(tab, "scroll", () =>
-          ServerBrowserPage.scroll(tab.page, input as PreviewAutomationScrollInput),
+        return withRecordedTarget(tab, input as PreviewAutomationScrollInput, () =>
+          recordAction(tab, "scroll", () =>
+            ServerBrowserPage.scroll(tab.page, input as PreviewAutomationScrollInput),
+          ),
         );
       case "evaluate":
         return ServerBrowserPage.evaluate(
@@ -2890,7 +2920,11 @@ const make = Effect.gen(function* () {
           request.timeoutMs,
         );
       case "waitFor":
-        return ServerBrowserPage.waitFor(tab.page, input as PreviewAutomationWaitForInput);
+        return withRecordedTarget(tab, input as PreviewAutomationWaitForInput, () =>
+          ServerBrowserPage.waitFor(tab.page, input as PreviewAutomationWaitForInput),
+        );
+      case "check":
+        return ServerBrowserPage.check(tab.page, input as PreviewAutomationCheckInput);
       case "recordingStart": {
         const recording = await startRecording(tab);
         return { tabId: tab.tabId, recording: true, startedAt: recording.startedAt };

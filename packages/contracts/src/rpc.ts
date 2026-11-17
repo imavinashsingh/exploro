@@ -407,6 +407,13 @@ import {
   QaRunError,
   QaRunsSnapshot,
   QaRunsSubscribeInput,
+  QaSuiteCreateInput,
+  QaSuiteCreateResult,
+  QaSuiteDeleteInput,
+  QaSuiteDeleteResult,
+  QaSuiteRunInput,
+  QaSuiteRunStarted,
+  QaSuitesSnapshot,
 } from "./qaRuns.ts";
 import { SecretRequestAnswerInput, SecretRequestError } from "./secretRequest.ts";
 import {
@@ -587,6 +594,10 @@ export const WS_METHODS = {
   projectMemoryRetryExtraction: "projectMemory.retryExtraction",
   qaRunsSubscribe: "qaRuns.subscribe",
   qaRunsDelete: "qaRuns.delete",
+  qaSuitesSubscribe: "qaSuites.subscribe",
+  qaSuitesCreate: "qaSuites.create",
+  qaSuitesDelete: "qaSuites.delete",
+  qaSuitesRun: "qaSuites.run",
   scheduledTasksUpsert: "scheduledTasks.upsert",
   scheduledTasksSetEnabled: "scheduledTasks.setEnabled",
   scheduledTasksDelete: "scheduledTasks.delete",
@@ -2112,6 +2123,29 @@ const WsQaRunsDeleteRpc = Rpc.make(WS_METHODS.qaRunsDelete, {
   error: Schema.Union([QaRunError, EnvironmentAuthorizationError]),
 });
 
+const qaRunErrors = Schema.Union([QaRunError, EnvironmentAuthorizationError]);
+const WsQaSuitesSubscribeRpc = Rpc.make(WS_METHODS.qaSuitesSubscribe, {
+  payload: Schema.Struct({}),
+  success: QaSuitesSnapshot,
+  error: qaRunErrors,
+  stream: true,
+});
+const WsQaSuitesCreateRpc = Rpc.make(WS_METHODS.qaSuitesCreate, {
+  payload: QaSuiteCreateInput,
+  success: QaSuiteCreateResult,
+  error: qaRunErrors,
+});
+const WsQaSuitesDeleteRpc = Rpc.make(WS_METHODS.qaSuitesDelete, {
+  payload: QaSuiteDeleteInput,
+  success: QaSuiteDeleteResult,
+  error: qaRunErrors,
+});
+const WsQaSuitesRunRpc = Rpc.make(WS_METHODS.qaSuitesRun, {
+  payload: QaSuiteRunInput,
+  success: QaSuiteRunStarted,
+  error: qaRunErrors,
+});
+
 const WsScheduledTasksSubscribeRpc = Rpc.make(WS_METHODS.scheduledTasksSubscribe, {
   payload: ScheduledTaskListInput,
   success: ScheduledTaskListResult,
@@ -2274,6 +2308,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectMemoryRetryExtractionRpc,
   WsQaRunsSubscribeRpc,
   WsQaRunsDeleteRpc,
+  WsQaSuitesSubscribeRpc,
+  WsQaSuitesCreateRpc,
+  WsQaSuitesDeleteRpc,
+  WsQaSuitesRunRpc,
   WsScheduledTasksUpsertRpc,
   WsScheduledTasksSetEnabledRpc,
   WsScheduledTasksDeleteRpc,
