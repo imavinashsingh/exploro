@@ -319,7 +319,7 @@ function createTextGeneration(
     generateReviewGuide: () => Effect.succeed({ stops: [] }),
     generateTranscriptionPostProcessing: () =>
       Effect.succeed({ transcription: "processed transcript" }),
-    generateProjectUnderstanding: () => Effect.succeed({ items: [] }),
+    generateProjectUnderstanding: () => Effect.succeed({ items: [], replacedFacts: [] }),
     ...overrides,
   };
 

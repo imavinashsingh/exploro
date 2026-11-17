@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import { NonNegativeInt, ProjectId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
@@ -138,9 +139,10 @@ export const ProjectUnderstandingExtraction = Schema.Struct({
     }),
   ),
   /** Earlier facts that a fact of this run restates in other words. */
-  replacedFacts: Schema.optionalKey(
-    Schema.Array(Schema.Struct({ factId: Schema.String, byFactId: Schema.String })),
-  ),
+  // Required in the model's schema (OpenAI strict output), defaulted when a reply leaves it out.
+  replacedFacts: Schema.Array(
+    Schema.Struct({ factId: Schema.String, byFactId: Schema.String }),
+  ).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
 });
 export type ProjectUnderstandingExtraction = typeof ProjectUnderstandingExtraction.Type;
 

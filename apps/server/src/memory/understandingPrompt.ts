@@ -149,7 +149,7 @@ export function planFactReplacements(
 ): ReadonlyArray<{ readonly factId: string; readonly byFactId: string }> {
   const earlier = new Set(input.earlier.map((fact) => fact.factId));
   const latest = new Set(input.facts.map((fact) => fact.factId));
-  return (output.replacedFacts ?? []).filter(
+  return output.replacedFacts.filter(
     ({ factId, byFactId }) => earlier.has(factId) && latest.has(byFactId),
   );
 }

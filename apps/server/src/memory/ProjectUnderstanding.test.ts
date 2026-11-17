@@ -52,7 +52,7 @@ const conceptEmbedder = Layer.succeed(
 );
 
 type Generate = TextGeneration.TextGeneration["Service"]["generateProjectUnderstanding"];
-const noItems: Generate = () => Effect.succeed({ items: [] });
+const noItems: Generate = () => Effect.succeed({ items: [], replacedFacts: [] });
 
 let randomSeed = 0;
 const withUnderstanding = <A, E>(
@@ -570,6 +570,7 @@ it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
                 userQuote: null,
               },
             ],
+            replacedFacts: [],
           };
           return Effect.succeed(output);
         },
