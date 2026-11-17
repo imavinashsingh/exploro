@@ -3,8 +3,15 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type { EnvironmentId, QaRun, QaSuiteSummary, ThreadId } from "@t3tools/contracts";
-import { PlayIcon, RepeatIcon, Trash2Icon } from "lucide-react";
+import type {
+  EnvironmentId,
+  ProjectId,
+  QaRun,
+  QaSavedSecret,
+  QaSuiteSummary,
+  ThreadId,
+} from "@t3tools/contracts";
+import { KeyRoundIcon, PlayIcon, RepeatIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 
 import { cn } from "../../lib/utils";
@@ -111,10 +118,11 @@ export function SaveRunAsRegression(props: {
   );
 }
 
-/** The suites saved from this thread, each replayable without a model. */
+/** The suites saved from this thread, and the passwords the project remembered for suites. */
 export function ThreadDetailsRegression(props: {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
+  readonly projectId: ProjectId;
 }) {
   const suitesQuery = useEnvironmentQuery(
     serverEnvironment.qaSuitesLive({ environmentId: props.environmentId, input: {} }),
@@ -128,11 +136,32 @@ export function ThreadDetailsRegression(props: {
     label: "delete regression suite",
     reportFailure: false,
   });
+  const canForget = useAtomValue(
+    serverEnvironment.forgetQaSavedSecret.permissionAtom(props.environmentId),
+  );
+  const forgetSecret = useAtomCommand(serverEnvironment.forgetQaSavedSecret, {
+    label: "remove saved password",
+    reportFailure: false,
+  });
   const [confirmDelete, setConfirmDelete] = useState<QaSuiteSummary | null>(null);
+  const [confirmForget, setConfirmForget] = useState<QaSavedSecret | null>(null);
   const suites = (suitesQuery.data?.suites ?? []).filter(
     (suite) => suite.sourceThreadId === props.threadId,
   );
-  if (suites.length === 0) return null;
+  const savedSecrets = (suitesQuery.data?.savedSecrets ?? []).filter(
+    (secret) => secret.projectId === props.projectId,
+  );
+  if (suites.length === 0 && savedSecrets.length === 0) return null;
+
+  const forget = async (secret: QaSavedSecret) => {
+    setConfirmForget(null);
+    const result = await forgetSecret({
+      environmentId: props.environmentId,
+      input: { secretId: secret.secretId },
+    });
+    if (result._tag === "Failure" && !isAtomCommandInterrupted(result))
+      reportFailure("Could not remove the saved password", squashAtomCommandFailure(result));
+  };
 
   const remove = async (suite: QaSuiteSummary) => {
     setConfirmDelete(null);
@@ -186,7 +215,59 @@ export function ThreadDetailsRegression(props: {
             ) : null}
           </div>
         ))}
+        {savedSecrets.map((secret) => (
+          <div
+            key={secret.secretId}
+            className={cn(
+              "flex min-h-8 items-center gap-1 py-1 text-xs",
+              THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS,
+            )}
+          >
+            <KeyRoundIcon className={THREAD_DETAILS_PANEL_ICON_CLASS} aria-hidden />
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate">{secret.label}</span>
+              <span className="truncate text-2xs text-muted-foreground">
+                Saved password{secret.site === null ? "" : ` · ${new URL(secret.site).host}`}
+              </span>
+            </span>
+            {canForget ? (
+              <ThreadDetailsControl
+                size="xs"
+                variant="ghost"
+                part="meta"
+                aria-label={`Remove saved password ${secret.label}`}
+                onClick={() => setConfirmForget(secret)}
+              >
+                <Trash2Icon aria-hidden />
+              </ThreadDetailsControl>
+            ) : null}
+          </div>
+        ))}
       </div>
+      <AlertDialog
+        open={confirmForget !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmForget(null);
+        }}
+      >
+        <AlertDialogPopup>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove this saved password?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Regression suites that sign in with it stop at that step until you save it again.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
+            <Button
+              variant="destructive"
+              onClick={() => confirmForget && void forget(confirmForget)}
+            >
+              Remove
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogPopup>
+      </AlertDialog>
       <AlertDialog
         open={confirmDelete !== null}
         onOpenChange={(open) => {

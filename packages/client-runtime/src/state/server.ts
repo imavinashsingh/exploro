@@ -1839,6 +1839,10 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:qa-suite:run",
       tag: WS_METHODS.qaSuitesRun,
     }),
+    forgetQaSavedSecret: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:qa-suite:forget-secret",
+      tag: WS_METHODS.qaSuitesForgetSecret,
+    }),
     deleteScheduledTask: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:scheduled-task:delete",
       tag: WS_METHODS.scheduledTasksDelete,

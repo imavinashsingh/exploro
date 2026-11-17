@@ -411,6 +411,7 @@ import {
   QaSuiteCreateResult,
   QaSuiteDeleteInput,
   QaSuiteDeleteResult,
+  QaSavedSecretForgetInput,
   QaSuiteRunInput,
   QaSuiteRunStarted,
   QaSuitesSnapshot,
@@ -598,6 +599,7 @@ export const WS_METHODS = {
   qaSuitesCreate: "qaSuites.create",
   qaSuitesDelete: "qaSuites.delete",
   qaSuitesRun: "qaSuites.run",
+  qaSuitesForgetSecret: "qaSuites.forgetSecret",
   scheduledTasksUpsert: "scheduledTasks.upsert",
   scheduledTasksSetEnabled: "scheduledTasks.setEnabled",
   scheduledTasksDelete: "scheduledTasks.delete",
@@ -2145,6 +2147,11 @@ const WsQaSuitesRunRpc = Rpc.make(WS_METHODS.qaSuitesRun, {
   success: QaSuiteRunStarted,
   error: qaRunErrors,
 });
+const WsQaSuitesForgetSecretRpc = Rpc.make(WS_METHODS.qaSuitesForgetSecret, {
+  payload: QaSavedSecretForgetInput,
+  success: QaSavedSecretForgetInput,
+  error: qaRunErrors,
+});
 
 const WsScheduledTasksSubscribeRpc = Rpc.make(WS_METHODS.scheduledTasksSubscribe, {
   payload: ScheduledTaskListInput,
@@ -2312,6 +2319,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsQaSuitesCreateRpc,
   WsQaSuitesDeleteRpc,
   WsQaSuitesRunRpc,
+  WsQaSuitesForgetSecretRpc,
   WsScheduledTasksUpsertRpc,
   WsScheduledTasksSetEnabledRpc,
   WsScheduledTasksDeleteRpc,

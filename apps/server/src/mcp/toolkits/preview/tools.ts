@@ -30,6 +30,7 @@ import * as PreviewAutomationBroker from "../../PreviewAutomationBroker.ts";
 import * as ServerConfig from "../../../config.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as QaRecorder from "../../../qa/QaRecorder.ts";
+import * as QaSavedSecrets from "../../../qa/QaSavedSecrets.ts";
 import * as SecretRequests from "../../../secrets/SecretRequests.ts";
 
 const dependencies = [
@@ -39,7 +40,11 @@ const dependencies = [
 ];
 // Tools that change the page log a replayable step for the thread's QA run.
 const loggingDependencies = [...dependencies, QaRecorder.QaRecorder];
-const actDependencies = [...loggingDependencies, SecretRequests.SecretRequests];
+const actDependencies = [
+  ...loggingDependencies,
+  SecretRequests.SecretRequests,
+  QaSavedSecrets.QaSavedSecrets,
+];
 
 const PreviewToolFailure = Schema.Union([PreviewAutomationError, OrchestratorMcpFailure]);
 

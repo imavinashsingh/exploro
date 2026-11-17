@@ -9,6 +9,7 @@ import {
   type PreviewTabId,
   type QaReplayStep,
   type QaRun,
+  type QaSavedSecretId,
   type QaSuiteCreateInput,
   type QaSuiteCreateResult,
   type QaSuiteId,
@@ -27,6 +28,7 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as PubSub from "effect/PubSub";
 import * as Schema from "effect/Schema";
@@ -47,10 +49,13 @@ import {
   buildSuite,
   describeCheck,
   describeStep,
+  fillSavedSecrets,
   fillSecrets,
   rebaseUrl,
+  savedSecretIds,
 } from "./qaReplay.ts";
 import * as QaRuns from "./QaRuns.ts";
+import * as QaSavedSecrets from "./QaSavedSecrets.ts";
 
 const STEP_TIMEOUT_MS = 15_000;
 const CHECK_TIMEOUT_MS = 5_000;
@@ -67,6 +72,7 @@ export class QaSuites extends Context.Service<
     readonly start: (input: QaSuiteRunInput) => Effect.Effect<QaSuiteRunStarted, QaRunError>;
     /** Replays the suite and returns the finished run. */
     readonly run: (input: QaSuiteRunInput) => Effect.Effect<QaRun, QaRunError>;
+    readonly forgetSecret: (secretId: QaSavedSecretId) => Effect.Effect<void, QaRunError>;
   }
 >()("t3/qa/QaSuites") {}
 
@@ -103,6 +109,7 @@ const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const random = yield* SecureRandom.SecureRandom;
   const qaRuns = yield* QaRuns.QaRuns;
+  const savedSecrets = yield* QaSavedSecrets.QaSavedSecrets;
   const recorder = yield* QaRecorder.QaRecorder;
   const broker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
   const threads = yield* ThreadManagementService.ThreadManagementService;
@@ -310,7 +317,20 @@ const make = Effect.gen(function* () {
           return yield* new QaRunError({
             message: `The suite types password ${filled.missing} from its thread, which the thread no longer has.`,
           });
-        steps.push({ ...step, text: filled.text });
+        const saved = new Map<string, string>();
+        for (const secretId of savedSecretIds(filled.text)) {
+          const value =
+            suite.projectId === null
+              ? Option.none<string>()
+              : yield* savedSecrets.read(suite.projectId, secretId);
+          if (Option.isNone(value))
+            return yield* new QaRunError({
+              message:
+                "The suite types a saved password that was removed. Sign in again in a test run, tick Remember on the password card, and save the suite again.",
+            });
+          saved.set(secretId, value.value);
+        }
+        steps.push({ ...step, text: fillSavedSecrets(filled.text, saved) });
       } else steps.push(step);
     }
     return steps;
@@ -322,6 +342,10 @@ const make = Effect.gen(function* () {
     steps: ReadonlyArray<QaReplayStep>,
   ) {
     const threadId = suite.sourceThreadId;
+    // Typed text is described as saved, so reports show placeholders, never the filled passwords.
+    const described = steps.map((step, index) =>
+      describeStep(step.kind === "type" ? (suite.steps[index] ?? step) : step),
+    );
     const scope = replayScope(threadId, run.runId, yield* Clock.currentTimeMillis);
     let tabId: PreviewTabId | undefined;
     const invoke = <A>(operation: string, input: unknown, timeoutMs = STEP_TIMEOUT_MS + 5_000) =>
@@ -351,8 +375,7 @@ const make = Effect.gen(function* () {
       let next = 0;
       let broken: string | null = null;
       for (const scenario of suite.scenarios) {
-        const segment = steps.slice(next, scenario.stepCount);
-        const stepsText = segment.map(describeStep).slice(-30);
+        const stepsText = described.slice(next, scenario.stepCount).slice(-30);
         const record = (input: {
           readonly verdict: "PASS" | "FAIL" | "INCONCLUSIVE";
           readonly note: string;
@@ -399,7 +422,7 @@ const make = Effect.gen(function* () {
                   Effect.catch((error) => Effect.succeed(errorMessage(error))),
                 );
           if (failed !== null) {
-            const named = `step ${next + 1}${step === undefined ? "" : ` (${describeStep(step)})`}`;
+            const named = `step ${next + 1}${step === undefined ? "" : ` (${described[next]})`}`;
             broken = `${named} broke earlier.`;
             yield* record({
               verdict: "INCONCLUSIVE",
@@ -489,16 +512,20 @@ const make = Effect.gen(function* () {
     subscribe: Stream.unwrap(
       Effect.gen(function* () {
         const subscription = yield* PubSub.subscribe(changes);
-        const snapshot = lock
-          .withPermit(load())
-          .pipe(Effect.map((suites) => ({ suites: suites.map(summaryOf) })));
+        const snapshot = Effect.all({
+          suites: lock.withPermit(load()).pipe(Effect.map((suites) => suites.map(summaryOf))),
+          savedSecrets: savedSecrets.list,
+        });
         return Stream.concat(
           Stream.fromEffect(snapshot),
-          Stream.fromSubscription(subscription).pipe(Stream.mapEffect(() => snapshot)),
+          Stream.merge(Stream.fromSubscription(subscription), savedSecrets.changes).pipe(
+            Stream.mapEffect(() => snapshot),
+          ),
         );
       }),
     ),
     delete: deleteSuite,
+    forgetSecret: savedSecrets.forget,
     start: Effect.fn("QaSuites.start")(function* (input) {
       const { run } = yield* begin(input);
       return { threadId: run.threadId, runId: run.runId };

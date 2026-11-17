@@ -67,6 +67,7 @@ import { PreviewControlsToolkit } from "./toolkits/previewControls/tools.ts";
 import { ProjectToolkit } from "./toolkits/project/tools.ts";
 import { ThreadToolkit } from "./toolkits/thread/tools.ts";
 import * as QaRecorder from "../qa/QaRecorder.ts";
+import * as QaSavedSecrets from "../qa/QaSavedSecrets.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as QaRuns from "../qa/QaRuns.ts";
 import * as QaSuites from "../qa/QaSuites.ts";
@@ -112,6 +113,7 @@ const layerTest = McpHttpServer.layerPreviewToolkit.pipe(
       Layer.mock(QaRuns.QaRuns)({}),
       Layer.mock(QaSuites.QaSuites)({}),
       Layer.mock(SecretRequests.SecretRequests)({}),
+      Layer.mock(QaSavedSecrets.QaSavedSecrets)({}),
       Layer.mock(ProjectMemory.ProjectMemory)({}),
       Layer.mock(ProjectUnderstanding.ProjectUnderstanding)({}),
       Layer.mock(QaRecorder.QaRecorder)({

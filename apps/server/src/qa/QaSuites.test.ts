@@ -4,6 +4,7 @@ import { assert, it } from "@effect/vitest";
 import {
   EnvironmentId,
   PREVIEW_AUTOMATION_SERVER_OPERATIONS,
+  ProjectId,
   ThreadId,
   type PreviewAutomationAssertion,
   type PreviewAutomationRequest,
@@ -12,8 +13,10 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 
+import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as PreviewAutomationBroker from "../mcp/PreviewAutomationBroker.ts";
@@ -25,6 +28,7 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as PreviewAgentActivity from "../preview/PreviewAgentActivity.ts";
 import * as QaRecorder from "./QaRecorder.ts";
 import * as QaRuns from "./QaRuns.ts";
+import * as QaSavedSecrets from "./QaSavedSecrets.ts";
 import * as QaSuites from "./QaSuites.ts";
 
 const threadId = ThreadId.make("thread-regress-1");
@@ -135,6 +139,7 @@ const layer = Effect.gen(function* () {
     }),
   );
   return QaSuites.layer.pipe(
+    Layer.provideMerge(QaSavedSecrets.layer.pipe(Layer.provide(ServerSecretStore.layer))),
     Layer.provideMerge(recorder),
     Layer.provideMerge(qaRuns),
     Layer.provideMerge(PreviewAutomationBroker.layer),
@@ -206,6 +211,8 @@ it.layer(NodeServices.layer)("QaSuites", (it) => {
         assert.include(run.scenarios[1]!.actual, "does not show this text");
         assert.include(run.scenarios[2]!.note, "Test broken: step 4");
         assert.include(run.scenarios[3]!.note, "Not run");
+        assert.include(run.scenarios[0]!.steps.join("\n"), 'Type "{{secret:1}}"');
+        assert.notInclude(JSON.stringify(run), "s3cret!");
       }).pipe(Effect.provide(yield* layer));
 
       const acted = requests.filter((request) => request.operation !== "snapshot");
@@ -242,6 +249,55 @@ it.layer(NodeServices.layer)("QaSuites", (it) => {
         assert.strictEqual((acted[index + 1]!.input as { settle?: boolean }).settle, true);
       }
       assert.strictEqual(operations.at(-1), "close");
+    }),
+  );
+
+  it.effect("replays a password remembered for the project, and says so once it is removed", () =>
+    Effect.gen(function* () {
+      const requests: Array<PreviewAutomationRequest> = [];
+      yield* Effect.gen(function* () {
+        const qaRuns = yield* QaRuns.QaRuns;
+        const suites = yield* QaSuites.QaSuites;
+        const saved = yield* QaSavedSecrets.QaSavedSecrets;
+        yield* fakeBrowser(requests);
+        const projectId = ProjectId.make("project-shop");
+        const login = { projectId, label: "Shop password", site: "https://shop.test" };
+
+        const secretId = yield* saved.remember({ ...login, value: "old-pass" });
+        // A new value for the same sign-in replaces the old one, so its suites keep working.
+        assert.strictEqual(yield* saved.remember({ ...login, value: "new-pass" }), secretId);
+        assert.deepStrictEqual(yield* saved.read(projectId, secretId), Option.some("new-pass"));
+        assert.isTrue(Option.isNone(yield* saved.read(ProjectId.make("project-other"), secretId)));
+
+        yield* qaRuns.appendStep(threadId, { kind: "navigate", url: "https://shop.test/login" });
+        yield* qaRuns.appendStep(threadId, {
+          kind: "type",
+          target: null,
+          text: `{{saved:${secretId}}}`,
+        });
+        yield* qaRuns.recordEvidence(
+          threadId,
+          { scenario: "Login", verdict: "PASS", note: "seen" },
+          capture("https://shop.test/home"),
+          [{ kind: "textVisible", text: "Welcome" }],
+        );
+        const source = yield* qaRuns.finishRun(threadId, { projectId });
+        const { suite } = yield* suites.create({ threadId, runId: source!.runId });
+
+        const run = yield* suites.run({ suiteId: suite.suiteId });
+        assert.deepStrictEqual(
+          run.scenarios.map((scenario) => scenario.verdict),
+          ["PASS"],
+        );
+        const typed = requests.find((request) => request.operation === "type");
+        assert.strictEqual((typed?.input as { text?: string } | undefined)?.text, "new-pass");
+        assert.notInclude(JSON.stringify(run), "new-pass");
+
+        yield* suites.forgetSecret(secretId);
+        assert.deepStrictEqual(yield* saved.list, []);
+        const failed = yield* Effect.flip(suites.run({ suiteId: suite.suiteId }));
+        assert.include(failed.message, "saved password that was removed");
+      }).pipe(Effect.provide(yield* layer));
     }),
   );
 });
