@@ -69,6 +69,8 @@ interface Browser {
   /** Texts the page never shows. */
   absent: ReadonlyArray<string>;
   changedLook: boolean;
+  /** The browser cannot open a tab, so a replay stops before its first step. */
+  failOpen?: boolean;
   /** While set, the browser answers nothing until it completes. */
   hold?: Deferred.Deferred<void>;
 }
@@ -128,8 +130,9 @@ const fakeBrowser = (browser: Browser) =>
         browser.requests.push(event.request);
         const locator = String((event.request.input as { locator?: string }).locator);
         const broken =
-          event.request.operation === "click" &&
-          browser.missing.some((name) => locator.includes(`"${name}"`));
+          (event.request.operation === "open" && browser.failOpen === true) ||
+          (event.request.operation === "click" &&
+            browser.missing.some((name) => locator.includes(`"${name}"`)));
         return yield* broker.respond({
           clientId: "browser-1",
           connectionId: event.connectionId,
@@ -380,6 +383,34 @@ it.layer(NodeServices.layer)("QaSuites", (it) => {
         const failed = yield* suites.run({ suiteIds: [suite.suiteId] });
         assert.deepStrictEqual(failed.runs, []);
         assert.include(failed.batch.jobs[0]!.error, "saved password that was removed");
+      }).pipe(Effect.provide(yield* layer({})));
+    }),
+  );
+
+  it.effect("reports every scenario inconclusive when the browser cannot open", () =>
+    Effect.gen(function* () {
+      const browser: Browser = {
+        requests: [],
+        missing: [],
+        absent: [],
+        changedLook: false,
+        failOpen: true,
+      };
+      yield* Effect.gen(function* () {
+        const suites = yield* QaSuites.QaSuites;
+        yield* fakeBrowser(browser);
+        const { suite } = yield* saveSuite(threadId, [
+          { step: { kind: "navigate", url: "https://shop.test/" } },
+          { scenario: "Home", checks: [{ kind: "textVisible", text: "Welcome" }] },
+          { step: { kind: "click", target: target("Add") } },
+          { scenario: "Add to cart", checks: [{ kind: "textVisible", text: "Added" }] },
+        ]);
+        const run = (yield* suites.run({ suiteIds: [suite.suiteId] })).runs[0]!;
+        assert.deepStrictEqual(verdicts(run), [
+          ["Home", "INCONCLUSIVE"],
+          ["Add to cart", "INCONCLUSIVE"],
+        ]);
+        assert.include(run.scenarios[1]!.note, "Not run: the replay stopped");
       }).pipe(Effect.provide(yield* layer({})));
     }),
   );

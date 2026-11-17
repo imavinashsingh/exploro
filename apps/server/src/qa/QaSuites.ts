@@ -85,6 +85,14 @@ const SETTLE_TIMEOUT_MS = 10_000;
 const HEAL_RESOLVE_TIMEOUT_MS = 2_000;
 /** Every replay draws at this size, so captures compare across runs and machines. */
 const REPLAY_VIEWPORT = { width: 1280, height: 800 } as const;
+const NO_PAGE = {
+  url: null,
+  title: null,
+  png: null,
+  consoleEntries: [],
+  networkEntries: [],
+  actionTimeline: [],
+};
 const KEPT_BATCHES = 10;
 
 export interface QaRegressionResult {
@@ -570,6 +578,7 @@ const make = Effect.gen(function* () {
       return `Healing proposes ${after.display} instead of ${before.display}. Accept or dismiss it under Regression suites; nothing changes until you do.`;
     });
 
+    let recorded = 0;
     yield* Effect.gen(function* () {
       // A fresh incognito tab: no cookies or logins from earlier runs change what the steps do.
       const opened = yield* invoke<PreviewAutomationStatus>("open", {
@@ -593,14 +602,7 @@ const make = Effect.gen(function* () {
         }) => {
           const { visual, ...evidence } = input;
           return capturePage(broker, scope, tabId).pipe(
-            Effect.orElseSucceed(() => ({
-              url: null,
-              title: null,
-              png: null,
-              consoleEntries: [],
-              networkEntries: [],
-              actionTimeline: [],
-            })),
+            Effect.orElseSucceed(() => NO_PAGE),
             Effect.flatMap((page) =>
               qaRuns.recordReplayedScenario(
                 threadId,
@@ -613,6 +615,11 @@ const make = Effect.gen(function* () {
                 page,
                 { checks: scenario.checks, stepCount: scenario.stepCount, visual },
               ),
+            ),
+            Effect.tap(() =>
+              Effect.sync(() => {
+                recorded += 1;
+              }),
             ),
           );
         };
@@ -707,7 +714,25 @@ const make = Effect.gen(function* () {
       }
     }).pipe(
       Effect.catch((error) =>
-        Effect.logWarning("Regression replay stopped", { error, suiteId: suite.suiteId }),
+        Effect.gen(function* () {
+          yield* Effect.logWarning("Regression replay stopped", { error, suiteId: suite.suiteId });
+          // An empty run would read as a pass, so every scenario left says why it never ran.
+          for (const scenario of scenarios.slice(recorded)) {
+            yield* qaRuns
+              .recordReplayedScenario(
+                threadId,
+                {
+                  scenario: scenario.scenario.slice(0, 200),
+                  steps: [],
+                  verdict: "INCONCLUSIVE",
+                  note: `Not run: the replay stopped. ${errorMessage(error)} This is not a product verdict.`,
+                },
+                NO_PAGE,
+                { checks: scenario.checks, stepCount: scenario.stepCount },
+              )
+              .pipe(Effect.ignore({ log: true }));
+          }
+        }),
       ),
       Effect.ensuring(
         Effect.gen(function* () {
