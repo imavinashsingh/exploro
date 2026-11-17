@@ -17,12 +17,15 @@ import {
   type PreviewAutomationDurableTarget,
   type PreviewTabId,
   type QaReplayStep,
+  type SecretRef,
 } from "@t3tools/contracts";
 
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as PreviewAutomationBroker from "../../PreviewAutomationBroker.ts";
+import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as QaRecorder from "../../../qa/QaRecorder.ts";
+import * as SecretRequests from "../../../secrets/SecretRequests.ts";
 import { actStep, waitStep } from "../../../qa/qaReplay.ts";
 import { claimPreviewRecording } from "./recordingClaim.ts";
 import { PreviewSnapshotToolkit, PreviewStandardToolkit, PreviewToolkit } from "./tools.ts";
@@ -130,6 +133,29 @@ const decodeActInput = Record.map(PreviewAutomationActInputs, (schema) =>
   Schema.decodeUnknownEffect(schema),
 );
 
+const invalidAct = (message: string) =>
+  new OrchestratorMcpFailure({ code: "invalid_request", message });
+
+/** Swaps a `secretRef` for its value, consumed here so the agent never sees it. */
+const withSecretText = Effect.fn("PreviewToolkit.withSecretText")(function* (
+  action: string,
+  input: { readonly text?: string | undefined; readonly secretRef?: SecretRef | undefined },
+) {
+  const { secretRef, ...rest } = input;
+  if (secretRef === undefined) return { input: rest, typedSecret: false };
+  if (action !== "type") return yield* invalidAct("`secretRef` works only with action `type`.");
+  if (rest.text !== undefined) return yield* invalidAct("Pass `text` or `secretRef`, not both.");
+  const scope = yield* McpInvocationContext.requireThreadMcpCapability("preview");
+  const thread = yield* (yield* ThreadManagementService.ThreadManagementService)
+    .getThreadShell(scope.thread.threadId)
+    .pipe(Effect.mapError(() => invalidAct("Could not read this thread's project.")));
+  if (thread === null) return yield* invalidAct("This thread has no project for its secrets.");
+  const text = yield* (yield* SecretRequests.SecretRequests)
+    .consume({ ref: secretRef, projectId: thread.projectId })
+    .pipe(Effect.mapError((error) => invalidAct(error.message)));
+  return { input: { ...rest, text }, typedSecret: true };
+});
+
 const handlers = {
   preview_dialog: McpToolAccess.actsAsCaller((input) =>
     invokeTargeted<PreviewAutomationStatus>("dialog", input).pipe(
@@ -204,23 +230,28 @@ const handlers = {
     );
   }),
   preview_act: McpToolAccess.actsAsCaller(({ action, ...input }) =>
-    decodeActInput[action](input).pipe(
-      Effect.mapError(
-        (cause) => new OrchestratorMcpFailure({ code: "invalid_request", message: cause.message }),
-      ),
-      Effect.flatMap((decoded) =>
-        invokeTargeted<object>(
-          action,
-          decoded,
-          "timeoutMs" in decoded ? decoded.timeoutMs : undefined,
-        ).pipe(
-          Effect.flatMap((raw) => {
-            const { target, result } = takeRecordedTarget(raw);
-            return logStep(actStep(action, decoded, target)).pipe(Effect.as(result));
-          }),
-        ),
-      ),
-    ),
+    Effect.gen(function* () {
+      const { input: resolved, typedSecret } = yield* withSecretText(action, input);
+      const decoded = yield* decodeActInput[action](resolved).pipe(
+        Effect.mapError((cause) => invalidAct(cause.message)),
+      );
+      const raw = yield* invokeTargeted<object>(
+        action,
+        decoded,
+        "timeoutMs" in decoded ? decoded.timeoutMs : undefined,
+      );
+      const { target, result } = takeRecordedTarget(raw);
+      yield* logStep(
+        typedSecret
+          ? {
+              kind: "unreplayable",
+              action,
+              reason: "A one-use secret was typed, so a replay cannot type it again.",
+            }
+          : actStep(action, decoded, target),
+      );
+      return result;
+    }),
   ),
   preview_evaluate: McpToolAccess.actsAsCaller(({ tabId, ...input }) =>
     invoke<unknown>("evaluate", input, undefined, tabId).pipe(

@@ -5,6 +5,8 @@ import {
   EnvironmentId,
   PreviewTabId,
   ProviderInstanceId,
+  SecretRef,
+  SecretRequestError,
   ThreadId,
   type PreviewAutomationRequest,
   type QaReplayStep,
@@ -26,6 +28,7 @@ import * as McpToolAccess from "../../McpToolAccess.ts";
 import { liveThreadsLayer } from "../../McpToolAccess.testkit.ts";
 import * as PreviewAutomationBroker from "../../PreviewAutomationBroker.ts";
 import * as QaRecorder from "../../../qa/QaRecorder.ts";
+import * as SecretRequests from "../../../secrets/SecretRequests.ts";
 import { layerStandard } from "./handlers.ts";
 import { claimPreviewRecording } from "./recordingClaim.ts";
 import { PreviewStandardToolkit } from "./tools.ts";
@@ -129,6 +132,94 @@ it.effect("preview_open navigates the opened tab to a dev server in one tool cal
           browserOpened: () => Effect.void,
           stepPerformed: (_threadId, step) => Effect.sync(() => void loggedSteps.push(step)),
         }),
+        Layer.mock(SecretRequests.SecretRequests)({}),
+      ).pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
+    ),
+  ),
+);
+
+const ref = SecretRef.make(`secret-ref:${"a".repeat(32)}`);
+
+/** A store holding one one-use secret. */
+const secretRequestsWith = (saved: SecretRef, value: string) => {
+  let available = true;
+  return Layer.mock(SecretRequests.SecretRequests)({
+    consume: (input) =>
+      Effect.suspend(() => {
+        if (!available || input.ref !== saved)
+          return Effect.fail(new SecretRequestError({ reason: "ref_unavailable" }));
+        available = false;
+        return Effect.succeed(value);
+      }),
+  });
+};
+
+it.effect("preview_act types a secretRef's value unseen and consumes it once", () =>
+  Effect.gen(function* () {
+    loggedSteps.length = 0;
+    const scope = yield* McpInvocationContext.McpInvocationContext;
+    const broker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
+    const connected = yield* Deferred.make<void>();
+    const requests: PreviewAutomationRequest[] = [];
+    const events = yield* broker.connect({
+      clientId: "client-1",
+      environmentId: scope.environmentId,
+    });
+    yield* Stream.runForEach(events, (event) => {
+      if (event.type === "connected") return Deferred.succeed(connected, undefined);
+      requests.push(event.request);
+      return broker.respond({
+        clientId: "client-1",
+        connectionId: event.connectionId,
+        requestId: event.request.requestId,
+        ok: true,
+        result: {},
+      });
+    }).pipe(Effect.forkScoped);
+    yield* Deferred.await(connected);
+    const toolkit = yield* PreviewStandardToolkit.pipe(
+      Effect.provide(McpToolAccess.HandlersLayer.layer(layerStandard)),
+    );
+    const act = (input: Record<string, unknown>) =>
+      toolkit
+        .handle("preview_act", { action: "type", locator: "aria-ref=e7", ...input } as never)
+        .pipe(Stream.unwrap, Stream.runCollect);
+
+    const typed = yield* act({ secretRef: ref });
+    expect(JSON.stringify(typed.at(-1)?.result)).not.toContain("hunter2!");
+    const typeRequests = requests.filter((request) => request.operation === "type");
+    expect(typeRequests.map(({ input }) => input)).toEqual([
+      { locator: "aria-ref=e7", text: "hunter2!" },
+    ]);
+    // A replay must not save the password, and a one-use ref cannot be typed again.
+    expect(loggedSteps.at(-1)?.kind).toBe("unreplayable");
+
+    const reused = yield* Effect.flip(act({ secretRef: ref }));
+    expect(reused.message).toContain("already used");
+    const both = yield* Effect.flip(act({ secretRef: ref, text: "x" }));
+    expect(both.message).toContain("not both");
+    expect(requests.filter((request) => request.operation === "type")).toHaveLength(1);
+  }).pipe(
+    Effect.provideService(McpInvocationContext.McpInvocationContext, {
+      environmentId: EnvironmentId.make("environment-1"),
+      requestNamespace: "provider-session-1",
+      thread: {
+        threadId: ThreadId.make("thread-1"),
+        providerSessionId: "provider-session-1",
+        providerInstanceId: ProviderInstanceId.make("codex"),
+      },
+      client: undefined,
+      capabilities: new Set(["preview"] as const),
+      issuedAt: 1,
+    }),
+    Effect.provide(
+      Layer.mergeAll(
+        PreviewAutomationBroker.layer,
+        liveThreadsLayer,
+        Layer.mock(QaRecorder.QaRecorder)({
+          stepPerformed: (_threadId, step) => Effect.sync(() => void loggedSteps.push(step)),
+        }),
+        secretRequestsWith(ref, "hunter2!"),
       ).pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
     ),
   ),
