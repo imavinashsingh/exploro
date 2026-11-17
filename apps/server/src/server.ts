@@ -99,7 +99,7 @@ import * as PortScanner from "./preview/PortScanner.ts";
 import * as ServerBrowser from "./preview/ServerBrowser.ts";
 import * as PreviewAgentActivity from "./preview/PreviewAgentActivity.ts";
 import * as QaRecorder from "./qa/QaRecorder.ts";
-import * as MemoryEmbedder from "./memory/MemoryEmbedder.ts";
+import * as MiniLmEmbedder from "./memory/MiniLmEmbedder.ts";
 import * as ProjectMemory from "./memory/ProjectMemory.ts";
 import * as ProjectMemoryControl from "./memory/ProjectMemoryControl.ts";
 import * as ProjectUnderstanding from "./memory/ProjectUnderstanding.ts";
@@ -886,13 +886,13 @@ const layerMakeRoutes = Layer.mergeAll(
       // The Memory screen shares the recorder's extraction queue.
       Layer.provideMerge(ProjectMemoryControl.layer),
       Layer.provideMerge(
-        UnderstandingExtraction.layer.pipe(Layer.provideMerge(MemoryEmbedder.layerUnavailable)),
+        UnderstandingExtraction.layer.pipe(Layer.provideMerge(MiniLmEmbedder.layer)),
       ),
       Layer.provideMerge(QaRuns.layer),
       Layer.provideMerge(
         ProjectMemory.layer.pipe(
           Layer.provideMerge(ProjectUnderstanding.layer),
-          Layer.provide(MemoryEmbedder.layerUnavailable),
+          Layer.provide(MiniLmEmbedder.layer),
         ),
       ),
       Layer.provide(PreviewAgentActivity.layer),

@@ -7,6 +7,7 @@ import {
   type ProjectUnderstandingExtraction,
 } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
+import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -440,6 +441,39 @@ it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
       { embedder: conceptEmbedder },
     ),
   );
+
+  it.effect("embeds items saved before a model was loaded when recall first needs them", () => {
+    let loaded = false;
+    const lateEmbedder = Layer.effect(
+      MemoryEmbedder.MemoryEmbedder,
+      Effect.map(Layer.build(conceptEmbedder), (context) => {
+        const concepts = Context.get(context, MemoryEmbedder.MemoryEmbedder);
+        return MemoryEmbedder.MemoryEmbedder.of({
+          status: Effect.suspend(() =>
+            loaded ? concepts.status : Effect.succeed({ model: null, unavailableReason: "off" }),
+          ),
+          embed: (texts) => (loaded ? concepts.embed(texts) : Effect.succeed(null)),
+        });
+      }),
+    );
+    return withUnderstanding(
+      Effect.gen(function* () {
+        const understanding = yield* ProjectUnderstanding.ProjectUnderstanding;
+        yield* understanding.saveItems(
+          shop,
+          [write({ ref: "a", statement: "Checkout needs a saved card" })],
+          { environment: site },
+        );
+        loaded = true;
+        const recall = yield* understanding.recall(shop, "test the payment flow");
+        assert.deepStrictEqual(
+          recall.items.map(({ item }) => item.statement),
+          ["Checkout needs a saved card"],
+        );
+      }),
+      { embedder: lateEmbedder },
+    );
+  });
 
   it.effect("extracts items after a run, citing facts and only verbatim user quotes", () =>
     withUnderstanding(

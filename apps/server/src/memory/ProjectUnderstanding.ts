@@ -133,6 +133,7 @@ const STOP_WORDS = new Set(
   ),
 );
 const CANDIDATES = 50;
+const BACKFILL_LIMIT = 64;
 const tombstoneRef = (statement: string) => statement.trim().toLowerCase().replace(/\s+/gu, " ");
 const MAX_STATEMENT_CHARS = 300;
 
@@ -407,6 +408,25 @@ const make = Effect.gen(function* () {
     const target = vectors?.[0];
     if (target === undefined) return null;
     const { model } = yield* embedder.status;
+    // Items saved before this model loaded have no vector, or one from another model.
+    const unembedded = yield* sql<{ readonly itemId: string; readonly statement: string }>`
+      SELECT item_id AS "itemId", statement FROM project_memory_understanding
+      WHERE project_id = ${projectId} AND (embedding IS NULL OR embedding_model IS NOT ${model})
+      LIMIT ${BACKFILL_LIMIT}
+    `;
+    const backfilled =
+      unembedded.length === 0
+        ? []
+        : ((yield* embedder.embed(unembedded.map((row) => row.statement))) ?? []);
+    yield* Effect.forEach(
+      backfilled,
+      (vector, index) => sql`
+        UPDATE project_memory_understanding
+        SET embedding = ${toBlob(vector)}, embedding_model = ${model}
+        WHERE item_id = ${unembedded[index]!.itemId}
+      `,
+      { discard: true },
+    );
     const rows = yield* sql`
       SELECT item_id AS "itemId", embedding FROM project_memory_understanding
       WHERE project_id = ${projectId} AND embedding IS NOT NULL AND embedding_model IS ${model}

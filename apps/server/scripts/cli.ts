@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @effect-diagnostics nodeBuiltinImport:off - Effect has no SHA-256 digest.
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
@@ -7,6 +8,7 @@ import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import { Command, Flag } from "effect/cli";
+import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/http";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import { DEVELOPMENT_ICON_OVERRIDES } from "../../../scripts/lib/brand-assets.ts";
@@ -22,7 +24,15 @@ import {
   ServerCliDevelopmentIconSourceMissingError,
   ServerCliDevelopmentIconTargetMissingError,
   ServerCliExecutableImportError,
+  ServerCliMemoryModelError,
 } from "./cliErrors.ts";
+import {
+  MEMORY_MODEL_FILES,
+  MEMORY_MODEL_FOLDER,
+  MEMORY_RUNTIME_FILES,
+  memoryModelUrl,
+} from "../src/memory/memoryModel.ts";
+import * as NodeCrypto from "node:crypto";
 
 const RepoRoot = Effect.service(Path.Path).pipe(
   Effect.flatMap((path) => path.fromFileUrl(new URL("../../..", import.meta.url))),
@@ -67,6 +77,53 @@ const applyDevelopmentIconOverrides = Effect.fn("applyDevelopmentIconOverrides")
   yield* Effect.log("[cli] Applied development icon overrides to dist/client");
 });
 
+const sha256 = (bytes: Uint8Array) => NodeCrypto.createHash("sha256").update(bytes).digest("hex");
+
+/**
+ * Puts project memory's embedding model in `apps/server/memory-model`: the pinned model files,
+ * downloaded once and checked by hash, and the WASM runtime from the installed onnxruntime-web.
+ */
+const fetchMemoryModel = Effect.fn("fetchMemoryModel")(function* (serverDir: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const target = path.join(serverDir, MEMORY_MODEL_FOLDER);
+  yield* fs.makeDirectory(target, { recursive: true });
+  for (const file of MEMORY_MODEL_FILES) {
+    const filePath = path.join(target, file.name);
+    if (yield* fs.exists(filePath)) {
+      if (sha256(yield* fs.readFile(filePath)) === file.sha256) continue;
+    }
+    yield* Effect.log(`[cli] Downloading ${file.source}...`);
+    const bytes = yield* HttpClient.get(memoryModelUrl(file.source)).pipe(
+      Effect.flatMap(HttpClientResponse.filterStatusOk),
+      Effect.flatMap((response) => response.arrayBuffer),
+      Effect.map((buffer) => new Uint8Array(buffer)),
+      Effect.mapError(
+        (cause) => new ServerCliMemoryModelError({ file: file.name, reason: cause.message }),
+      ),
+    );
+    if (sha256(bytes) !== file.sha256) {
+      return yield* new ServerCliMemoryModelError({ file: file.name, reason: "hash mismatch" });
+    }
+    yield* fs.writeFile(filePath, bytes);
+  }
+  const runtimeDir = path.dirname(
+    yield* path.fromFileUrl(new URL(import.meta.resolve("onnxruntime-web/wasm"))),
+  );
+  for (const name of MEMORY_RUNTIME_FILES) {
+    yield* fs.copyFile(path.join(runtimeDir, name), path.join(target, name));
+  }
+  return target;
+});
+
+const fetchMemoryModelCmd = Command.make("fetch-memory-model", {}, () =>
+  Effect.gen(function* () {
+    const path = yield* Path.Path;
+    const target = yield* fetchMemoryModel(path.join(yield* RepoRoot, "apps/server"));
+    yield* Effect.log(`[cli] Memory embedding model is ready in ${target}`);
+  }),
+).pipe(Command.withDescription("Fetch project memory's embedding model for a source checkout."));
+
 const buildCmd = Command.make(
   "build",
   {
@@ -99,6 +156,10 @@ const buildCmd = Command.make(
       } else {
         yield* Effect.logWarning("[cli] Web dist not found. Skipping client bundle.");
       }
+
+      const model = yield* fetchMemoryModel(serverDir);
+      yield* fs.copy(model, path.join(serverDir, "dist", MEMORY_MODEL_FOLDER));
+      yield* Effect.log("[cli] Bundled the memory embedding model into dist/memory-model");
     }),
 ).pipe(Command.withDescription("Build the server package (tsdown + bundle web client)."));
 
@@ -226,11 +287,15 @@ const publishCmd = Command.make(
 
 const cli = Command.make("cli").pipe(
   Command.withDescription("T3 server build & publish CLI."),
-  Command.withSubcommands([buildCmd, buildExeCmd, publishCmd]),
+  Command.withSubcommands([buildCmd, buildExeCmd, fetchMemoryModelCmd, publishCmd]),
 );
 
 Command.run(cli, { version: "0.0.0" }).pipe(
   Effect.scoped,
-  Effect.provide([Logger.layer([Logger.consolePretty()]), NodeServices.layer]),
+  Effect.provide([
+    Logger.layer([Logger.consolePretty()]),
+    NodeServices.layer,
+    FetchHttpClient.layer,
+  ]),
   NodeRuntime.runMain,
 );

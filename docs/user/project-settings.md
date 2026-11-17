@@ -69,6 +69,8 @@ Each finished test in a project leaves memory behind for the next one. Memory st
   written from the runs and from what you told the agent.
 
 The next test starts with a short brief from this memory and checks it against the live page.
+Understanding is found by meaning with a small model that runs on your computer, so recall works
+offline and sends nothing anywhere.
 Exploro hides passwords you type in chat before it saves anything. Threads with **No project** have
 no memory.
 
