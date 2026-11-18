@@ -1503,9 +1503,27 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:scheduled-tasks:live",
       tag: WS_METHODS.scheduledTasksSubscribe,
     }),
+    // Not polled: a project's facts can be large, so the Memory screen refreshes after each change.
+    projectMemorySnapshot: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:project-memory:snapshot",
+      tag: WS_METHODS.projectMemorySnapshot,
+    }),
+    // Not polled, like the snapshot: every page carries its facts.
+    projectMemoryMap: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:project-memory:map",
+      tag: WS_METHODS.projectMemoryMap,
+    }),
+    projectMemoryItemHistory: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:project-memory:item-history",
+      tag: WS_METHODS.projectMemoryItemHistory,
+    }),
     qaRunsLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:server:qa-runs:live",
       tag: WS_METHODS.qaRunsSubscribe,
+    }),
+    qaSuitesLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:server:qa-suites:live",
+      tag: WS_METHODS.qaSuitesSubscribe,
     }),
     // A cold transcript scan is measured in seconds, so keep the result around
     // long enough that switching windows or re-rendering does not rescan. With
@@ -1781,9 +1799,66 @@ export function createServerEnvironmentAtoms<R, E>(
       scheduler: configScheduler,
       concurrency: configConcurrency,
     }),
+    deleteMemoryFact: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:project-memory:delete-fact",
+      tag: WS_METHODS.projectMemoryDeleteFact,
+    }),
+    updateMemoryItem: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:project-memory:update-item",
+      tag: WS_METHODS.projectMemoryUpdateItem,
+    }),
+    deleteMemoryItem: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:project-memory:delete-item",
+      tag: WS_METHODS.projectMemoryDeleteItem,
+    }),
+    saveThreadMemory: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:project-memory:save-thread",
+      tag: WS_METHODS.projectMemorySaveThread,
+    }),
+    setMemoryAppVersion: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:project-memory:app-version",
+      tag: WS_METHODS.projectMemorySetAppVersion,
+    }),
+    retryMemoryExtraction: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:project-memory:retry-extraction",
+      tag: WS_METHODS.projectMemoryRetryExtraction,
+    }),
     deleteQaRun: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:qa-run:delete",
       tag: WS_METHODS.qaRunsDelete,
+    }),
+    createQaSuite: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:qa-suite:create",
+      tag: WS_METHODS.qaSuitesCreate,
+    }),
+    deleteQaSuite: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:qa-suite:delete",
+      tag: WS_METHODS.qaSuitesDelete,
+    }),
+    runQaSuite: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:qa-suite:run",
+      tag: WS_METHODS.qaSuitesRun,
+    }),
+    forgetQaSavedSecret: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:qa-suite:forget-secret",
+      tag: WS_METHODS.qaSuitesForgetSecret,
+    }),
+    // A command, not a query: the settings dialog reads the suite fresh each time it opens.
+    getQaSuite: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:qa-suite:get",
+      tag: WS_METHODS.qaSuitesGet,
+    }),
+    updateQaSuite: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:qa-suite:update",
+      tag: WS_METHODS.qaSuitesUpdate,
+    }),
+    acceptQaBaseline: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:qa-suite:accept-baseline",
+      tag: WS_METHODS.qaSuitesAcceptBaseline,
+    }),
+    resolveQaHealProposal: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:qa-suite:resolve-proposal",
+      tag: WS_METHODS.qaSuitesResolveProposal,
     }),
     deleteScheduledTask: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:scheduled-task:delete",

@@ -1,3 +1,5 @@
+import * as ProjectMemory from "./memory/ProjectMemory.ts";
+import * as ProjectMemoryControl from "./memory/ProjectMemoryControl.ts";
 import * as SecretResolver from "@t3tools/secret-provider-core/server/SecretResolver";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import { WebSocket } from "@effect/platform-node/NodeWS";
@@ -122,6 +124,7 @@ import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
 import * as QaRuns from "./qa/QaRuns.ts";
+import * as QaSuites from "./qa/QaSuites.ts";
 import * as SecretRequests from "./secrets/SecretRequests.ts";
 import * as GuestShareService from "./guest/GuestShareService.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
@@ -865,6 +868,9 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(ReviewService.ReviewService)({}),
   Layer.mock(ScheduledTasks.ScheduledTaskService)({}),
   Layer.mock(QaRuns.QaRuns)({}),
+  Layer.mock(QaSuites.QaSuites)({}),
+  Layer.mock(ProjectMemory.ProjectMemory)({}),
+  Layer.mock(ProjectMemoryControl.ProjectMemoryControl)({}),
   Layer.mock(SecretRequests.SecretRequests)({}),
   Layer.mock(SecretResolver.SecretResolver)({}),
   Layer.mock(GuestShareService.GuestShareService)({}),

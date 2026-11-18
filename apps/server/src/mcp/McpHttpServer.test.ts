@@ -1,3 +1,5 @@
+import * as ProjectMemory from "../memory/ProjectMemory.ts";
+import * as ProjectUnderstanding from "../memory/ProjectUnderstanding.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
@@ -65,7 +67,10 @@ import { PreviewControlsToolkit } from "./toolkits/previewControls/tools.ts";
 import { ProjectToolkit } from "./toolkits/project/tools.ts";
 import { ThreadToolkit } from "./toolkits/thread/tools.ts";
 import * as QaRecorder from "../qa/QaRecorder.ts";
+import * as QaSavedSecrets from "../qa/QaSavedSecrets.ts";
+import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as QaRuns from "../qa/QaRuns.ts";
+import * as QaSuites from "../qa/QaSuites.ts";
 import { QaToolkit } from "./toolkits/qa/tools.ts";
 
 const environmentId = EnvironmentId.make("environment-mcp-test");
@@ -101,8 +106,20 @@ const layerTest = McpHttpServer.layerPreviewToolkit.pipe(
   Layer.provideMerge(McpToolAccessTestkit.liveThreadsLayer),
   Layer.provideMerge(
     Layer.mergeAll(
+      Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+        namedProjectsRoot: "",
+        isScratchProject: () => Effect.succeed(true),
+      }),
       Layer.mock(QaRuns.QaRuns)({}),
-      Layer.mock(QaRecorder.QaRecorder)({ browserOpened: () => Effect.void }),
+      Layer.mock(QaSuites.QaSuites)({}),
+      Layer.mock(SecretRequests.SecretRequests)({}),
+      Layer.mock(QaSavedSecrets.QaSavedSecrets)({}),
+      Layer.mock(ProjectMemory.ProjectMemory)({}),
+      Layer.mock(ProjectUnderstanding.ProjectUnderstanding)({}),
+      Layer.mock(QaRecorder.QaRecorder)({
+        browserOpened: () => Effect.void,
+        stepPerformed: () => Effect.void,
+      }),
     ),
   ),
   Layer.provideMerge(PreviewAutomationBroker.layer),
@@ -618,6 +635,14 @@ it.effect("refuses preview tools to a client outside a thread before they run", 
         Effect.provideService(McpSchema.McpServerClient, client),
       );
     expect(click.message).toContain("Tool 'preview_act' not found");
+    const memory = yield* server
+      .callTool({ name: "memory_map", arguments: {} })
+      .pipe(
+        Effect.flip,
+        Effect.provideService(McpInvocationContext.McpInvocationContext, readOnly),
+        Effect.provideService(McpSchema.McpServerClient, client),
+      );
+    expect(memory.message).toContain("Tool 'memory_map' not found");
   }).pipe(Effect.provide(layerTest)),
 );
 
@@ -2064,4 +2089,38 @@ it.effect("lists optional tools to a deferring client only after tool_search loa
       expect(yield* other.listed).toEqual(["delegate_task", "preview_open", "schedule_task"]);
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect("hides memory tools from a thread without a project and refuses their calls", () =>
+  Effect.gen(function* () {
+    const server = yield* McpServer.McpServer;
+    const withCapabilities = (capabilities: ReadonlyArray<McpInvocationContext.McpCapability>) =>
+      Effect.provideService(McpInvocationContext.McpInvocationContext, {
+        ...invocation,
+        capabilities: new Set(capabilities),
+      });
+    const memoryTools = server.tools
+      .filter(({ tool }) => tool.name.startsWith("memory_"))
+      .map(({ tool }) => tool.name);
+    expect(memoryTools).toEqual([
+      "memory_map",
+      "memory_fact_put",
+      "memory_facts_lookup",
+      "memory_recall",
+    ]);
+    const visible = (capabilities: ReadonlyArray<McpInvocationContext.McpCapability>) =>
+      Effect.sync(McpInvocationContext.hiddenWithoutMemory).pipe(withCapabilities(capabilities));
+    expect(yield* visible(["preview"])).toBe(false);
+    expect(yield* visible(["preview", "memory"])).toBe(true);
+    for (const name of memoryTools) {
+      const refused = yield* server
+        .callTool({ name, arguments: {} })
+        .pipe(
+          withCapabilities(["preview"]),
+          Effect.provideService(McpSchema.McpServerClient, client),
+          Effect.flip,
+        );
+      expect(refused.message).toBe(`Tool '${name}' not found`);
+    }
+  }).pipe(Effect.provide(layerTest)),
 );

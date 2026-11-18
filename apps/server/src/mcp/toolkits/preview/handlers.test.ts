@@ -5,8 +5,12 @@ import {
   EnvironmentId,
   PreviewTabId,
   ProviderInstanceId,
+  QaSavedSecretId,
+  SecretRef,
+  SecretRequestError,
   ThreadId,
   type PreviewAutomationRequest,
+  type QaReplayStep,
 } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -25,12 +29,17 @@ import * as McpToolAccess from "../../McpToolAccess.ts";
 import { liveThreadsLayer } from "../../McpToolAccess.testkit.ts";
 import * as PreviewAutomationBroker from "../../PreviewAutomationBroker.ts";
 import * as QaRecorder from "../../../qa/QaRecorder.ts";
+import * as QaSavedSecrets from "../../../qa/QaSavedSecrets.ts";
+import * as SecretRequests from "../../../secrets/SecretRequests.ts";
 import { layerStandard } from "./handlers.ts";
 import { claimPreviewRecording } from "./recordingClaim.ts";
 import { PreviewStandardToolkit } from "./tools.ts";
 
+const loggedSteps: QaReplayStep[] = [];
+
 it.effect("preview_open navigates the opened tab to a dev server in one tool call", () =>
   Effect.gen(function* () {
+    loggedSteps.length = 0;
     const scope = yield* McpInvocationContext.McpInvocationContext;
     const broker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
     const connected = yield* Deferred.make<void>();
@@ -61,7 +70,17 @@ it.effect("preview_open navigates the opened tab to a dev server in one tool cal
         connectionId: event.connectionId,
         requestId: event.request.requestId,
         ok: true,
-        result: event.request.operation === "open" ? { ...status, url: "about:blank" } : status,
+        result:
+          event.request.operation === "open"
+            ? { ...status, url: "about:blank" }
+            : event.request.operation === "click"
+              ? {
+                  recordedTarget: {
+                    selector: 'internal:role=button[name="Save"i]',
+                    display: "getByRole('button')",
+                  },
+                }
+              : status,
       });
     }).pipe(Effect.forkScoped);
     yield* Deferred.await(connected);
@@ -83,6 +102,17 @@ it.effect("preview_open navigates the opened tab to a dev server in one tool cal
     ]);
     expect(requests[1]?.tabId).toBe(tabId);
     expect(requests[1]?.tabIdExplicit).toBe(true);
+    // The replay opens where the target led, not the url the target replaced.
+    expect(loggedSteps).toEqual([{ kind: "navigate", url: status.url }]);
+
+    const clicked = yield* toolkit
+      .handle("preview_act", { action: "click", locator: "aria-ref=e3" })
+      .pipe(Stream.unwrap, Stream.runCollect);
+    expect(JSON.stringify(clicked.at(-1)?.result)).not.toContain("recordedTarget");
+    expect(loggedSteps.at(-1)).toEqual({
+      kind: "click",
+      target: { selector: 'internal:role=button[name="Save"i]', display: "getByRole('button')" },
+    });
   }).pipe(
     Effect.provideService(McpInvocationContext.McpInvocationContext, {
       environmentId: EnvironmentId.make("environment-1"),
@@ -100,7 +130,122 @@ it.effect("preview_open navigates the opened tab to a dev server in one tool cal
       Layer.mergeAll(
         PreviewAutomationBroker.layer,
         liveThreadsLayer,
-        Layer.mock(QaRecorder.QaRecorder)({ browserOpened: () => Effect.void }),
+        Layer.mock(QaRecorder.QaRecorder)({
+          browserOpened: () => Effect.void,
+          stepPerformed: (_threadId, step) => Effect.sync(() => void loggedSteps.push(step)),
+        }),
+        Layer.mock(SecretRequests.SecretRequests)({}),
+        Layer.mock(QaSavedSecrets.QaSavedSecrets)({}),
+      ).pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
+    ),
+  ),
+);
+
+const ref = SecretRef.make(`secret-ref:${"a".repeat(32)}`);
+const rememberedRef = SecretRef.make(`secret-ref:${"b".repeat(32)}`);
+const passwordField = { selector: 'internal:label="Password"i', display: "getByLabel('Password')" };
+const remembered: Array<{ readonly label: string; readonly value: string }> = [];
+
+/** One-use secrets; the second asks to be remembered for suites. */
+const secretRequestsLayer = () => {
+  const refs = new Map<SecretRef, { value: string; remember?: SecretRequests.RememberRequest }>([
+    [ref, { value: "hunter2!" }],
+    [rememberedRef, { value: "s3cret!", remember: { label: "Shop password", site: null } }],
+  ]);
+  return Layer.mock(SecretRequests.SecretRequests)({
+    consumeDetailed: (input) =>
+      Effect.suspend(() => {
+        const stored = refs.get(input.ref);
+        if (stored === undefined)
+          return Effect.fail(new SecretRequestError({ reason: "ref_unavailable" }));
+        refs.delete(input.ref);
+        return Effect.succeed({ value: stored.value, remember: stored.remember });
+      }),
+  });
+};
+
+it.effect("preview_act types a secretRef's value unseen and consumes it once", () =>
+  Effect.gen(function* () {
+    loggedSteps.length = 0;
+    const scope = yield* McpInvocationContext.McpInvocationContext;
+    const broker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
+    const connected = yield* Deferred.make<void>();
+    const requests: PreviewAutomationRequest[] = [];
+    const events = yield* broker.connect({
+      clientId: "client-1",
+      environmentId: scope.environmentId,
+    });
+    yield* Stream.runForEach(events, (event) => {
+      if (event.type === "connected") return Deferred.succeed(connected, undefined);
+      requests.push(event.request);
+      return broker.respond({
+        clientId: "client-1",
+        connectionId: event.connectionId,
+        requestId: event.request.requestId,
+        ok: true,
+        result: { recordedTarget: passwordField },
+      });
+    }).pipe(Effect.forkScoped);
+    yield* Deferred.await(connected);
+    const toolkit = yield* PreviewStandardToolkit.pipe(
+      Effect.provide(McpToolAccess.HandlersLayer.layer(layerStandard)),
+    );
+    const act = (input: Record<string, unknown>) =>
+      toolkit
+        .handle("preview_act", { action: "type", locator: "aria-ref=e7", ...input } as never)
+        .pipe(Stream.unwrap, Stream.runCollect);
+
+    const typed = yield* act({ secretRef: ref });
+    expect(JSON.stringify(typed.at(-1)?.result)).not.toContain("hunter2!");
+    const typeRequests = requests.filter((request) => request.operation === "type");
+    expect(typeRequests.map(({ input }) => input)).toEqual([
+      { locator: "aria-ref=e7", text: "hunter2!" },
+    ]);
+    // A replay must not save the password, and a one-use ref cannot be typed again.
+    expect(loggedSteps.at(-1)?.kind).toBe("unreplayable");
+
+    const reused = yield* Effect.flip(act({ secretRef: ref }));
+    expect(reused.message).toContain("already used");
+    const both = yield* Effect.flip(act({ secretRef: ref, text: "x" }));
+    expect(both.message).toContain("not both");
+    expect(requests.filter((request) => request.operation === "type")).toHaveLength(1);
+
+    remembered.length = 0;
+    yield* act({ secretRef: rememberedRef });
+    expect(remembered).toEqual([{ label: "Shop password", value: "s3cret!" }]);
+    expect(loggedSteps.at(-1)).toEqual({
+      kind: "type",
+      target: passwordField,
+      text: "{{saved:qa-secret-0a}}",
+    });
+  }).pipe(
+    Effect.provideService(McpInvocationContext.McpInvocationContext, {
+      environmentId: EnvironmentId.make("environment-1"),
+      requestNamespace: "provider-session-1",
+      thread: {
+        threadId: ThreadId.make("thread-1"),
+        providerSessionId: "provider-session-1",
+        providerInstanceId: ProviderInstanceId.make("codex"),
+      },
+      client: undefined,
+      capabilities: new Set(["preview"] as const),
+      issuedAt: 1,
+    }),
+    Effect.provide(
+      Layer.mergeAll(
+        PreviewAutomationBroker.layer,
+        liveThreadsLayer,
+        Layer.mock(QaRecorder.QaRecorder)({
+          stepPerformed: (_threadId, step) => Effect.sync(() => void loggedSteps.push(step)),
+        }),
+        secretRequestsLayer(),
+        Layer.mock(QaSavedSecrets.QaSavedSecrets)({
+          remember: (input) =>
+            Effect.sync(() => {
+              remembered.push({ label: input.label, value: input.value });
+              return QaSavedSecretId.make("qa-secret-0a");
+            }),
+        }),
       ).pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
     ),
   ),

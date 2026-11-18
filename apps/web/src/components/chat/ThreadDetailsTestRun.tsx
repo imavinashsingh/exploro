@@ -27,6 +27,7 @@ import { useAssetUrlState } from "../../assets/assetUrls";
 import { cn } from "../../lib/utils";
 import { useRightPanelStore } from "../../rightPanelStore";
 import { useEnvironmentQuery } from "../../state/query";
+import { projectEnvironment } from "../../state/projects";
 import { serverEnvironment } from "../../state/server";
 import { readEnvironmentScope } from "../../state/session";
 import { shellEnvironment } from "../../state/shell";
@@ -44,6 +45,7 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
+import { SaveRunAsRegression } from "./ThreadDetailsRegression";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import {
   THREAD_DETAILS_PANEL_ICON_CLASS,
@@ -60,6 +62,11 @@ import {
 interface ThreadDetailsTestRunProps {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
+  /** Why this run will not use or grow project memory; null while it does. */
+  readonly memoryNote?: string | null;
+  readonly scratchProject?: boolean;
+  readonly memoryEnabled?: boolean;
+  readonly contextMaxTokens?: number | null;
 }
 
 const reportFailure = (title: string, error: unknown) =>
@@ -136,6 +143,80 @@ function EvidenceVideo(props: {
   );
 }
 
+const percent = (ratio: number) => `${(ratio * 100).toFixed(2)}%`;
+
+/** The replay's capture beside the suite's baseline, with the way to accept a new look. */
+function VisualEvidence(props: {
+  readonly environmentId: EnvironmentId;
+  readonly threadRef: ScopedThreadRef;
+  readonly run: QaRun;
+  readonly scenario: QaScenario;
+  readonly visual: NonNullable<QaScenario["visual"]>;
+}) {
+  const { visual } = props;
+  const canAccept = useAtomValue(
+    serverEnvironment.acceptQaBaseline.permissionAtom(props.environmentId),
+  );
+  const accept = useAtomCommand(serverEnvironment.acceptQaBaseline, {
+    label: "accept regression baseline",
+  });
+  const [accepted, setAccepted] = useState(false);
+  const differs = visual.diffRatio !== null && visual.diffRatio > visual.threshold;
+  const images = [
+    ["Baseline", visual.baselinePath],
+    ["Replay", visual.capturePath],
+    ["Difference", visual.diffPath],
+  ].filter((image): image is [string, string] => image[1] !== null);
+  const acceptBaseline = async () => {
+    if (props.run.suiteId === null) return;
+    const result = await accept({
+      environmentId: props.environmentId,
+      input: {
+        suiteId: props.run.suiteId,
+        threadId: props.threadRef.threadId,
+        runId: props.run.runId,
+        scenarioIndex: props.scenario.index,
+      },
+    });
+    if (result._tag === "Success") setAccepted(true);
+  };
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-muted-foreground">
+        {visual.diffRatio === null
+          ? "Visual: no baseline yet; this capture is now the baseline."
+          : `Visual: ${percent(visual.diffRatio)} of pixels differ (allowed ${percent(visual.threshold)}).`}
+      </span>
+      {visual.diffRatio === null ? null : (
+        <div className="grid grid-cols-3 gap-1">
+          {images.map(([label, path]) => (
+            <div key={label} className="flex min-w-0 flex-col gap-0.5">
+              <span className="text-2xs text-muted-foreground">{label}</span>
+              <EvidenceImage
+                environmentId={props.environmentId}
+                threadRef={props.threadRef}
+                path={path}
+                alt={`${label}: ${props.scenario.scenario}`}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+      {differs && canAccept && props.run.suiteId !== null ? (
+        <ThreadDetailsControl
+          size="xs"
+          variant="ghost"
+          part="meta"
+          disabled={accepted}
+          onClick={() => void acceptBaseline()}
+        >
+          {accepted ? "Accepted as new baseline" : "Accept as new baseline"}
+        </ThreadDetailsControl>
+      ) : null}
+    </div>
+  );
+}
+
 function ScenarioEvidence(props: {
   readonly environmentId: EnvironmentId;
   readonly threadRef: ScopedThreadRef;
@@ -191,6 +272,15 @@ function ScenarioEvidence(props: {
       ) : (
         <p className="m-0 text-muted-foreground">No screenshot</p>
       )}
+      {scenario.visual ? (
+        <VisualEvidence
+          environmentId={props.environmentId}
+          threadRef={props.threadRef}
+          run={props.run}
+          scenario={scenario}
+          visual={scenario.visual}
+        />
+      ) : null}
       {props.run.video && scenario.videoOffsetMs !== null ? (
         <div className="flex flex-col gap-1">
           <span className="text-muted-foreground">
@@ -265,6 +355,43 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
   );
   const config = useAtomValue(serverEnvironment.configValueAtom(props.environmentId));
   const canDelete = useAtomValue(serverEnvironment.deleteQaRun.permissionAtom(props.environmentId));
+  const canSaveMemory = useAtomValue(
+    serverEnvironment.saveThreadMemory.permissionAtom(props.environmentId),
+  );
+  const canPromote = useAtomValue(
+    projectEnvironment.createFromThread.permissionAtom(props.environmentId),
+  );
+  const saveMemory = useAtomCommand(serverEnvironment.saveThreadMemory, {
+    label: "save test to memory",
+  });
+  const promote = useAtomCommand(projectEnvironment.createFromThread, {
+    label: "create project for test",
+  });
+  const [savingMemory, setSavingMemory] = useState(false);
+  const saveThread = async () => {
+    setSavingMemory(true);
+    try {
+      const input = { environmentId: props.environmentId, input: { threadId: props.threadId } };
+      if (props.scratchProject) {
+        const promoted = await promote(input);
+        if (promoted._tag === "Failure") {
+          setSavingMemory(false);
+          return;
+        }
+      }
+      const result = await saveMemory(input);
+      if (result._tag !== "Failure") {
+        toastManager.add({
+          type: "success",
+          title: "Test saved to memory",
+          description: "Review learning status in the project’s Memory settings.",
+        });
+      }
+    } catch (error) {
+      reportFailure("Could not save the test to memory", error);
+    }
+    setSavingMemory(false);
+  };
   const deleteRun = useAtomCommand(serverEnvironment.deleteQaRun, { label: "delete QA run" });
   const openInEditor = useAtomCommand(shellEnvironment.openInEditor, { reportFailure: false });
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
@@ -309,6 +436,50 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
       data-thread-test-run-panel
     >
       <div className="flex flex-col">
+        {props.memoryNote ? (
+          <p
+            className={cn(
+              "m-0 py-1 text-2xs text-muted-foreground",
+              THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS,
+            )}
+          >
+            {props.memoryNote}
+          </p>
+        ) : null}
+        {runsQuery.data?.memoryBriefUsage ? (
+          <p
+            className={cn(
+              "m-0 py-1 text-2xs text-muted-foreground",
+              THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS,
+            )}
+          >
+            Initial memory brief: ~
+            {runsQuery.data.memoryBriefUsage.estimatedTokens.toLocaleString()} tokens
+            {props.contextMaxTokens && props.contextMaxTokens > 0
+              ? ` (${((100 * runsQuery.data.memoryBriefUsage.estimatedTokens) / props.contextMaxTokens).toFixed(1)}% of context)`
+              : " (estimated)"}
+            .
+          </p>
+        ) : null}
+        {(props.memoryEnabled || props.scratchProject) &&
+        canSaveMemory &&
+        (!props.scratchProject || canPromote) ? (
+          <div className="px-1.5 py-1">
+            <ThreadDetailsControl
+              size="xs"
+              variant="ghost"
+              part="meta"
+              disabled={savingMemory}
+              onClick={() => void saveThread()}
+            >
+              {savingMemory
+                ? "Saving…"
+                : props.scratchProject
+                  ? "Create project and save to memory"
+                  : "Save test to memory"}
+            </ThreadDetailsControl>
+          </div>
+        ) : null}
         {run === null ? (
           <div className={cn(THREAD_DETAILS_PANEL_LOCKED_ROW_CLASS, "flex items-center")}>
             <ClipboardCheckIcon className={THREAD_DETAILS_PANEL_ICON_CLASS} aria-hidden />
@@ -325,6 +496,23 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
               )}
             >
               <VerdictSummary run={run} />
+              {run.kind === "regression" ? (
+                <Badge size="sm" variant="outline">
+                  Regression
+                </Badge>
+              ) : null}
+              {run.dataRow === null ? null : (
+                <>
+                  <Badge size="sm" variant="outline">
+                    Row {run.dataRow.index + 1}
+                  </Badge>
+                  <span className="min-w-0 truncate text-2xs text-muted-foreground">
+                    {Object.entries(run.dataRow.values)
+                      .map(([name, value]) => `${name}=${value}`)
+                      .join(", ")}
+                  </span>
+                </>
+              )}
               <span className="text-2xs text-muted-foreground">
                 {run.finishedAt === null ? "Running" : runStartedLabel(run)}
               </span>
@@ -436,6 +624,11 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
                   Evidence folder
                 </ThreadDetailsControl>
               ) : null}
+              <SaveRunAsRegression
+                environmentId={props.environmentId}
+                threadId={props.threadId}
+                run={run}
+              />
               {canDelete ? (
                 <ThreadDetailsControl
                   size="xs"

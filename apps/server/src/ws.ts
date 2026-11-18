@@ -1,3 +1,5 @@
+import * as ProjectMemory from "./memory/ProjectMemory.ts";
+import * as ProjectMemoryControl from "./memory/ProjectMemoryControl.ts";
 import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- A synchronous digest inside the pure provider mapping.
 import * as NodeCrypto from "node:crypto";
@@ -126,6 +128,7 @@ import * as ThreadMessageIntake from "./orchestration-v2/ThreadMessageIntake.ts"
 import * as DocumentText from "./provider/DocumentText.ts";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
 import * as QaRuns from "./qa/QaRuns.ts";
+import * as QaSuites from "./qa/QaSuites.ts";
 import * as SecretRequests from "./secrets/SecretRequests.ts";
 import * as GuestShareService from "./guest/GuestShareService.ts";
 import {
@@ -1473,6 +1476,9 @@ export const layerWsRpc = (
       const providerSessionManager = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
       const qaRuns = yield* QaRuns.QaRuns;
+      const qaSuites = yield* QaSuites.QaSuites;
+      const projectMemory = yield* ProjectMemory.ProjectMemory;
+      const memoryControl = yield* ProjectMemoryControl.ProjectMemoryControl;
       const secretRequests = yield* SecretRequests.SecretRequests;
       const guestShares = yield* GuestShareService.GuestShareService;
       const pullRequests = yield* PullRequestService.PullRequestService;
@@ -2289,6 +2295,19 @@ export const layerWsRpc = (
           providerSessionManager.subscribePromptSuggestion(input.threadId),
         [WS_METHODS.scheduledTasksSubscribe]: (_input) =>
           scheduledTasks.subscribeList().pipe(Stream.map(withVisibleWebhookUrls)),
+        [WS_METHODS.projectMemoryMap]: (input) => projectMemory.map(input.projectId),
+        [WS_METHODS.projectMemorySaveThread]: (input) => memoryControl.saveThread(input.threadId),
+        [WS_METHODS.projectMemorySetAppVersion]: (input) => memoryControl.setAppVersion(input),
+        [WS_METHODS.projectMemorySnapshot]: (input) => memoryControl.snapshot(input.projectId),
+        [WS_METHODS.projectMemoryDeleteFact]: (input) =>
+          memoryControl.deleteFact(input.projectId, input.factId),
+        [WS_METHODS.projectMemoryItemHistory]: (input) =>
+          memoryControl.itemHistory(input.projectId, input.itemId),
+        [WS_METHODS.projectMemoryUpdateItem]: (input) => memoryControl.updateItem(input),
+        [WS_METHODS.projectMemoryDeleteItem]: (input) =>
+          memoryControl.deleteItem(input.projectId, input.itemId),
+        [WS_METHODS.projectMemoryRetryExtraction]: (input) =>
+          memoryControl.retryExtraction(input.projectId, input.runId),
         [WS_METHODS.qaRunsSubscribe]: (input) =>
           Stream.unwrap(
             Effect.annotateCurrentSpan({ "thread.id": input.threadId }).pipe(
@@ -2299,6 +2318,22 @@ export const layerWsRpc = (
           Effect.annotateCurrentSpan({ "thread.id": input.threadId }).pipe(
             Effect.andThen(qaRuns.deleteRun(input)),
           ),
+        [WS_METHODS.qaSuitesSubscribe]: () => qaSuites.subscribe,
+        [WS_METHODS.qaSuitesCreate]: (input) =>
+          Effect.annotateCurrentSpan({ "thread.id": input.threadId }).pipe(
+            Effect.andThen(qaSuites.create(input)),
+          ),
+        [WS_METHODS.qaSuitesDelete]: (input) => qaSuites.delete(input.suiteId),
+        [WS_METHODS.qaSuitesRun]: (input) =>
+          Effect.annotateCurrentSpan({ "qa_suite.ids": input.suiteIds.join(",") }).pipe(
+            Effect.andThen(qaSuites.start(input)),
+          ),
+        [WS_METHODS.qaSuitesForgetSecret]: (input) =>
+          qaSuites.forgetSecret(input.secretId).pipe(Effect.as(input)),
+        [WS_METHODS.qaSuitesGet]: (input) => qaSuites.get(input.suiteId),
+        [WS_METHODS.qaSuitesUpdate]: (input) => qaSuites.update(input),
+        [WS_METHODS.qaSuitesAcceptBaseline]: (input) => qaSuites.acceptBaseline(input),
+        [WS_METHODS.qaSuitesResolveProposal]: (input) => qaSuites.resolveProposal(input),
         [WS_METHODS.scheduledTasksUpsert]: (input) => scheduledTasks.upsert(input),
         [WS_METHODS.scheduledTasksSetEnabled]: (input) =>
           Effect.annotateCurrentSpan({ "scheduled_task.id": input.id }).pipe(
@@ -3576,6 +3611,9 @@ export const layer = Layer.unwrap(
     const peerLinks = yield* PeerLinks.PeerLinks;
     const peerLinkRequests = yield* PeerLinkRequests.PeerLinkRequests;
     const qaRuns = yield* QaRuns.QaRuns;
+    const qaSuites = yield* QaSuites.QaSuites;
+    const projectMemory = yield* ProjectMemory.ProjectMemory;
+    const memoryControl = yield* ProjectMemoryControl.ProjectMemoryControl;
     const sql = yield* SqlClient.SqlClient;
     return HttpRouter.add(
       "GET",
@@ -3672,6 +3710,11 @@ export const layer = Layer.unwrap(
               Layer.provide(Layer.succeed(PeerLinks.PeerLinks, peerLinks)),
               // One run store for every connection and for agents, so changes reach all clients.
               Layer.provide(Layer.succeed(QaRuns.QaRuns, qaRuns)),
+              Layer.provide(Layer.succeed(QaSuites.QaSuites, qaSuites)),
+              Layer.provide(Layer.succeed(ProjectMemory.ProjectMemory, projectMemory)),
+              Layer.provide(
+                Layer.succeed(ProjectMemoryControl.ProjectMemoryControl, memoryControl),
+              ),
               Layer.provide(Layer.succeed(PeerLinkRequests.PeerLinkRequests, peerLinkRequests)),
               Layer.provide(
                 SourceControlDiscovery.layer.pipe(

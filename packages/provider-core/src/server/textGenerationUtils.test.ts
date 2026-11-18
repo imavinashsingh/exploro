@@ -1,6 +1,29 @@
+import { ProjectUnderstandingExtraction } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { limitSection, sanitizeCommitSubject, sanitizeThreadTitle } from "./textGenerationUtils.ts";
+import {
+  limitSection,
+  sanitizeCommitSubject,
+  sanitizeThreadTitle,
+  toJsonSchemaObject,
+} from "./textGenerationUtils.ts";
+
+describe("toJsonSchemaObject", () => {
+  // OpenAI structured output rejects an object schema whose `required` omits any property.
+  const optionalKeys = (node: unknown): Array<string> => {
+    if (typeof node !== "object" || node === null) return [];
+    const { properties, required } = node as { properties?: object; required?: Array<string> };
+    const own =
+      properties === undefined
+        ? []
+        : Object.keys(properties).filter((key) => !(required ?? []).includes(key));
+    return [...own, ...Object.values(node).flatMap(optionalKeys)];
+  };
+
+  it("marks every property of the understanding output required", () => {
+    expect(optionalKeys(toJsonSchemaObject(ProjectUnderstandingExtraction))).toEqual([]);
+  });
+});
 
 describe("limitSection", () => {
   it("cuts a long section without splitting an emoji", () => {

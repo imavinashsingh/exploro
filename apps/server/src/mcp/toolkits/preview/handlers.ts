@@ -1,4 +1,5 @@
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Record from "effect/Record";
 import * as Schema from "effect/Schema";
 import {
@@ -14,13 +15,21 @@ import {
   type PreviewAutomationSnapshot,
   type PreviewAutomationSnapshotMetadata,
   type PreviewAutomationStatus,
+  type PreviewAutomationDurableTarget,
   type PreviewTabId,
+  type ProjectId,
+  type QaReplayStep,
+  type SecretRef,
 } from "@t3tools/contracts";
 
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as PreviewAutomationBroker from "../../PreviewAutomationBroker.ts";
+import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as QaRecorder from "../../../qa/QaRecorder.ts";
+import * as SecretRequests from "../../../secrets/SecretRequests.ts";
+import * as QaSavedSecrets from "../../../qa/QaSavedSecrets.ts";
+import { actStep, savedSecretPlaceholder, waitStep } from "../../../qa/qaReplay.ts";
 import { claimPreviewRecording } from "./recordingClaim.ts";
 import { PreviewSnapshotToolkit, PreviewStandardToolkit, PreviewToolkit } from "./tools.ts";
 
@@ -101,13 +110,96 @@ const invokeTargeted = <A extends object>(
   );
 };
 
+/** Logs a step for the thread's QA run; a logging failure never fails the agent's action. */
+const logStep = Effect.fn("PreviewToolkit.logStep")(function* (step: QaReplayStep) {
+  const scope = yield* McpInvocationContext.requireThreadMcpCapability("preview").pipe(
+    Effect.option,
+  );
+  if (scope._tag === "None") return;
+  yield* (yield* QaRecorder.QaRecorder).stepPerformed(scope.value.thread.threadId, step);
+});
+
+/** Splits off the target the browser named for the step, which the agent does not need. */
+const takeRecordedTarget = <A extends object>(result: A) => {
+  const { recordedTarget, ...rest } = result as A & {
+    readonly recordedTarget?: PreviewAutomationDurableTarget;
+  };
+  return { target: recordedTarget ?? null, result: rest };
+};
+
+const requestedUrl = (input: {
+  readonly url?: string | undefined;
+  readonly target?: { readonly kind: string; readonly url?: string } | undefined;
+}) => input.url ?? (input.target?.kind === "url" ? input.target.url : undefined);
+
 const decodeActInput = Record.map(PreviewAutomationActInputs, (schema) =>
   Schema.decodeUnknownEffect(schema),
 );
 
+const invalidAct = (message: string) =>
+  new OrchestratorMcpFailure({ code: "invalid_request", message });
+
+/** Swaps a `secretRef` for its value, consumed here so the agent never sees it. */
+const withSecretText = Effect.fn("PreviewToolkit.withSecretText")(function* (
+  action: string,
+  input: { readonly text?: string | undefined; readonly secretRef?: SecretRef | undefined },
+) {
+  const { secretRef, ...rest } = input;
+  if (secretRef === undefined) return { input: rest, typedSecret: null };
+  if (action !== "type") return yield* invalidAct("`secretRef` works only with action `type`.");
+  if (rest.text !== undefined) return yield* invalidAct("Pass `text` or `secretRef`, not both.");
+  const scope = yield* McpInvocationContext.requireThreadMcpCapability("preview");
+  const thread = yield* (yield* ThreadManagementService.ThreadManagementService)
+    .getThreadShell(scope.thread.threadId)
+    .pipe(Effect.mapError(() => invalidAct("Could not read this thread's project.")));
+  if (thread === null) return yield* invalidAct("This thread has no project for its secrets.");
+  const { value, remember } = yield* (yield* SecretRequests.SecretRequests)
+    .consumeDetailed({ ref: secretRef, projectId: thread.projectId })
+    .pipe(Effect.mapError((error) => invalidAct(error.message)));
+  return {
+    input: { ...rest, text: value },
+    typedSecret: { projectId: thread.projectId, value, remember },
+  };
+});
+
+const ONE_USE_STEP = "A one-use secret was typed, so a replay cannot type it again.";
+
+/** The QA step for a typed secret: a saved placeholder when the user asked to remember it. */
+const secretStep = Effect.fn("PreviewToolkit.secretStep")(function* (
+  typed: {
+    readonly projectId: ProjectId;
+    readonly value: string;
+    readonly remember: SecretRequests.RememberRequest | undefined;
+  },
+  decoded: Readonly<Record<string, unknown>>,
+  target: PreviewAutomationDurableTarget | null,
+) {
+  const unreplayable: QaReplayStep = { kind: "unreplayable", action: "type", reason: ONE_USE_STEP };
+  if (typed.remember === undefined) return unreplayable;
+  const secretId = yield* (yield* QaSavedSecrets.QaSavedSecrets)
+    .remember({ projectId: typed.projectId, ...typed.remember, value: typed.value })
+    .pipe(
+      Effect.tapError((error) =>
+        Effect.logWarning("A typed secret could not be remembered", { error: error.message }),
+      ),
+      Effect.option,
+    );
+  return Option.isNone(secretId)
+    ? unreplayable
+    : actStep("type", { ...decoded, text: savedSecretPlaceholder(secretId.value) }, target);
+});
+
 const handlers = {
   preview_dialog: McpToolAccess.actsAsCaller((input) =>
-    invokeTargeted<PreviewAutomationStatus>("dialog", input),
+    invokeTargeted<PreviewAutomationStatus>("dialog", input).pipe(
+      Effect.tap(() =>
+        logStep({
+          kind: "unreplayable",
+          action: "dialog",
+          reason: "Answering a dialog is not replayed yet.",
+        }),
+      ),
+    ),
   ),
   preview_status: McpToolAccess.readsAsCaller((input) =>
     invokeTargeted<PreviewAutomationStatus>("status", input ?? {}),
@@ -130,14 +222,30 @@ const handlers = {
             });
       const scope = yield* McpInvocationContext.requireThreadMcpCapability("preview");
       yield* (yield* QaRecorder.QaRecorder).browserOpened(scope, result);
+      const startUrl = (target === undefined ? url : undefined) ?? result.url;
+      if (startUrl !== null && /^https?:\/\//i.test(startUrl))
+        yield* logStep({ kind: "navigate", url: startUrl });
       return result;
     }),
   ),
   preview_navigate: McpToolAccess.actsAsCaller((input) =>
-    invokeTargeted<PreviewAutomationStatus>("navigate", input, input.timeoutMs),
+    invokeTargeted<PreviewAutomationStatus>("navigate", input, input.timeoutMs).pipe(
+      Effect.tap((status) => {
+        const url = requestedUrl(input) ?? status.url;
+        return url === null ? Effect.void : logStep({ kind: "navigate", url });
+      }),
+    ),
   ),
   preview_resize: McpToolAccess.actsAsCaller((input) =>
-    invokeTargeted<PreviewAutomationResizeResult>("resize", input, input.timeoutMs),
+    invokeTargeted<PreviewAutomationResizeResult>("resize", input, input.timeoutMs).pipe(
+      Effect.tap(() =>
+        logStep({
+          kind: "unreplayable",
+          action: "resize",
+          reason: "Viewport changes are not replayed yet.",
+        }),
+      ),
+    ),
   ),
   preview_set_appearance: McpToolAccess.actsAsCaller((input) =>
     invokeTargeted<PreviewAutomationSetColorSchemeResult>("setColorScheme", input),
@@ -155,18 +263,24 @@ const handlers = {
     );
   }),
   preview_act: McpToolAccess.actsAsCaller(({ action, ...input }) =>
-    decodeActInput[action](input).pipe(
-      Effect.mapError(
-        (cause) => new OrchestratorMcpFailure({ code: "invalid_request", message: cause.message }),
-      ),
-      Effect.flatMap((decoded) =>
-        invokeTargeted<object>(
-          action,
-          decoded,
-          "timeoutMs" in decoded ? decoded.timeoutMs : undefined,
-        ),
-      ),
-    ),
+    Effect.gen(function* () {
+      const { input: resolved, typedSecret } = yield* withSecretText(action, input);
+      const decoded = yield* decodeActInput[action](resolved).pipe(
+        Effect.mapError((cause) => invalidAct(cause.message)),
+      );
+      const raw = yield* invokeTargeted<object>(
+        action,
+        decoded,
+        "timeoutMs" in decoded ? decoded.timeoutMs : undefined,
+      );
+      const { target, result } = takeRecordedTarget(raw);
+      yield* logStep(
+        typedSecret === null
+          ? actStep(action, decoded, target)
+          : yield* secretStep(typedSecret, decoded, target),
+      );
+      return result;
+    }),
   ),
   preview_evaluate: McpToolAccess.actsAsCaller(({ tabId, ...input }) =>
     invoke<unknown>("evaluate", input, undefined, tabId).pipe(
@@ -177,7 +291,13 @@ const handlers = {
     ),
   ),
   preview_wait_for: McpToolAccess.readsAsCaller((input) =>
-    invokeTargeted<object>("waitFor", input, input.timeoutMs),
+    invokeTargeted<object>("waitFor", input, input.timeoutMs).pipe(
+      Effect.flatMap((raw) => {
+        const { target, result } = takeRecordedTarget(raw);
+        const hadLocator = input.locator !== undefined || input.selector !== undefined;
+        return logStep(waitStep(input, hadLocator, target)).pipe(Effect.as(result));
+      }),
+    ),
   ),
   preview_recording_start: McpToolAccess.actsAsCaller((input) =>
     invokeTargeted<PreviewAutomationRecordingStatus>("recordingStart", input ?? {}),

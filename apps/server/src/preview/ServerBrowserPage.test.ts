@@ -19,6 +19,7 @@ import {
 } from "vite-plus/test";
 
 import * as ServerBrowserPage from "./ServerBrowserPage.ts";
+import { compareScreenshots } from "../qa/qaVisual.ts";
 import { SessionControl } from "./SessionControl.ts";
 
 const decodeEvaluateInput = Schema.decodeUnknownSync(PreviewAutomationEvaluateInput);
@@ -587,6 +588,108 @@ describe("server browser element refs", () => {
       5_000,
     );
     expect(result).toEqual({ clicked: true });
+  });
+
+  it("names a ref's element so a replay finds it after the page is rebuilt", async () => {
+    await page.setContent(`<h1>Profile</h1><button>Cancel</button><button>Save</button>`);
+    const ref = buttonLocator((await takeSnapshot()).accessibilityTree, "Save");
+    const target = await ServerBrowserPage.durableTarget(page, { locator: ref });
+    expect(target?.display).toBe(`getByRole('button', { name: 'Save' })`);
+    await page.setContent(
+      `<p>Moved</p><button>Save</button><button>Cancel</button>` +
+        `<output></output><script>document.querySelectorAll("button")[0].onclick = () => document.querySelector("output").textContent = "saved"</script>`,
+    );
+    await expect(
+      ServerBrowserPage.click(page, { locator: ref, timeoutMs: 1_000 }),
+    ).rejects.toThrow();
+    await ServerBrowserPage.click(page, { locator: target!.selector, timeoutMs: 1_000 });
+    expect(await page.locator("output").textContent()).toBe("saved");
+  });
+
+  it("checks wait for content that arrives late and say what the page showed", async () => {
+    await page.setContent(
+      `<input aria-label="Email" value="a@shop.test"><button>Buy</button><button>Buy</button>` +
+        `<script>setTimeout(() => document.body.append("Welcome back"), 300)</script>`,
+    );
+    const emailLine = String((await takeSnapshot()).accessibilityTree)
+      .split("\n")
+      .find((line) => line.includes('textbox "Email"'));
+    const email = locators(emailLine)[0]!;
+    const { results } = await ServerBrowserPage.check(page, {
+      assertions: [
+        { kind: "textVisible", text: "Welcome back" },
+        { kind: "textVisible", text: "Order placed" },
+        { kind: "valueEquals", locator: email, value: "a@shop.test" },
+        { kind: "valueEquals", locator: email, value: "b@shop.test" },
+        { kind: "elementVisible", locator: 'internal:role=button[name="Buy"i]' },
+      ],
+      timeoutMs: 1_500,
+    });
+    expect(results.map(({ ok, actual }) => ({ ok, actual }))).toEqual([
+      { ok: true, actual: "" },
+      { ok: false, actual: "The page does not show this text." },
+      { ok: true, actual: "" },
+      { ok: false, actual: 'The value is "a@shop.test".' },
+      { ok: false, actual: "2 elements match." },
+    ]);
+    expect(results[2]?.target?.display).toBe(`getByRole('textbox', { name: 'Email' })`);
+  });
+
+  // The page's button is drawn at once but only works after its data loads, like a page that
+  // hydrates. A replay that acts as soon as the page loads clicks a dead button.
+  it("settling before a step waits for the page's data, without a fixed sleep", async () => {
+    const pages: Record<string, string> = {
+      "/": `<a href="/checkout">Checkout</a>`,
+      "/checkout":
+        `<button>Continue</button><output></output><script>` +
+        `setTimeout(() => fetch("/data").then(() => { document.querySelector("button").onclick = () => { document.querySelector("output").textContent = "Done" } }), 300)` +
+        `</script>`,
+      "/data": "{}",
+    };
+    await context.route("http://replay.test/**", (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: pages[new URL(route.request().url()).pathname] ?? "",
+      }),
+    );
+    const replay = async (settle: boolean) => {
+      await page.goto("http://replay.test/");
+      await ServerBrowserPage.click(page, {
+        locator: 'internal:role=link[name="Checkout"i]',
+        timeoutMs: 5_000,
+      });
+      if (settle) await ServerBrowserPage.settle(page, 10_000);
+      await ServerBrowserPage.click(page, {
+        locator: 'internal:role=button[name="Continue"i]',
+        timeoutMs: 5_000,
+      });
+      const { results } = await ServerBrowserPage.check(page, {
+        assertions: [{ kind: "textVisible", text: "Done" }],
+        timeoutMs: 0,
+      });
+      return results[0]?.ok;
+    };
+    expect(await replay(false)).toBe(false);
+    expect(await replay(true)).toBe(true);
+  });
+
+  it("captures for a visual diff hide masked content and freeze animations", async () => {
+    await page.setContent(
+      `<style>@keyframes spin{to{transform:rotate(360deg)}}.spin{width:40px;height:40px;background:red;animation:spin 1s linear infinite}</style>` +
+        `<h1>Orders</h1><time class="clock" style="display:inline-block;width:240px"></time><div class="spin"></div>` +
+        `<script>setInterval(() => document.querySelector(".clock").textContent = String(performance.now()), 16)</script>`,
+    );
+    const capture = async (masks: ReadonlyArray<string>) => {
+      const { capture: png } = await ServerBrowserPage.check(page, {
+        assertions: [],
+        capture: { masks },
+      });
+      return Uint8Array.from(Buffer.from(png!, "base64"));
+    };
+    const [first, second] = [await capture([".clock"]), await capture([".clock"])];
+    expect(compareScreenshots(first, second).diffRatio).toBe(0);
+    const unmasked = [await capture([]), await capture([])];
+    expect(compareScreenshots(unmasked[0]!, unmasked[1]!).diffRatio).toBeGreaterThan(0);
   });
 });
 

@@ -785,6 +785,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["caffeinate sleep prevent stay awake power laptop lid inhibit"],
   },
   {
+    id: "regression-parallel-runs",
+    title: "Regression replays at once",
+    to: "/settings/maintenance",
+    scope: "environment-defaults",
+    searchTerms: ["regression suite replay parallel concurrent queue qa test"],
+  },
+  {
     id: "background-activity",
     title: "Background activity",
     to: "/settings/maintenance",

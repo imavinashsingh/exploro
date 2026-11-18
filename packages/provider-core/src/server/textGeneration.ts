@@ -3,6 +3,7 @@ import type {
   ChatAttachment,
   ModelSelection,
   ProjectId,
+  ProjectUnderstandingExtraction,
   PullRequestReviewGuide,
   TextGenerationError,
 } from "@t3tools/contracts";
@@ -114,6 +115,27 @@ export interface TranscriptionPostProcessingResult {
   transcription: string;
 }
 
+export interface ProjectUnderstandingGenerationInput {
+  cwd: string;
+  prompt: string;
+  modelSelection: ModelSelection;
+  projectId?: ProjectId | null | undefined;
+}
+
+export type ProjectUnderstandingGenerationResult = ProjectUnderstandingExtraction;
+
+/** Finds, in a page's accessibility tree, the element a saved test step meant. */
+export interface LocatorHealGenerationInput {
+  cwd: string;
+  prompt: string;
+  modelSelection: ModelSelection;
+  projectId?: ProjectId | null | undefined;
+}
+
+export interface LocatorHealGenerationResult {
+  ref: string | null;
+}
+
 export interface ProviderTextGeneration {
   readonly generateTranscriptionPostProcessing: (
     input: TranscriptionPostProcessingInput,
@@ -138,4 +160,12 @@ export interface ProviderTextGeneration {
   readonly generateReviewGuide: (
     input: ReviewGuideGenerationInput,
   ) => Effect.Effect<ReviewGuideGenerationResult, TextGenerationError>;
+
+  readonly generateProjectUnderstanding: (
+    input: ProjectUnderstandingGenerationInput,
+  ) => Effect.Effect<ProjectUnderstandingGenerationResult, TextGenerationError>;
+
+  readonly generateLocatorHeal: (
+    input: LocatorHealGenerationInput,
+  ) => Effect.Effect<LocatorHealGenerationResult, TextGenerationError>;
 }

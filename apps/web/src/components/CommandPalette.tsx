@@ -97,6 +97,7 @@ import type { LegendListRef } from "@legendapp/list/react";
 import { useAtomValue } from "@effect/atom-react";
 
 import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
+import { EXPLORO_OFFERS_REPOSITORIES } from "../exploroFeatures";
 import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstraps";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
@@ -251,6 +252,7 @@ import {
   sourceControlHostIcon,
 } from "./CommandPaletteAddProject";
 import { useCommandPaletteThreadItems } from "./CommandPaletteThreadItems";
+import { useCommandPaletteRegressionItem } from "./CommandPaletteRegressionItems";
 import { useCommandPaletteThemeItems } from "./CommandPaletteThemeItems";
 import {
   CommandPaletteVirtualizedResults,
@@ -536,6 +538,7 @@ function OpenCommandPaletteDialog(props: {
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const providersByEnvironment = useEnvironmentProviders();
   const { changeThemeItem, changeAppearanceItem, themeEditorItem } = useCommandPaletteThemeItems();
+  const regressionItem = useCommandPaletteRegressionItem(primaryEnvironmentId);
   const currentView = viewStack.at(-1)?.view ?? null;
   const threadSearchQuery = currentView === null && !isActionsOnly ? deferredQuery : "";
   const [browseGeneration, setBrowseGeneration] = useState(0);
@@ -1090,7 +1093,7 @@ function OpenCommandPaletteDialog(props: {
         value: `action:add-project:${environmentId}:new`,
         searchTerms: ["new project", "create", "empty", "repository", "git init"],
         title: "New project",
-        description: "Start a new Git repository from a name",
+        description: "One app you test; Exploro keeps its folder",
         icon: <FolderGit2Icon className={ITEM_ICON_CLASS} />,
         keepOpen: true,
         run: async () => {
@@ -1167,7 +1170,10 @@ function OpenCommandPaletteDialog(props: {
       });
     }
 
-    return [{ value: `sources:${environmentId}`, label: "Sources", items: sourceItems }];
+    const offeredSourceItems = EXPLORO_OFFERS_REPOSITORIES
+      ? sourceItems
+      : sourceItems.filter((item) => item.value === `action:add-project:${environmentId}:new`);
+    return [{ value: `sources:${environmentId}`, label: "Sources", items: offeredSourceItems }];
   };
 
   const startAddProjectSourceSelection = (environmentId: EnvironmentId): void => {
@@ -1632,6 +1638,7 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
+  if (regressionItem !== null) actionItems.push(regressionItem);
   actionItems.push(changeThemeItem);
   actionItems.push(changeAppearanceItem);
 
@@ -2467,8 +2474,9 @@ function OpenCommandPaletteDialog(props: {
   if (newProjectFlow !== null) {
     displayedGroups = [
       ...(newProjectMachineGroup ? [newProjectMachineGroup] : []),
-      ...newProjectOptionGroups,
-      ...(newProjectExistingGroup ? [newProjectExistingGroup] : []),
+      ...(EXPLORO_OFFERS_REPOSITORIES
+        ? [...newProjectOptionGroups, ...(newProjectExistingGroup ? [newProjectExistingGroup] : [])]
+        : []),
     ];
   } else if (addProjectCloneFlow?.step === "repository") {
     displayedGroups = [];
@@ -3064,24 +3072,27 @@ function OpenCommandPaletteDialog(props: {
         isActionsOnly={isActionsOnly}
         keybindings={keybindings}
         onExecuteItem={executeItem}
-        {...(addProjectCloneFlow?.step === "repository"
-          ? {
-              emptyStateMessage:
-                addProjectCloneFlow.source === "url"
-                  ? "Enter a Git clone URL and press Enter to continue."
-                  : "Enter a repository path and press Enter to look it up.",
-            }
-          : addProjectCloneFlow?.step === "confirm"
-            ? { emptyStateMessage: "Choose a destination path and press Enter to clone." }
-            : relativePathNeedsActiveProject
-              ? { emptyStateMessage: "Relative paths require an active project." }
-              : willCreateProjectPath
-                ? {
-                    emptyStateMessage: "Press Enter to create this folder and add it as a project.",
-                  }
-                : isThreadSearchPending
-                  ? { emptyStateMessage: "Searching thread messages…" }
-                  : {})}
+        {...(newProjectFlow !== null
+          ? { emptyStateMessage: "Name the app you test, then press Enter." }
+          : addProjectCloneFlow?.step === "repository"
+            ? {
+                emptyStateMessage:
+                  addProjectCloneFlow.source === "url"
+                    ? "Enter a Git clone URL and press Enter to continue."
+                    : "Enter a repository path and press Enter to look it up.",
+              }
+            : addProjectCloneFlow?.step === "confirm"
+              ? { emptyStateMessage: "Choose a destination path and press Enter to clone." }
+              : relativePathNeedsActiveProject
+                ? { emptyStateMessage: "Relative paths require an active project." }
+                : willCreateProjectPath
+                  ? {
+                      emptyStateMessage:
+                        "Press Enter to create this folder and add it as a project.",
+                    }
+                  : isThreadSearchPending
+                    ? { emptyStateMessage: "Searching thread messages…" }
+                    : {})}
       />
     </CommandPaletteContent>
   );

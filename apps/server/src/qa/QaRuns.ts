@@ -4,11 +4,17 @@ import {
   type PreviewAutomationActionEvent,
   type PreviewAutomationConsoleEntry,
   type PreviewAutomationNetworkEntry,
+  type QaCheck,
+  type QaDataRow,
+  type QaVisualResult,
   type QaEvidenceRecordInput,
+  QaReplayStep,
   type QaRunDeleteInput,
   type QaRunDeleteResult,
   type QaRunsSnapshot,
+  type ProjectId,
   type QaScenario,
+  type QaSuiteId,
   type ThreadId,
 } from "@t3tools/contracts";
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
@@ -25,11 +31,12 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 
-import { toSafeThreadAttachmentSegment } from "../attachmentStore.ts";
 import * as ServerConfig from "../config.ts";
+import * as ProjectMemory from "../memory/ProjectMemory.ts";
 import {
   QA_MAX_SCENARIOS_PER_RUN,
   QA_MAX_SCREENSHOT_BYTES,
+  qaThreadFolder,
   resolveVerdict,
   sanitizeConsoleEntries,
   sanitizeNetworkEntries,
@@ -38,6 +45,15 @@ import {
   summarizeLogs,
 } from "./qaEvidence.ts";
 import { QA_VIDEO_FILE, renderHtmlReport, renderMarkdownReport } from "./qaReport.ts";
+
+/** A replay's comparison with the scenario's baseline, saved beside its other evidence. */
+export interface QaReplayVisual {
+  readonly baseline: Uint8Array;
+  readonly capture: Uint8Array;
+  readonly diffPng: Uint8Array | null;
+  readonly diffRatio: number | null;
+  readonly threshold: number;
+}
 
 /** What the browser showed when the agent recorded a verdict. */
 export interface QaPageCapture {
@@ -62,6 +78,33 @@ export class QaRuns extends Context.Service<
       threadId: ThreadId,
       input: QaEvidenceRecordInput,
       page: QaPageCapture,
+      checks?: ReadonlyArray<QaCheck>,
+    ) => Effect.Effect<QaScenario, QaRunError>;
+    /** Adds one replayable browser step to the thread's exploratory run. */
+    readonly appendStep: (
+      threadId: ThreadId,
+      step: QaReplayStep,
+    ) => Effect.Effect<void, QaRunError>;
+    readonly readSteps: (run: QaRun) => Effect.Effect<ReadonlyArray<QaReplayStep>, QaRunError>;
+    /** Opens a run that replays a suite; fails while the thread has another run open. */
+    readonly startRegressionRun: (
+      threadId: ThreadId,
+      input: {
+        readonly suiteId: QaSuiteId;
+        readonly site: string | null;
+        readonly dataRow: QaDataRow | null;
+      },
+    ) => Effect.Effect<QaRun, QaRunError>;
+    /** Records a replayed scenario's verdict in the open regression run. */
+    readonly recordReplayedScenario: (
+      threadId: ThreadId,
+      input: QaEvidenceRecordInput,
+      page: QaPageCapture,
+      replay: {
+        readonly checks: ReadonlyArray<QaCheck>;
+        readonly stepCount: number;
+        readonly visual?: QaReplayVisual | undefined;
+      },
     ) => Effect.Effect<QaScenario, QaRunError>;
     readonly markRecordingStarted: (
       threadId: ThreadId,
@@ -77,7 +120,24 @@ export class QaRuns extends Context.Service<
       reason: string,
     ) => Effect.Effect<void, QaRunError>;
     /** Writes both reports and closes the open run; null when there is none. */
-    readonly finishRun: (threadId: ThreadId) => Effect.Effect<QaRun | null, QaRunError>;
+    readonly finishRun: (
+      threadId: ThreadId,
+      input: {
+        readonly projectId: ProjectId | null;
+        /** Passwords the user gave in the thread, kept out of memory. */
+        readonly secrets?: ReadonlyArray<string>;
+        /** False when the user turned the project's memory off. */
+        readonly remember?: boolean;
+        /** Only an open run of this kind finishes. Default exploratory. */
+        readonly kind?: QaRun["kind"];
+      },
+    ) => Effect.Effect<QaRun | null, QaRunError>;
+    readonly rememberRun: (
+      threadId: ThreadId,
+      runId: string,
+      projectId: ProjectId,
+      secrets?: ReadonlyArray<string>,
+    ) => Effect.Effect<QaRun, QaRunError>;
     readonly list: (threadId: ThreadId) => Effect.Effect<ReadonlyArray<QaRun>, QaRunError>;
     readonly subscribe: (threadId: ThreadId) => Stream.Stream<QaRunsSnapshot, QaRunError>;
     readonly deleteRun: (input: QaRunDeleteInput) => Effect.Effect<QaRunDeleteResult, QaRunError>;
@@ -85,6 +145,11 @@ export class QaRuns extends Context.Service<
 >()("t3/qa/QaRuns") {}
 
 const RunJson = Schema.fromJsonString(QaRun);
+const STEPS_FILE = "steps.jsonl";
+const decodeStepLine = Schema.decodeUnknownOption(Schema.fromJsonString(QaReplayStep));
+const encodeStepLine = Schema.encodeEffect(Schema.fromJsonString(QaReplayStep));
+const REPLAY_RUNNING =
+  "A regression replay is running in this thread. Wait for it to finish, then test again.";
 const decodeRunJson = Schema.decodeUnknownOption(RunJson);
 const encodeRunJson = Schema.encodeEffect(RunJson);
 const encodeLogJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
@@ -96,13 +161,15 @@ const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const random = yield* SecureRandom.SecureRandom;
+  const memory = yield* ProjectMemory.ProjectMemory;
   const changes = yield* PubSub.unbounded<ThreadId>();
   const lock = yield* Semaphore.make(1);
   const cache = new Map<ThreadId, ReadonlyArray<QaRun>>();
+  // Steps per open run, counted from its file once, so evidence knows where it falls.
+  const stepCounts = new Map<string, number>();
 
   const qaRunsDir = path.join(config.stateDir, "qa-runs");
-  const threadDir = (threadId: ThreadId) =>
-    path.join(qaRunsDir, toSafeThreadAttachmentSegment(threadId) ?? "_unknown");
+  const threadDir = (threadId: ThreadId) => path.join(qaRunsDir, qaThreadFolder(threadId));
 
   const nowIso = Effect.map(Clock.currentTimeMillis, (millis) =>
     DateTime.formatIso(DateTime.makeUnsafe(millis)),
@@ -160,13 +227,28 @@ const make = Effect.gen(function* () {
 
   const ensureRunUnlocked = Effect.fnUntraced(function* (threadId: ThreadId, site: string | null) {
     const open = findOpen(yield* load(threadId));
+    if (open?.kind === "regression") return yield* new QaRunError({ message: REPLAY_RUNNING });
     if (open) return open.site === null && site !== null ? yield* save({ ...open, site }) : open;
+    return yield* createRunUnlocked(threadId, site, {
+      kind: "exploratory",
+      suiteId: null,
+      dataRow: null,
+    });
+  });
+
+  const createRunUnlocked = Effect.fnUntraced(function* (
+    threadId: ThreadId,
+    site: string | null,
+    origin: Pick<QaRun, "kind" | "suiteId" | "dataRow">,
+  ) {
     const startedAt = yield* nowIso;
     const unique = (yield* random.uuidV4()).slice(0, 6);
     const runId = `${startedAt.replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z")}-${unique}`;
     return yield* save({
       runId,
       threadId,
+      ...origin,
+      projectId: null,
       site,
       startedAt,
       finishedAt: null,
@@ -188,12 +270,68 @@ const make = Effect.gen(function* () {
     if (open) yield* save(update(open));
   });
 
+  const stepsPath = (run: Pick<QaRun, "dir">) => path.join(run.dir, STEPS_FILE);
+
+  const stepCountOf = Effect.fnUntraced(function* (run: QaRun) {
+    const known = stepCounts.get(run.runId);
+    if (known !== undefined) return known;
+    const count = (yield* readStepsOf(run)).length;
+    stepCounts.set(run.runId, count);
+    return count;
+  });
+
+  const readStepsOf = Effect.fnUntraced(
+    function* (run: Pick<QaRun, "dir">) {
+      const text = yield* fileSystem.readFileString(stepsPath(run)).pipe(
+        Effect.catchIf(
+          (error) => error.reason._tag === "NotFound",
+          () => Effect.succeed(""),
+        ),
+      );
+      const steps: Array<QaReplayStep> = [];
+      for (const line of text.split("\n")) {
+        if (line.trim().length === 0) continue;
+        const step = decodeStepLine(line);
+        // A line cut short by a crash would shift every later scenario's steps; keep its place.
+        steps.push(
+          step._tag === "Some"
+            ? step.value
+            : { kind: "unreplayable", action: "unknown", reason: "This step could not be read." },
+        );
+      }
+      return steps;
+    },
+    Effect.mapError(failure("Could not read the run's browser steps.")),
+  );
+
+  const appendStepUnlocked = Effect.fnUntraced(
+    function* (threadId: ThreadId, step: QaReplayStep) {
+      const open = findOpen(yield* load(threadId));
+      if (open?.kind === "regression") return;
+      const run = open ?? (yield* ensureRunUnlocked(threadId, null));
+      const count = yield* stepCountOf(run);
+      yield* fileSystem.makeDirectory(run.dir, { recursive: true });
+      yield* fileSystem.writeFileString(stepsPath(run), `${yield* encodeStepLine(step)}\n`, {
+        flag: "a",
+      });
+      stepCounts.set(run.runId, count + 1);
+    },
+    Effect.mapError(failure("Could not save the browser step.")),
+  );
+
   const recordEvidenceUnlocked = Effect.fnUntraced(function* (
     threadId: ThreadId,
     input: QaEvidenceRecordInput,
     page: QaPageCapture,
+    checks: ReadonlyArray<QaCheck>,
+    replayStepCount?: number,
+    replayVisual?: QaReplayVisual,
   ) {
-    const run = yield* ensureRunUnlocked(threadId, page.url);
+    const open = findOpen(yield* load(threadId));
+    const replaying = replayStepCount !== undefined;
+    if (replaying && open?.kind !== "regression")
+      return yield* new QaRunError({ message: "The regression run is no longer open." });
+    const run = replaying && open ? open : yield* ensureRunUnlocked(threadId, page.url);
     if (run.scenarios.length >= QA_MAX_SCENARIOS_PER_RUN) {
       return yield* new QaRunError({
         message: `A run holds at most ${QA_MAX_SCENARIOS_PER_RUN} scenarios. Finish this run with qa_report_finish first.`,
@@ -210,9 +348,26 @@ const make = Effect.gen(function* () {
     const networkEntries = sanitizeNetworkEntries(page.networkEntries);
     const consolePath = path.join(evidenceDir, `${stem}.console.json`);
     const networkPath = path.join(evidenceDir, `${stem}.network.json`);
+    const visualFile = (kind: string) => path.join(evidenceDir, `${stem}.${kind}.png`);
+    const visual: QaVisualResult | null =
+      replayVisual === undefined
+        ? null
+        : {
+            diffRatio: replayVisual.diffRatio,
+            threshold: replayVisual.threshold,
+            baselinePath: visualFile("baseline"),
+            capturePath: visualFile("capture"),
+            diffPath: replayVisual.diffPng === null ? null : visualFile("diff"),
+          };
     yield* Effect.gen(function* () {
       yield* fileSystem.makeDirectory(evidenceDir, { recursive: true });
       if (screenshotPath !== null && png !== null) yield* fileSystem.writeFile(screenshotPath, png);
+      if (replayVisual !== undefined && visual !== null) {
+        yield* fileSystem.writeFile(visual.baselinePath, replayVisual.baseline);
+        yield* fileSystem.writeFile(visual.capturePath, replayVisual.capture);
+        if (visual.diffPath !== null && replayVisual.diffPng !== null)
+          yield* fileSystem.writeFile(visual.diffPath, replayVisual.diffPng);
+      }
       yield* fileSystem.writeFileString(consolePath, yield* encodeLogJson(consoleEntries));
       yield* fileSystem.writeFileString(networkPath, yield* encodeLogJson(networkEntries));
     }).pipe(Effect.mapError(failure("Could not save the scenario's evidence.")));
@@ -241,6 +396,9 @@ const make = Effect.gen(function* () {
       consolePath,
       networkPath,
       ...summarizeLogs(consoleEntries, networkEntries, since),
+      checks,
+      stepCount: replayStepCount ?? (yield* stepCountOf(run)),
+      visual,
     };
     yield* save({ ...run, scenarios: [...run.scenarios, scenario] });
     return scenario;
@@ -277,14 +435,22 @@ const make = Effect.gen(function* () {
     Effect.mapError(failure("Could not save the run's video.")),
   );
 
-  const finishRunUnlocked = Effect.fnUntraced(function* (threadId: ThreadId) {
+  const finishRunUnlocked = Effect.fnUntraced(function* (
+    threadId: ThreadId,
+    projectId: ProjectId | null,
+    secrets: ReadonlyArray<string> = [],
+    remember = true,
+    kind: QaRun["kind"] = "exploratory",
+  ) {
     const open = findOpen(yield* load(threadId));
-    if (!open) return null;
+    if (!open || open.kind !== kind) return null;
+    stepCounts.delete(open.runId);
     const finishedAt = yield* nowIso;
     const reportMarkdownPath = path.join(open.dir, "report.md");
     const reportHtmlPath = path.join(open.dir, "report.html");
     const finished: QaRun = {
       ...open,
+      projectId,
       finishedAt,
       videoUnavailableReason:
         open.video === null
@@ -295,12 +461,17 @@ const make = Effect.gen(function* () {
     };
     const screenshots = new Map<string, string>();
     for (const scenario of finished.scenarios) {
-      if (scenario.screenshotPath === null) continue;
-      const bytes = yield* fileSystem
-        .readFile(scenario.screenshotPath)
-        .pipe(Effect.orElseSucceed(() => null));
-      if (bytes !== null)
-        screenshots.set(scenario.screenshotPath, Buffer.from(bytes).toString("base64"));
+      const images = [
+        scenario.screenshotPath,
+        scenario.visual?.baselinePath,
+        scenario.visual?.capturePath,
+        scenario.visual?.diffPath,
+      ];
+      for (const image of images) {
+        if (image === null || image === undefined) continue;
+        const bytes = yield* fileSystem.readFile(image).pipe(Effect.orElseSucceed(() => null));
+        if (bytes !== null) screenshots.set(image, Buffer.from(bytes).toString("base64"));
+      }
     }
     yield* fileSystem.writeFileString(reportMarkdownPath, renderMarkdownReport(finished)).pipe(
       Effect.andThen(
@@ -311,13 +482,27 @@ const make = Effect.gen(function* () {
       ),
       Effect.mapError(failure("Could not write the QA report.")),
     );
-    return yield* save(finished);
+    const saved = yield* save(finished);
+    // Memory is secondary: a failed write must not lose the finished report.
+    if (remember) {
+      yield* memory
+        .recordRun(saved, secrets)
+        .pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("QA results were not saved to memory", { error }),
+          ),
+        );
+    }
+    return saved;
   });
 
   const deleteRunUnlocked = Effect.fnUntraced(function* (input: QaRunDeleteInput) {
     const runs = yield* load(input.threadId);
     const run = runs.find((candidate) => candidate.runId === input.runId);
     if (!run) return yield* new QaRunError({ message: "That QA run no longer exists." });
+    yield* memory
+      .forgetRun(run.runId)
+      .pipe(Effect.mapError(failure("Could not delete the run's facts from project memory.")));
     yield* fileSystem
       .remove(path.join(threadDir(input.threadId), input.runId), { recursive: true })
       .pipe(Effect.mapError(failure("Could not delete the QA run.")));
@@ -341,9 +526,53 @@ const make = Effect.gen(function* () {
     openRun: Effect.fn("QaRuns.openRun")(function* (threadId) {
       return findOpen(yield* lock.withPermit(load(threadId))) ?? null;
     }),
-    recordEvidence: Effect.fn("QaRuns.recordEvidence")(function* (threadId, input, page) {
-      return yield* lock.withPermit(recordEvidenceUnlocked(threadId, input, page));
+    recordEvidence: Effect.fn("QaRuns.recordEvidence")(function* (
+      threadId,
+      input,
+      page,
+      checks = [],
+    ) {
+      return yield* lock.withPermit(recordEvidenceUnlocked(threadId, input, page, checks));
     }),
+    appendStep: Effect.fn("QaRuns.appendStep")(function* (threadId, step) {
+      yield* lock.withPermit(appendStepUnlocked(threadId, step));
+    }),
+    readSteps: Effect.fn("QaRuns.readSteps")(function* (run) {
+      return yield* readStepsOf(run);
+    }),
+    startRegressionRun: Effect.fn("QaRuns.startRegressionRun")(function* (threadId, input) {
+      return yield* lock.withPermit(
+        Effect.gen(function* () {
+          const open = findOpen(yield* load(threadId));
+          if (open)
+            return yield* new QaRunError({
+              message:
+                open.kind === "regression"
+                  ? REPLAY_RUNNING
+                  : "This thread has a test run in progress. Wait for it to finish.",
+            });
+          return yield* createRunUnlocked(threadId, input.site, {
+            kind: "regression",
+            suiteId: input.suiteId,
+            dataRow: input.dataRow,
+          });
+        }),
+      );
+    }),
+    recordReplayedScenario: Effect.fn("QaRuns.recordReplayedScenario")(
+      function* (threadId, input, page, replay) {
+        return yield* lock.withPermit(
+          recordEvidenceUnlocked(
+            threadId,
+            input,
+            page,
+            replay.checks,
+            replay.stepCount,
+            replay.visual,
+          ),
+        );
+      },
+    ),
     markRecordingStarted: Effect.fn("QaRuns.markRecordingStarted")(function* (threadId, startedAt) {
       yield* lock.withPermit(
         updateOpenUnlocked(threadId, (run) => ({
@@ -362,8 +591,35 @@ const make = Effect.gen(function* () {
         ),
       );
     }),
-    finishRun: Effect.fn("QaRuns.finishRun")(function* (threadId) {
-      return yield* lock.withPermit(finishRunUnlocked(threadId));
+    finishRun: Effect.fn("QaRuns.finishRun")(function* (threadId, input) {
+      return yield* lock.withPermit(
+        finishRunUnlocked(threadId, input.projectId, input.secrets, input.remember, input.kind),
+      );
+    }),
+    rememberRun: Effect.fn("QaRuns.rememberRun")(function* (
+      threadId,
+      runId,
+      projectId,
+      secrets = [],
+    ) {
+      return yield* lock.withPermit(
+        Effect.gen(function* () {
+          const run = (yield* load(threadId)).find((candidate) => candidate.runId === runId);
+          if (run === undefined || (run.projectId !== null && run.projectId !== projectId)) {
+            return yield* new QaRunError({ message: "This run does not belong to the project." });
+          }
+          const saved =
+            run.finishedAt === null
+              ? yield* finishRunUnlocked(threadId, projectId, secrets, false)
+              : yield* save({ ...run, projectId });
+          if (saved === null)
+            return yield* new QaRunError({ message: "The run is no longer available." });
+          yield* memory
+            .recordRun(saved, secrets)
+            .pipe(Effect.mapError(failure("Could not save the run to memory.")));
+          return saved;
+        }),
+      );
     }),
     list,
     subscribe: (threadId) =>
@@ -371,7 +627,14 @@ const make = Effect.gen(function* () {
         Effect.gen(function* () {
           // Subscribe before reading so a change in between is not lost.
           const subscription = yield* PubSub.subscribe(changes);
-          const snapshot = Effect.map(list(threadId), (runs) => ({ runs }));
+          const snapshot = Effect.gen(function* () {
+            return {
+              runs: yield* list(threadId),
+              memoryBriefUsage: yield* memory
+                .briefUsage(threadId)
+                .pipe(Effect.orElseSucceed(() => null)),
+            };
+          });
           return Stream.concat(
             Stream.fromEffect(snapshot),
             Stream.fromSubscription(subscription).pipe(

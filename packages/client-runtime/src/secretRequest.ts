@@ -191,8 +191,12 @@ export function secretRequestReference(
     : undefined;
 }
 
+/** A sign-in a QA agent types in the browser; only then can a regression suite reuse it. */
+export const secretRequestCanRemember = (item: Pick<SecretRequestItem, "delivery" | "url">) =>
+  item.delivery !== "file" && item.url !== undefined;
+
 export type SecretRequestReply =
-  | { readonly type: "save"; readonly secret: string }
+  | { readonly type: "save"; readonly secret: string; readonly remember?: boolean }
   | { readonly type: "reference"; readonly source: SecretRequestSource; readonly reference: string }
   | { readonly type: "decline" };
 
@@ -211,7 +215,11 @@ export function secretRequestAnswerInput(
   }
   const secret = answer.secret.trim();
   if (secret.length === 0) return null;
-  return { threadId: item.threadId, turnItemId: item.id, answer: { type: "save", secret } };
+  return {
+    threadId: item.threadId,
+    turnItemId: item.id,
+    answer: { type: "save", secret, ...(answer.remember === true ? { remember: true } : {}) },
+  };
 }
 
 const USER_FACING_FAILURE_TAGS = new Set(["SecretRequestError", "EnvironmentAuthorizationError"]);

@@ -1,3 +1,5 @@
+import * as ProjectMemory from "../memory/ProjectMemory.ts";
+import * as ProjectUnderstanding from "../memory/ProjectUnderstanding.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
@@ -38,6 +40,7 @@ import { PullRequestReviewGuideService } from "../pullRequest/PullRequestReviewG
 import { PullRequestService } from "../pullRequest/PullRequestService.ts";
 import { ScheduledTaskService } from "../scheduledTasks/ScheduledTaskService.ts";
 import { SecretRequests } from "../secrets/SecretRequests.ts";
+import { QaSavedSecrets } from "../qa/QaSavedSecrets.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import { SourceControlRepositoryService } from "../sourceControl/SourceControlRepositoryService.ts";
 import { GitVcsDriver } from "../vcs/GitVcsDriver.ts";
@@ -49,6 +52,7 @@ import { ProviderRegistry } from "./ProviderRegistry.ts";
 import budget from "./agentContextBudget.json" with { type: "json" };
 import * as QaRecorder from "../qa/QaRecorder.ts";
 import * as QaRuns from "../qa/QaRuns.ts";
+import * as QaSuites from "../qa/QaSuites.ts";
 
 // Registration only stores tool definitions, so the handlers' services are never called.
 const toolHandlerServices = Layer.mergeAll(
@@ -77,8 +81,12 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(RemoteDelegation)({}),
   Layer.mock(ScheduledTaskService)({}),
   Layer.mock(QaRuns.QaRuns)({}),
+  Layer.mock(QaSuites.QaSuites)({}),
+  Layer.mock(ProjectMemory.ProjectMemory)({}),
+  Layer.mock(ProjectUnderstanding.ProjectUnderstanding)({}),
   Layer.mock(QaRecorder.QaRecorder)({}),
   Layer.mock(SecretRequests)({}),
+  Layer.mock(QaSavedSecrets)({}),
   ServerConfig.layerTest(process.cwd(), { prefix: "t3-agent-context-budget-" }),
   Layer.mock(ServerEnvironment)({}),
   Layer.mock(ServerSecretStore)({}),

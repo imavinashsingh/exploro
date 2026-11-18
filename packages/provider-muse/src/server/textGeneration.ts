@@ -4,6 +4,7 @@ import {
   type ModelSelection,
   type ServerProviderModel,
   TextGenerationError,
+  ProjectUnderstandingExtraction,
 } from "@t3tools/contracts";
 import type { MuseSettings } from "../settings.ts";
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@t3tools/shared/git";
@@ -25,6 +26,7 @@ import type { ProviderTextGeneration } from "@t3tools/provider-core/server/textG
 import {
   generatedThreadTitle,
   investigationUnsupported,
+  LocatorHealOutput,
   TranscriptionPostProcessingOutput,
 } from "@t3tools/provider-core/server/textGenerationOperations";
 import {
@@ -359,6 +361,25 @@ export const makeMuseTextGeneration = Effect.fn("makeMuseTextGeneration")(functi
         modelSelection: input.modelSelection,
       });
     });
+  const generateProjectUnderstanding: ProviderTextGeneration["generateProjectUnderstanding"] =
+    Effect.fn("MuseTextGeneration.generateProjectUnderstanding")(function* (input) {
+      return yield* runMuseJson({
+        operation: "generateProjectUnderstanding",
+        prompt: input.prompt,
+        outputSchema: ProjectUnderstandingExtraction,
+        modelSelection: input.modelSelection,
+      });
+    });
+  const generateLocatorHeal: ProviderTextGeneration["generateLocatorHeal"] = Effect.fn(
+    "MuseTextGeneration.generateLocatorHeal",
+  )(function* (input) {
+    return yield* runMuseJson({
+      operation: "generateLocatorHeal",
+      prompt: input.prompt,
+      outputSchema: LocatorHealOutput,
+      modelSelection: input.modelSelection,
+    });
+  });
   const generateReviewGuide: ProviderTextGeneration["generateReviewGuide"] = () =>
     Effect.fail(investigationUnsupported("generateReviewGuide", "Muse Code"));
   return {
@@ -368,5 +389,7 @@ export const makeMuseTextGeneration = Effect.fn("makeMuseTextGeneration")(functi
     generateThreadTitle,
     generateReviewGuide,
     generateTranscriptionPostProcessing,
+    generateProjectUnderstanding,
+    generateLocatorHeal,
   } satisfies ProviderTextGeneration;
 });

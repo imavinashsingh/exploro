@@ -18,6 +18,8 @@ import {
   DeviceOperationError,
   DeviceSummary,
   OrchestratorMcpTaskRole,
+  ProjectMemoryFact,
+  ProjectUnderstandingItem,
   PreviewAutomationError,
   PreviewAutomationUnavailableError,
   ProviderInstanceId,
@@ -52,6 +54,7 @@ import { formatThreadLink } from "@t3tools/shared/threadLinks";
 import { buildCodexAdditionalContext } from "../../apps/server/src/provider/CodexDeveloperInstructions.ts";
 import { makeSideChatContext } from "../../apps/server/src/orchestration-v2/ContextHandoffService.ts";
 import { withInlineContext } from "../../apps/server/src/orchestration-v2/ContextHandoffDelivery.ts";
+import { formatMemoryBrief } from "../../apps/server/src/memory/memoryBrief.ts";
 import { AttachmentToolkit } from "../../apps/server/src/mcp/toolkits/attachment/tools.ts";
 import { DeviceToolkit } from "../../apps/server/src/mcp/toolkits/device/tools.ts";
 import { EnvironmentToolkit } from "../../apps/server/src/mcp/toolkits/environment/tools.ts";
@@ -59,6 +62,7 @@ import { HtmlToolkit } from "../../apps/server/src/mcp/toolkits/html/tools.ts";
 import { MessageToolkit } from "../../apps/server/src/mcp/toolkits/message/tools.ts";
 import { OrchestratorToolkit } from "../../apps/server/src/mcp/toolkits/orchestrator/tools.ts";
 import { PreviewToolkit } from "../../apps/server/src/mcp/toolkits/preview/tools.ts";
+import { QaToolkit } from "../../apps/server/src/mcp/toolkits/qa/tools.ts";
 import { PreviewControlsToolkit } from "../../apps/server/src/mcp/toolkits/previewControls/tools.ts";
 import { ProjectToolkit } from "../../apps/server/src/mcp/toolkits/project/tools.ts";
 import {
@@ -275,6 +279,8 @@ const McpToolUseWorld = Schema.StructWithRest(
     deviceAgentAccess: Schema.optional(Schema.Boolean),
     /** false: agent browser access is off. T3 denies every preview call and drops its browser text. */
     browserAgentAccess: Schema.optional(Schema.Boolean),
+    /** true: the thread belongs to a project, so T3 lists its memory tools. */
+    projectMemory: Schema.optional(Schema.Boolean),
     /** Every capture reaches T3 with adb screencap's warning ahead of the PNG: T3 reports 0×0. */
     deviceInvalidCapture: Schema.optional(Schema.Boolean),
     /** Devices another thread's agent-device session holds, by device id: that thread's id. */
@@ -332,6 +338,19 @@ export const McpToolUseCase = Schema.Struct({
     /** Regexes on one part of a shell command. A match wins over the shell simulator. */
     shellMocks: Schema.optional(
       Schema.Array(Schema.Struct({ match: Schema.String, output: Schema.String })),
+    ),
+    /** A project thread's first turn: T3 puts this memory brief ahead of `prompt`. */
+    memoryBrief: Schema.optional(
+      Schema.Struct({
+        facts: Schema.Array(ProjectMemoryFact),
+        openFailures: Schema.Array(ProjectMemoryFact),
+        understanding: Schema.Array(
+          Schema.Struct({
+            item: ProjectUnderstandingItem,
+            via: Schema.Literals(["match", "dependency"]),
+          }),
+        ),
+      }),
     ),
     /** The thread is a side chat's first turn: T3 puts the parent's digest ahead of `prompt`. */
     sideChat: Schema.optional(
@@ -460,6 +479,7 @@ const t3SourceTools: ReadonlyArray<Tool.Any> = [
   DeviceToolkit,
   HtmlToolkit,
   MessageToolkit,
+  QaToolkit,
 ].flatMap((toolkit): ReadonlyArray<Tool.Any> => Object.values(toolkit.tools));
 // McpHttpServer decodes arguments with each tool's JSON codec, which drops undeclared keys.
 const t3InputDecoders = new Map(
@@ -515,10 +535,17 @@ const pastedSecret = (name: string, input: Readonly<Record<string, unknown>>) =>
 const hiddenFromSubagents = enabledWhen(McpInvocationContext.hiddenFromSubagents);
 // The Linked environments beta starts off, and T3 lists its tools only while it is on.
 const hiddenWhileLinksOff = enabledWhen(McpInvocationContext.hiddenWhileLinksOff);
-const visibleT3Tools = (options: { readonly subagent?: boolean; readonly links?: boolean }) =>
+// Only threads of a project hold the `memory` capability.
+const hiddenWithoutMemory = enabledWhen(McpInvocationContext.hiddenWithoutMemory);
+const visibleT3Tools = (options: {
+  readonly subagent?: boolean;
+  readonly links?: boolean;
+  readonly memory?: boolean;
+}) =>
   t3Tools.filter(
     (tool) =>
       (options.links === true || !hiddenWhileLinksOff.has(tool.name)) &&
+      (options.memory === true || !hiddenWithoutMemory.has(tool.name)) &&
       !(options.subagent === true && hiddenFromSubagents.has(tool.name)),
   );
 
@@ -629,6 +656,7 @@ export const buildBase = (
     readonly keepUserInstructions: boolean;
     readonly subagent?: boolean;
     readonly links?: boolean;
+    readonly memory?: boolean;
     /** A native subagent starts from its task: T3 appends nothing to its system prompt. */
     readonly nativeSubagent?: boolean;
     /** false: the thread has no agent device access, so T3's text leaves devices out. */
@@ -725,6 +753,7 @@ const buildCodexBase = (
     readonly effort?: string | undefined;
     readonly subagent?: boolean;
     readonly links?: boolean;
+    readonly memory?: boolean;
     /** false: the thread has no agent device access, so T3's text leaves devices out. */
     readonly deviceAccess?: boolean;
     /** false: the thread has no agent browser access, so T3's text leaves the browser out. */
@@ -1098,8 +1127,12 @@ export const buildMessages = (sample: Sample) => {
     testCase.promptContext === undefined
       ? testCase.prompt
       : projectComposerContextForProvider({ text: testCase.prompt, ...testCase.promptContext });
-  const prompt =
-    sideChatContext === undefined ? userText : withInlineContext(sideChatContext, userText);
+  const memoryBrief =
+    testCase.setup.memoryBrief === undefined ? "" : formatMemoryBrief(testCase.setup.memoryBrief);
+  const inlineContext = [sideChatContext ?? "", memoryBrief]
+    .filter((part) => part !== "")
+    .join("\n\n");
+  const prompt = withInlineContext(inlineContext, userText);
   const childPrompt = () => taskPrompt({ task: prompt, role: delegateRole });
   if (testCase.prompt !== "")
     push("user", text(role === "delegated-child" ? childPrompt() : prompt));
@@ -2559,6 +2592,7 @@ const main = Effect.gen(function* () {
     deviceAccess: boolean,
     browserAccess: boolean,
     links: boolean,
+    memory = false,
   ): Effect.Effect<Base, Schema.SchemaError> =>
     codex
       ? decodeCodexCapture(template).pipe(
@@ -2569,6 +2603,7 @@ const main = Effect.gen(function* () {
               effort: flags.effort,
               subagent: role === "delegated-child",
               links,
+              memory,
               deviceAccess,
               browserAccess,
             }),
@@ -2582,6 +2617,7 @@ const main = Effect.gen(function* () {
               subagent: role === "delegated-child",
               nativeSubagent: role === "native-subagent",
               links,
+              memory,
               deviceAccess,
               browserAccess,
             });
@@ -2594,19 +2630,29 @@ const main = Effect.gen(function* () {
         );
   // Codex has no native subagents; its cases with that role run as top-level threads.
   const baseKey = ({ setup }: McpToolUseCase) =>
-    `${codex && setup.role === "native-subagent" ? "top" : setup.role}:${setup.world?.deviceAgentAccess !== false}:${setup.world?.browserAgentAccess !== false}:${setup.linkedEnvironments === true}`;
+    `${codex && setup.role === "native-subagent" ? "top" : setup.role}:${setup.world?.deviceAgentAccess !== false}:${setup.world?.browserAgentAccess !== false}:${setup.linkedEnvironments === true}:${setup.world?.projectMemory === true}`;
   const base = yield* buildFor("top", true, true, false);
-  const bases = new Map<string, Base>([["top:true:true:false", base]]);
+  const bases = new Map<string, Base>([["top:true:true:false:false", base]]);
   for (const testCase of selected) {
     const key = baseKey(testCase);
     if (bases.has(key)) continue;
-    const [role = "top", device, browser, links] = key.split(":") as [
+    const [role = "top", device, browser, links, memory] = key.split(":") as [
       McpToolUseCase["setup"]["role"],
       string,
       string,
       string,
+      string,
     ];
-    bases.set(key, yield* buildFor(role, device === "true", browser === "true", links === "true"));
+    bases.set(
+      key,
+      yield* buildFor(
+        role,
+        device === "true",
+        browser === "true",
+        links === "true",
+        memory === "true",
+      ),
+    );
   }
   const baseFor = (testCase: McpToolUseCase) => bases.get(baseKey(testCase)) ?? base;
   const effort = flags.effort ?? base.codex?.reasoning.effort ?? "high";

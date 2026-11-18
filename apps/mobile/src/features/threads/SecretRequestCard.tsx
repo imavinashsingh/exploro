@@ -2,6 +2,7 @@ import { pipe } from "effect/Function";
 import {
   SECRET_REQUEST_DEFAULT_PLACEHOLDER,
   secretRequestAnswerInput,
+  secretRequestCanRemember,
   secretRequestDisplay,
   secretRequestFailureMessage,
   secretRequestLink,
@@ -32,6 +33,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { tryOpenExternalUrl } from "../../lib/openExternalUrl";
 import { Button } from "../../components/ui/Button";
 import { Chip } from "../../components/ui/Chip";
+import { ThemedSwitch } from "../../components/ui/ThemedSwitch";
 
 const LOCK_SYMBOL: AppSymbolName = { ios: "lock", android: "lock" };
 const PRIVATE_SYMBOL: AppSymbolName = { ios: "checkmark.shield", android: "lock" };
@@ -86,6 +88,7 @@ function PendingSecretRequestForm(props: {
   const [sourceId, setSourceId] = useState<SecretProviderId | null>(null);
   const source = sources.find((candidate) => candidate.id === sourceId) ?? null;
   const [secret, setSecret] = useState("");
+  const [remember, setRemember] = useState(false);
   const [reference, setReference] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -113,7 +116,7 @@ function PendingSecretRequestForm(props: {
   };
   const save = () => {
     if (source === null) {
-      void send({ type: "save", secret });
+      void send({ type: "save", secret, remember });
     } else if (secretRequestReference(source, reference) === undefined) {
       setError(source.invalidReferenceMessage);
     } else {
@@ -183,7 +186,7 @@ function PendingSecretRequestForm(props: {
           value={secret}
           onChangeText={setSecret}
           editable={!submitting}
-          onSubmitEditing={(value) => void send({ type: "save", secret: value })}
+          onSubmitEditing={(value) => void send({ type: "save", secret: value, remember })}
         />
       ) : (
         <TextInput
@@ -206,6 +209,19 @@ function PendingSecretRequestForm(props: {
           onSubmitEditing={save}
         />
       )}
+      {source === null && secretRequestCanRemember(item) ? (
+        <View className="flex-row items-center justify-between gap-3">
+          <Text className="flex-1 font-sans text-sm text-foreground-muted">
+            Remember for this project's regression suites
+          </Text>
+          <ThemedSwitch
+            accessibilityLabel="Remember for this project's regression suites"
+            disabled={submitting}
+            onValueChange={setRemember}
+            value={remember}
+          />
+        </View>
+      ) : null}
       {error !== null ? (
         <Text
           accessibilityRole="alert"

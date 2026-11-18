@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 
-import { EnvironmentId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { EnvironmentId, SecretRef, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import {
   PREVIEW_VIEWPORT_MAX_AREA,
   PreviewRenderedViewportSize,
@@ -51,6 +51,7 @@ export const PREVIEW_AUTOMATION_SERVER_OPERATIONS = [
   "hover",
   "select",
   "drag",
+  "check",
 ] as const;
 export const PreviewAutomationOperation = Schema.Literals(PREVIEW_AUTOMATION_SERVER_OPERATIONS);
 export type PreviewAutomationOperation = typeof PreviewAutomationOperation.Type;
@@ -458,6 +459,7 @@ export const PreviewAutomationActInput = Schema.Struct({
   button: Schema.optional(Schema.Literals(["left", "right", "middle"])),
   clickCount: Schema.optional(Schema.Int),
   text: Schema.optional(Schema.String),
+  secretRef: Schema.optional(SecretRef),
   clear: Schema.optional(Schema.Boolean),
   values: Schema.optional(Schema.Array(Schema.String)),
   source: Schema.optional(Locator),
@@ -504,6 +506,56 @@ export const PreviewAutomationWaitForInput = Schema.Struct({
   }),
 );
 export type PreviewAutomationWaitForInput = typeof PreviewAutomationWaitForInput.Type;
+
+/** A Playwright selector that finds the element again after the page changes, and how it reads. */
+export const PreviewAutomationDurableTarget = Schema.Struct({
+  selector: Schema.String,
+  display: Schema.String,
+});
+export type PreviewAutomationDurableTarget = typeof PreviewAutomationDurableTarget.Type;
+
+const AssertionText = TrimmedNonEmptyString.check(Schema.isMaxLength(500));
+
+/** Something the page must show, checked by the browser rather than by reading a screenshot. */
+export const PreviewAutomationAssertion = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("textVisible"), text: AssertionText }),
+  Schema.Struct({ kind: Schema.Literal("urlIncludes"), value: AssertionText }),
+  Schema.Struct({ kind: Schema.Literal("elementVisible"), locator: Locator }),
+  Schema.Struct({
+    kind: Schema.Literal("valueEquals"),
+    locator: Locator,
+    value: Schema.String.check(Schema.isMaxLength(2000)),
+  }),
+]);
+export type PreviewAutomationAssertion = typeof PreviewAutomationAssertion.Type;
+
+export const PreviewAutomationCheckInput = Schema.Struct({
+  ...PreviewAutomationTabTargetFields,
+  assertions: Schema.Array(PreviewAutomationAssertion).check(Schema.isMaxLength(10)),
+  /** Wait first for the page to finish loading and its network to go quiet, within the timeout. */
+  settle: Schema.optional(Schema.Boolean),
+  /** How long each assertion may wait to hold. */
+  timeoutMs: OptionalTimeoutMs,
+  /** Also capture the viewport for a visual comparison: animations off, caret hidden, masks blanked. */
+  capture: Schema.optional(
+    Schema.Struct({ masks: Schema.Array(Schema.String).check(Schema.isMaxLength(20)) }),
+  ),
+});
+export type PreviewAutomationCheckInput = typeof PreviewAutomationCheckInput.Type;
+
+export const PreviewAutomationCheckResult = Schema.Struct({
+  results: Schema.Array(
+    Schema.Struct({
+      ok: Schema.Boolean,
+      /** What the page showed instead, for a failed assertion. */
+      actual: Schema.String,
+      target: Schema.NullOr(PreviewAutomationDurableTarget),
+    }),
+  ),
+  /** Base64 PNG, when `capture` was asked for. */
+  capture: Schema.optional(Schema.String),
+});
+export type PreviewAutomationCheckResult = typeof PreviewAutomationCheckResult.Type;
 
 export const PreviewAutomationElement = Schema.Struct({
   tag: Schema.String,

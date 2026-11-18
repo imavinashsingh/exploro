@@ -626,6 +626,8 @@ const buildCliArchive = Effect.fn("buildCliArchive")(function* (input: {
     resourceMonitorDir,
     "Build the resource monitor or pass --resource-monitor-dir.",
   );
+  const memoryModelDir = path.join(serverDir, "dist/memory-model");
+  yield* requireInput(memoryModelDir, "Run `vp run --filter t3 build` first.");
 
   const stem = cliArchiveStem(input.version, input.platform, input.arch);
   const stageRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-archive-" });
@@ -636,6 +638,8 @@ const buildCliArchive = Effect.fn("buildCliArchive")(function* (input: {
   yield* fs.copyFile(builtExecutable, path.join(contentDir, executableName));
   yield* stageWebClient(webClient, path.join(contentDir, "client"));
   yield* fs.copy(resourceMonitorDir, path.join(contentDir, "resource-monitor"));
+  // The server looks for project memory's embedding model beside itself.
+  yield* fs.copy(memoryModelDir, path.join(contentDir, "memory-model"));
   yield* stageRuntimeExternals({
     repoRoot,
     stageDir: contentDir,

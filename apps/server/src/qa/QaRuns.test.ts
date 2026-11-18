@@ -1,5 +1,7 @@
+import * as ProjectUnderstanding from "../memory/ProjectUnderstanding.ts";
+import * as MemoryEmbedder from "../memory/MemoryEmbedder.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ThreadId } from "@t3tools/contracts";
+import { ProjectId, ThreadId } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
@@ -8,6 +10,8 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 
 import * as ServerConfig from "../config.ts";
+import * as ProjectMemory from "../memory/ProjectMemory.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { QA_MAX_SCREENSHOT_BYTES } from "./qaEvidence.ts";
 import * as QaRuns from "./QaRuns.ts";
 
@@ -42,6 +46,14 @@ const withQaRuns = <A, E>(
     return yield* body.pipe(
       Effect.provide(
         QaRuns.layer.pipe(
+          Layer.provide(
+            ProjectMemory.layer.pipe(
+              Layer.provide(
+                ProjectUnderstanding.layer.pipe(Layer.provide(MemoryEmbedder.layerUnavailable)),
+              ),
+            ),
+          ),
+          Layer.provide(Layer.fresh(SqlitePersistence.layerMemory)),
           Layer.provide(ServerConfig.layerTest(process.cwd(), baseDir)),
           Layer.provide(
             Layer.succeed(
@@ -81,10 +93,11 @@ it.layer(NodeServices.layer)("QaRuns", (it) => {
         );
         assert.deepStrictEqual(yield* fs.readFile(scenario.screenshotPath!), PNG);
 
-        const finished = yield* qaRuns.finishRun(threadId);
+        const finished = yield* qaRuns.finishRun(threadId, { projectId: ProjectId.make("shop") });
         assert.isNotNull(finished);
         const manifest = JSON.parse(yield* fs.readFileString(path.join(finished!.dir, "run.json")));
         assert.strictEqual(manifest.scenarios[0].scenario, "Wrong password is rejected");
+        assert.strictEqual(manifest.projectId, "shop");
         assert.isNotNull(manifest.finishedAt);
         assert.strictEqual(
           path.basename(scenario.screenshotPath!),
@@ -132,7 +145,7 @@ it.layer(NodeServices.layer)("QaRuns", (it) => {
         const fs = yield* FileSystem.FileSystem;
         const input = { scenario: "Home loads", verdict: "PASS", note: "ok" } as const;
         yield* qaRuns.recordEvidence(threadId, input, page());
-        const first = yield* qaRuns.finishRun(threadId);
+        const first = yield* qaRuns.finishRun(threadId, { projectId: null });
         yield* qaRuns.recordEvidence(threadId, input, page());
         const runs = yield* qaRuns.list(threadId);
         assert.strictEqual(runs.length, 2);
@@ -144,6 +157,61 @@ it.layer(NodeServices.layer)("QaRuns", (it) => {
           (yield* qaRuns.list(threadId)).map((run) => run.runId),
           runs.filter((run) => run.runId !== first!.runId).map((run) => run.runId),
         );
+      }),
+    ),
+  );
+
+  it.effect("places each verdict after the steps taken so far, and keeps them on disk", () =>
+    withQaRuns(
+      Effect.gen(function* () {
+        const qaRuns = yield* QaRuns.QaRuns;
+        const navigate = { kind: "navigate", url: "https://shop.test/login" } as const;
+        const press = { kind: "press", key: "Enter" } as const;
+        const check = { kind: "textVisible", text: "Welcome" } as const;
+        yield* qaRuns.appendStep(threadId, navigate);
+        const first = yield* qaRuns.recordEvidence(
+          threadId,
+          { scenario: "Login page", verdict: "PASS", note: "ok" },
+          page(),
+          [check],
+        );
+        yield* qaRuns.appendStep(threadId, press);
+        const second = yield* qaRuns.recordEvidence(
+          threadId,
+          { scenario: "Login", verdict: "PASS", note: "ok" },
+          page(),
+        );
+        assert.deepStrictEqual([first.stepCount, second.stepCount], [1, 2]);
+        assert.deepStrictEqual(first.checks, [check]);
+        const finished = yield* qaRuns.finishRun(threadId, { projectId: null });
+        assert.deepStrictEqual(yield* qaRuns.readSteps(finished!), [navigate, press]);
+      }),
+    ),
+  );
+
+  it.effect("keeps an agent's evidence and turn end out of a running replay", () =>
+    withQaRuns(
+      Effect.gen(function* () {
+        const qaRuns = yield* QaRuns.QaRuns;
+        const input = { scenario: "Home loads", verdict: "PASS", note: "ok" } as const;
+        const replay = yield* qaRuns.startRegressionRun(threadId, {
+          suiteId: "suite-1",
+          site: "https://shop.test",
+          dataRow: null,
+        });
+        const refused = yield* qaRuns.recordEvidence(threadId, input, page()).pipe(Effect.flip);
+        assert.include(refused.message, "regression replay is running");
+        yield* qaRuns.appendStep(threadId, { kind: "press", key: "Enter" });
+        assert.isNull(yield* qaRuns.finishRun(threadId, { projectId: null }));
+        const replayed = yield* qaRuns.recordReplayedScenario(threadId, input, page(), {
+          checks: [],
+          stepCount: 0,
+        });
+        assert.strictEqual(replayed.stepCount, 0);
+        const finished = yield* qaRuns.finishRun(threadId, { projectId: null, kind: "regression" });
+        assert.strictEqual(finished?.runId, replay.runId);
+        assert.strictEqual(finished?.kind, "regression");
+        assert.deepStrictEqual(yield* qaRuns.readSteps(finished!), []);
       }),
     ),
   );

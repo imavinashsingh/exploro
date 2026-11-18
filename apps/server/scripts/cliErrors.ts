@@ -70,3 +70,15 @@ export class ServerCliBootstrapTooLargeError extends Schema.TaggedError<ServerCl
     return `${this.bootstrapPath} is ${this.bytes} bytes. The CLI was bundled into the executable bootstrap; keep ./binMain.ts external.`;
   }
 }
+
+export class ServerCliMemoryModelError extends Schema.TaggedError<ServerCliMemoryModelError>()(
+  "ServerCliMemoryModelError",
+  {
+    file: Schema.String,
+    reason: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Could not fetch the memory embedding model file ${this.file}: ${this.reason}`;
+  }
+}

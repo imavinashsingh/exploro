@@ -9,6 +9,7 @@ import type {
 
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 
 import type { ComposerThreadTarget, DraftId } from "../../composerDraftStore";
 import { useT3ProjectFileScripts } from "../../hooks/useT3ProjectFileScripts";
@@ -24,6 +25,7 @@ import { ThreadDetailsCard } from "./ThreadDetailsCard";
 import { OpenInPicker } from "./OpenInPicker";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { ThreadDetailsTarget } from "./ThreadDetailsTarget";
+import { ThreadDetailsRegression } from "./ThreadDetailsRegression";
 import { ThreadDetailsTestRun } from "./ThreadDetailsTestRun";
 import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
 import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
@@ -112,6 +114,14 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
     serverConfig !== undefined &&
     project !== null &&
     !isScratchProject(project, serverConfig.scratchWorkspaceRoot);
+  const memoryNote =
+    serverConfig === undefined || project === null
+      ? null
+      : isScratchProject(project, serverConfig.scratchWorkspaceRoot)
+        ? "Memory is off: this test isn't in a project."
+        : resolveProjectSettings(serverConfig.settings, project.id).settings.qaMemoryEnabled
+          ? null
+          : "Memory is off for this project.";
   const branchToolbarProps = {
     showGitControls: props.isGitRepo,
     environmentId: props.environmentId,
@@ -195,6 +205,24 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                 <ThreadDetailsTestRun
                   environmentId={props.environmentId}
                   threadId={props.threadId}
+                  memoryNote={memoryNote}
+                  scratchProject={
+                    serverConfig !== undefined &&
+                    project !== null &&
+                    isScratchProject(project, serverConfig.scratchWorkspaceRoot)
+                  }
+                  memoryEnabled={
+                    serverConfig !== undefined && project !== null && memoryNote === null
+                  }
+                  contextMaxTokens={props.usage.contextWindow?.maxTokens ?? null}
+                />
+              ) : null}
+
+              {density === "full" && !props.draftId && visible.testRun ? (
+                <ThreadDetailsRegression
+                  environmentId={props.environmentId}
+                  threadId={props.threadId}
+                  projectId={props.projectId}
                 />
               ) : null}
 

@@ -3,6 +3,7 @@ import {
   type PreviewAutomationRecordingStatus,
   type PreviewAutomationStatus,
   type PreviewTabId,
+  type QaReplayStep,
   type QaRun,
   type QaRunError,
   type ThreadId,
@@ -17,7 +18,15 @@ import * as ServerConfig from "../config.ts";
 import type * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
 import * as PreviewAutomationBroker from "../mcp/PreviewAutomationBroker.ts";
 import { claimPreviewRecording } from "../mcp/toolkits/preview/recordingClaim.ts";
+import * as ServerSettings from "../serverSettings.ts";
+import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as PreviewAgentActivity from "../preview/PreviewAgentActivity.ts";
+import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
+import * as UnderstandingExtraction from "../memory/UnderstandingExtraction.ts";
+import { learnedSiteOrigins } from "./qaEvidence.ts";
+import { memoryEnabled } from "../memory/ProjectMemoryAccess.ts";
+import { threadProvidedSecrets, threadProvidedSecretsInOrder } from "../memory/providedSecrets.ts";
+import { hideSecrets } from "./qaReplay.ts";
 import * as QaRuns from "./QaRuns.ts";
 
 const errorReason = (error: unknown) =>
@@ -39,7 +48,18 @@ export class QaRecorder extends Context.Service<
       scope: McpInvocationContext.McpThreadInvocationScope,
       opened: PreviewAutomationStatus,
     ) => Effect.Effect<void>;
-    readonly finish: (threadId: ThreadId) => Effect.Effect<QaRun | null, QaRunError>;
+    /** Starts the run's video on this tab, once per thread. */
+    readonly startVideo: (
+      scope: McpInvocationContext.McpThreadInvocationScope,
+      tabId: PreviewTabId,
+    ) => Effect.Effect<void>;
+    /** Logs a step the agent took, with the user's passwords written as placeholders. */
+    readonly stepPerformed: (threadId: ThreadId, step: QaReplayStep) => Effect.Effect<void>;
+    /** Finishes the thread's open run of this kind (default exploratory). */
+    readonly finish: (
+      threadId: ThreadId,
+      kind?: QaRun["kind"],
+    ) => Effect.Effect<QaRun | null, QaRunError>;
   }
 >()("t3/qa/QaRecorder") {}
 
@@ -49,6 +69,10 @@ const make = Effect.gen(function* () {
   const activity = yield* PreviewAgentActivity.PreviewAgentActivity;
   const config = yield* ServerConfig.ServerConfig;
   const fileSystem = yield* FileSystem.FileSystem;
+  const threads = yield* ThreadManagementService.ThreadManagementService;
+  const managedFolders = yield* ManagedProjectFolders.ManagedProjectFolders;
+  const serverSettings = yield* ServerSettings.ServerSettingsService;
+  const extraction = yield* UnderstandingExtraction.UnderstandingExtraction;
   const recordings = new Map<
     ThreadId,
     { readonly scope: McpInvocationContext.McpThreadInvocationScope; readonly tabId: PreviewTabId }
@@ -59,10 +83,16 @@ const make = Effect.gen(function* () {
       scope: McpInvocationContext.McpThreadInvocationScope,
       opened: PreviewAutomationStatus,
     ) {
+      yield* qaRuns.ensureRun(scope.thread.threadId, { site: opened.url });
+      if (opened.tabId !== null) yield* startVideo(scope, opened.tabId);
+    },
+    Effect.catch((error) => Effect.logWarning("QA run could not start", { error })),
+  );
+
+  const startVideo = Effect.fn("QaRecorder.startVideo")(
+    function* (scope: McpInvocationContext.McpThreadInvocationScope, tabId: PreviewTabId) {
       const threadId = scope.thread.threadId;
-      yield* qaRuns.ensureRun(threadId, { site: opened.url });
-      if (recordings.has(threadId) || opened.tabId === null) return;
-      const tabId = opened.tabId;
+      if (recordings.has(threadId)) return;
       yield* broker
         .invoke<PreviewAutomationRecordingStatus>({
           scope,
@@ -80,7 +110,26 @@ const make = Effect.gen(function* () {
           Effect.catch((error) => qaRuns.markVideoUnavailable(threadId, errorReason(error))),
         );
     },
-    Effect.catch((error) => Effect.logWarning("QA run could not start", { error })),
+    Effect.catch((error) => Effect.logWarning("QA video could not start", { error })),
+  );
+
+  const stepPerformed = Effect.fn("QaRecorder.stepPerformed")(
+    function* (threadId: ThreadId, step: QaReplayStep) {
+      const saved =
+        step.kind === "type"
+          ? {
+              ...step,
+              text: hideSecrets(
+                step.text,
+                yield* threadProvidedSecretsInOrder(threads, threadId).pipe(
+                  Effect.orElseSucceed(() => []),
+                ),
+              ),
+            }
+          : step;
+      yield* qaRuns.appendStep(threadId, saved);
+    },
+    Effect.catch((error) => Effect.logWarning("QA step was not logged", { error })),
   );
 
   const stopRecording = Effect.fn("QaRecorder.stopRecording")(function* (threadId: ThreadId) {
@@ -106,9 +155,67 @@ const make = Effect.gen(function* () {
       );
   });
 
-  const finish = Effect.fn("QaRecorder.finish")(function* (threadId: ThreadId) {
+  // "No project" threads live in the scratch project, so a run there belongs to no project.
+  const projectOf = Effect.fn("QaRecorder.projectOf")(
+    function* (threadId: ThreadId) {
+      const shell = yield* threads.getThreadShell(threadId);
+      if (shell === null) return null;
+      return (yield* managedFolders.isScratchProject(shell.projectId)) ? null : shell.projectId;
+    },
+    Effect.orElseSucceed(() => null),
+  );
+
+  const learnSite = Effect.fn("QaRecorder.learnSite")(
+    function* (run: QaRun) {
+      if (run.projectId === null) return;
+      const projectId = run.projectId;
+      const settings = yield* serverSettings.getSettings;
+      const overrides = settings.projectSettingsOverrides[projectId] ?? {};
+      const origins = learnedSiteOrigins(overrides.qaSiteOrigins, run.site);
+      if (origins === null) return;
+      yield* serverSettings.updateSettings({
+        projectSettingsOverrides: { [projectId]: { ...overrides, qaSiteOrigins: origins } },
+      });
+    },
+    Effect.catch((error) => Effect.logWarning("QA project site was not saved", { error })),
+  );
+
+  const finish = Effect.fn("QaRecorder.finish")(function* (
+    threadId: ThreadId,
+    kind: QaRun["kind"] = "exploratory",
+  ) {
+    const open = yield* qaRuns.openRun(threadId);
+    // An agent's turn ending must not stop a replay's video or close its run.
+    if (open !== null && open.kind !== kind) return null;
     yield* stopRecording(threadId);
-    return yield* qaRuns.finishRun(threadId);
+    if (kind === "regression") {
+      return yield* qaRuns.finishRun(threadId, {
+        projectId: yield* projectOf(threadId),
+        remember: false,
+        kind,
+      });
+    }
+    const secrets = yield* threadProvidedSecrets(threads, threadId).pipe(
+      Effect.orElseSucceed(() => []),
+    );
+    const projectId = yield* projectOf(threadId);
+    const remember =
+      projectId !== null &&
+      (yield* serverSettings.getSettings.pipe(
+        Effect.map((settings) => memoryEnabled(settings, projectId)),
+        Effect.orElseSucceed(() => true),
+      ));
+    const run = yield* qaRuns.finishRun(threadId, { projectId, secrets, remember });
+    if (run !== null) {
+      yield* learnSite(run);
+      if (!remember) return run;
+      yield* extraction
+        .enqueue(run)
+        .pipe(
+          Effect.catch((error) => Effect.logWarning("Run was not queued for memory", { error })),
+        );
+    }
+    return run;
   });
 
   const turns = yield* activity.changes;
@@ -124,7 +231,7 @@ const make = Effect.gen(function* () {
     Effect.forkScoped,
   );
 
-  return QaRecorder.of({ browserOpened, finish });
+  return QaRecorder.of({ browserOpened, startVideo, stepPerformed, finish });
 });
 
 export const layer = Layer.effect(QaRecorder, make);

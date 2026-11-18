@@ -2919,7 +2919,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       executableName: "exploro",
       icon: "icons",
       category: "Development",
-      synopsis: "Desktop GUI for coding agents",
+      synopsis: "Agent harness for manual QA",
       maintainer: "Exploro <https://github.com/imavinashsingh/exploro>",
       protocols: [
         {
@@ -3923,10 +3923,10 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
     private: true,
     packageManager: rootPackageJson.packageManager,
     description:
-      "T3 Code is an open-source desktop app for coding agents. Work with your existing agent subscriptions, review code changes, and run commands in your projects. Connect from desktop, web, or mobile to continue working remotely.",
+      "Exploro is an open-source agent harness for manual QA engineers. Give it a website and a testing goal; an agent explores the site in a real browser while you watch, take over, and keep the evidence.",
     license: "MIT",
-    homepage: "https://t3.codes",
-    author: "T3 Tools",
+    homepage: "https://imavinashsingh.github.io/exploro",
+    author: "Exploro",
     main: "apps/desktop/dist-electron/boot.cjs",
     build: yield* createBuildConfig(
       options.platform,

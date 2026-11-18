@@ -1,7 +1,12 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import { type ChatAttachment, type ModelSelection, TextGenerationError } from "@t3tools/contracts";
+import {
+  type ChatAttachment,
+  type ModelSelection,
+  ProjectUnderstandingExtraction,
+  TextGenerationError,
+} from "@t3tools/contracts";
 import { formatGeneratedBranchName, sanitizeFeatureBranchName } from "@t3tools/shared/git";
 import { extractJsonObject } from "@t3tools/shared/schemaJson";
 
@@ -20,6 +25,7 @@ import {
 } from "./textGenerationUtils.ts";
 
 export const TranscriptionPostProcessingOutput = Schema.Struct({ transcription: Schema.String });
+export const LocatorHealOutput = Schema.Struct({ ref: Schema.NullOr(Schema.String) });
 
 export type Operation = keyof ProviderTextGeneration;
 
@@ -194,6 +200,29 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
     });
   });
 
+  const generateProjectUnderstanding: ProviderTextGeneration["generateProjectUnderstanding"] =
+    Effect.fn(`${name}.generateProjectUnderstanding`)(function* (input) {
+      return yield* run({
+        operation: "generateProjectUnderstanding",
+        cwd: input.cwd,
+        prompt: input.prompt,
+        outputSchema: ProjectUnderstandingExtraction,
+        modelSelection: input.modelSelection,
+      });
+    });
+
+  const generateLocatorHeal: ProviderTextGeneration["generateLocatorHeal"] = Effect.fn(
+    `${name}.generateLocatorHeal`,
+  )(function* (input) {
+    return yield* run({
+      operation: "generateLocatorHeal",
+      cwd: input.cwd,
+      prompt: input.prompt,
+      outputSchema: LocatorHealOutput,
+      modelSelection: input.modelSelection,
+    });
+  });
+
   return {
     generateCommitMessage,
     generatePrContent,
@@ -201,5 +230,7 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
     generateThreadTitle,
     generateReviewGuide,
     generateTranscriptionPostProcessing,
+    generateProjectUnderstanding,
+    generateLocatorHeal,
   } satisfies ProviderTextGeneration;
 }

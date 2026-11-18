@@ -6,6 +6,8 @@ node_modules
 *.tsbuildinfo
 apps/*/dist
 apps/*/dist-exe
+# Project memory's embedding model, fetched by `apps/server/scripts/cli.ts fetch-memory-model`.
+apps/server/memory-model/
 infra/*/dist
 .astro
 packages/*/dist
@@ -16,6 +18,7 @@ build/
 release/
 release-mock/
 .t3
+.exploro
 .idea/
 apps/web/.playwright
 apps/web/playwright-report
