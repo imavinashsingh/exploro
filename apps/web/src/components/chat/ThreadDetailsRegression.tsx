@@ -16,9 +16,11 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
+import { T, Var, msg, useGT, useMessages } from "gt-react";
 import { KeyRoundIcon, PlayIcon, RepeatIcon, SettingsIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 
+import { m, type MessageResolver } from "../../i18n/messages";
 import { cn } from "../../lib/utils";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
@@ -55,6 +57,7 @@ const reportFailure = (title: string, error: unknown) =>
 
 /** Queues replays of the suites and says where their verdicts appear. */
 export function useRunRegressionSuites(environmentId: EnvironmentId | null) {
+  const gt = useGT();
   const run = useAtomCommand(serverEnvironment.runQaSuite, {
     label: "run regression suites",
     reportFailure: false,
@@ -70,14 +73,16 @@ export function useRunRegressionSuites(environmentId: EnvironmentId | null) {
     });
     if (result._tag === "Failure") {
       if (!isAtomCommandInterrupted(result))
-        reportFailure("Could not run the suites", squashAtomCommandFailure(result));
+        reportFailure(gt("Could not run the suites"), squashAtomCommandFailure(result));
       return;
     }
     toastManager.add({
       type: "success",
       title:
-        suites.length === 1 ? `Replaying ${suites[0]!.name}` : `Replaying ${suites.length} suites`,
-      description: "Verdicts appear under Test run in each suite's thread.",
+        suites.length === 1
+          ? gt("Replaying {name}", { name: suites[0]!.name })
+          : gt("Replaying {count} suites", { count: suites.length }),
+      description: gt("Verdicts appear under Test run in each suite's thread."),
     });
   };
 }
@@ -88,6 +93,7 @@ export function SaveRunAsRegression(props: {
   readonly threadId: ThreadId;
   readonly run: QaRun;
 }) {
+  const gt = useGT();
   const canSave = useAtomValue(serverEnvironment.createQaSuite.permissionAtom(props.environmentId));
   const create = useAtomCommand(serverEnvironment.createQaSuite, {
     label: "save regression suite",
@@ -104,19 +110,22 @@ export function SaveRunAsRegression(props: {
     setSaving(false);
     if (result._tag === "Failure") {
       if (!isAtomCommandInterrupted(result))
-        reportFailure("Could not save a regression suite", squashAtomCommandFailure(result));
+        reportFailure(gt("Could not save a regression suite"), squashAtomCommandFailure(result));
       return;
     }
     const { suite, skipped } = result.value;
+    const replays = gt(
+      "{count, plural, one {{count} scenario replays without a model.} other {{count} scenarios replay without a model.}}",
+      { count: suite.scenarioCount },
+    );
+    const leftOut = skipped.map((skip) => `${skip.scenario} (${skip.reason})`).join("; ");
     toastManager.add({
       type: "success",
-      title: `Saved ${suite.name}`,
+      title: gt("Saved {name}", { name: suite.name }),
       description:
         skipped.length === 0
-          ? `${suite.scenarioCount} scenarios replay without a model.`
-          : `${suite.scenarioCount} scenarios replay without a model. Left out: ${skipped
-              .map((skip) => `${skip.scenario} (${skip.reason})`)
-              .join("; ")}`,
+          ? replays
+          : `${replays} ${gt("Left out: {scenarios}", { scenarios: leftOut })}`,
     });
   };
   return (
@@ -128,20 +137,22 @@ export function SaveRunAsRegression(props: {
       onClick={() => void save()}
     >
       <RepeatIcon aria-hidden />
-      {saving ? "Saving…" : "Save as regression"}
+      {saving ? gt("Saving…") : gt("Save as regression")}
     </ThreadDetailsControl>
   );
 }
 
-const jobLabel = (job: QaRegressionJob) =>
-  job.dataRow === null ? job.suiteName : `${job.suiteName} · row ${job.dataRow.index + 1}`;
+const jobLabel = (job: QaRegressionJob, resolve: MessageResolver = m) =>
+  job.dataRow === null
+    ? job.suiteName
+    : resolve(msg("{suite} · row {row}"), { suite: job.suiteName, row: job.dataRow.index + 1 });
 
-const jobResult = (job: QaRegressionJob) => {
-  if (job.status === "queued") return "Queued";
-  if (job.status === "running") return "Running";
-  if (job.status === "failed") return job.error ?? "Could not start";
+const jobResult = (job: QaRegressionJob, resolve: MessageResolver = m) => {
+  if (job.status === "queued") return resolve(msg("Queued"));
+  if (job.status === "running") return resolve(msg("Running", { $context: "replay status" }));
+  if (job.status === "failed") return job.error ?? resolve(msg("Could not start"));
   const counts = job.counts;
-  if (counts === null) return "Done";
+  if (counts === null) return resolve(msg("Done", { $context: "replay status" }));
   return [
     counts.pass > 0 ? `PASS ${counts.pass}` : null,
     counts.fail > 0 ? `FAIL ${counts.fail}` : null,
@@ -157,12 +168,15 @@ function BatchSummary(props: {
   readonly batch: QaRegressionBatch;
 }) {
   const navigate = useNavigate();
+  const messages = useMessages();
   return (
     <div
       className={cn("flex flex-col gap-0.5 pt-1.5 text-xs", THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS)}
     >
       <div className="text-2xs font-medium text-muted-foreground">
-        Last batch: {props.batch.label}
+        <T>
+          Last batch: <Var>{props.batch.label}</Var>
+        </T>
       </div>
       {props.batch.jobs.map((job) => (
         <button
@@ -176,7 +190,7 @@ function BatchSummary(props: {
             })
           }
         >
-          <span className="min-w-0 flex-1 truncate">{jobLabel(job)}</span>
+          <span className="min-w-0 flex-1 truncate">{jobLabel(job, messages)}</span>
           <span
             className={cn(
               "shrink-0 text-2xs",
@@ -185,7 +199,7 @@ function BatchSummary(props: {
                 : "text-muted-foreground",
             )}
           >
-            {jobResult(job)}
+            {jobResult(job, messages)}
           </span>
         </button>
       ))}
@@ -198,6 +212,7 @@ function ProposalRow(props: {
   readonly suite: QaSuiteSummary;
   readonly proposal: QaHealProposal;
 }) {
+  const gt = useGT();
   const resolve = useAtomCommand(serverEnvironment.resolveQaHealProposal, {
     label: "resolve healing proposal",
     reportFailure: false,
@@ -209,22 +224,29 @@ function ProposalRow(props: {
     });
     if (result._tag === "Failure") {
       if (!isAtomCommandInterrupted(result))
-        reportFailure("Could not apply the fix", squashAtomCommandFailure(result));
+        reportFailure(gt("Could not apply the fix"), squashAtomCommandFailure(result));
       return;
     }
     if (accept)
       toastManager.add({
         type: "success",
-        title: "Fix accepted",
-        description: "The suite is replaying with no AI to confirm it.",
+        title: gt("Fix accepted"),
+        description: gt("The suite is replaying with no AI to confirm it."),
       });
   };
   return (
     <div className="flex flex-col gap-1 rounded-md border border-border/65 p-1.5 text-2xs">
       <span>
-        Proposed fix for step {props.proposal.stepIndex + 1}:{" "}
-        <code className="break-all">{props.proposal.before.display}</code> →{" "}
-        <code className="break-all">{props.proposal.after.display}</code>
+        <T>
+          Proposed fix for step <Var>{props.proposal.stepIndex + 1}</Var>:{" "}
+          <code className="break-all">
+            <Var>{props.proposal.before.display}</Var>
+          </code>{" "}
+          →{" "}
+          <code className="break-all">
+            <Var>{props.proposal.after.display}</Var>
+          </code>
+        </T>
       </span>
       <span className="flex gap-1">
         <ThreadDetailsControl
@@ -233,7 +255,7 @@ function ProposalRow(props: {
           part="meta"
           onClick={() => void decide(true)}
         >
-          Accept and rerun
+          <T>Accept and rerun</T>
         </ThreadDetailsControl>
         <ThreadDetailsControl
           size="xs"
@@ -241,7 +263,7 @@ function ProposalRow(props: {
           part="meta"
           onClick={() => void decide(false)}
         >
-          Dismiss
+          <T>Dismiss</T>
         </ThreadDetailsControl>
       </span>
     </div>
@@ -254,6 +276,7 @@ export function ThreadDetailsRegression(props: {
   readonly threadId: ThreadId;
   readonly projectId: ProjectId | null;
 }) {
+  const gt = useGT();
   const suitesQuery = useEnvironmentQuery(
     serverEnvironment.qaSuitesLive({ environmentId: props.environmentId, input: {} }),
   );
@@ -303,9 +326,9 @@ export function ThreadDetailsRegression(props: {
   const statusOf = (suite: QaSuiteSummary) => {
     const jobs = activeJobs.filter((job) => job.suiteId === suite.suiteId);
     return jobs.some((job) => job.status === "running")
-      ? "Running"
+      ? gt("Running", { $context: "replay status" })
       : jobs.length > 0
-        ? "Queued"
+        ? gt("Queued")
         : null;
   };
   const picked = suites.filter((suite) => selected.has(suite.suiteId));
@@ -317,7 +340,7 @@ export function ThreadDetailsRegression(props: {
       input: { secretId: secret.secretId },
     });
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result))
-      reportFailure("Could not remove the saved password", squashAtomCommandFailure(result));
+      reportFailure(gt("Could not remove the saved password"), squashAtomCommandFailure(result));
   };
 
   const remove = async (suite: QaSuiteSummary) => {
@@ -327,7 +350,7 @@ export function ThreadDetailsRegression(props: {
       input: { suiteId: suite.suiteId },
     });
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result))
-      reportFailure("Could not delete the suite", squashAtomCommandFailure(result));
+      reportFailure(gt("Could not delete the suite"), squashAtomCommandFailure(result));
   };
   const openSettings = async (suite: QaSuiteSummary) => {
     const result = await getSuite({
@@ -336,7 +359,7 @@ export function ThreadDetailsRegression(props: {
     });
     if (result._tag === "Failure") {
       if (!isAtomCommandInterrupted(result))
-        reportFailure("Could not open the suite", squashAtomCommandFailure(result));
+        reportFailure(gt("Could not open the suite"), squashAtomCommandFailure(result));
       return;
     }
     setEditing(result.value);
@@ -349,7 +372,10 @@ export function ThreadDetailsRegression(props: {
   };
 
   return (
-    <ThreadDetailsSection headingId="thread-details-regression-heading" title="Regression suites">
+    <ThreadDetailsSection
+      headingId="thread-details-regression-heading"
+      title={gt("Regression suites")}
+    >
       <div className="flex flex-col">
         {canRun && suites.length > 0 ? (
           <div className="flex flex-wrap gap-1 px-1.5 pb-1">
@@ -358,11 +384,14 @@ export function ThreadDetailsRegression(props: {
               variant="ghost"
               part="meta"
               onClick={() =>
-                void runSuites(suites, props.projectId === null ? "All suites" : "All in project")
+                void runSuites(
+                  suites,
+                  props.projectId === null ? gt("All suites") : gt("All in project"),
+                )
               }
             >
               <PlayIcon aria-hidden />
-              {props.projectId === null ? "Run all" : "Run all in project"}
+              {props.projectId === null ? gt("Run all") : gt("Run all in project")}
             </ThreadDetailsControl>
             {picked.length > 0 ? (
               <ThreadDetailsControl
@@ -370,11 +399,13 @@ export function ThreadDetailsRegression(props: {
                 variant="ghost"
                 part="meta"
                 onClick={() => {
-                  void runSuites(picked, `${picked.length} selected`);
+                  void runSuites(picked, gt("{count} selected", { count: picked.length }));
                   setSelected(new Set());
                 }}
               >
-                Run selected ({picked.length})
+                <T>
+                  Run selected (<Var>{picked.length}</Var>)
+                </T>
               </ThreadDetailsControl>
             ) : null}
           </div>
@@ -391,7 +422,7 @@ export function ThreadDetailsRegression(props: {
                   <Checkbox
                     checked={selected.has(suite.suiteId)}
                     onCheckedChange={(on) => toggle(suite.suiteId, on === true)}
-                    aria-label={`Select ${suite.name}`}
+                    aria-label={gt("Select {name}", { name: suite.name })}
                   />
                 ) : (
                   <RepeatIcon className={THREAD_DETAILS_PANEL_ICON_CLASS} aria-hidden />
@@ -399,9 +430,14 @@ export function ThreadDetailsRegression(props: {
                 <span className="flex min-w-0 flex-1 flex-col">
                   <span className="truncate">{suite.name}</span>
                   <span className="text-2xs text-muted-foreground">
-                    {suite.scenarioCount} scenarios · {suite.stepCount} steps
-                    {suite.dataRowCount > 0 ? ` · ${suite.dataRowCount} rows` : ""}
-                    {suite.healingEnabled ? " · healing on" : ""}
+                    {gt("{scenarios} scenarios · {steps} steps", {
+                      scenarios: suite.scenarioCount,
+                      steps: suite.stepCount,
+                    })}
+                    {suite.dataRowCount > 0
+                      ? ` · ${gt("{count} rows", { count: suite.dataRowCount })}`
+                      : ""}
+                    {suite.healingEnabled ? ` · ${gt("healing on")}` : ""}
                   </span>
                 </span>
                 {status === null ? null : (
@@ -417,7 +453,7 @@ export function ThreadDetailsRegression(props: {
                     onClick={() => void runSuites([suite])}
                   >
                     <PlayIcon aria-hidden />
-                    Run
+                    <T>Run</T>
                   </ThreadDetailsControl>
                 ) : null}
                 {canEdit ? (
@@ -425,7 +461,7 @@ export function ThreadDetailsRegression(props: {
                     size="xs"
                     variant="ghost"
                     part="meta"
-                    aria-label={`Settings for ${suite.name}`}
+                    aria-label={gt("Settings for {name}", { name: suite.name })}
                     onClick={() => void openSettings(suite)}
                   >
                     <SettingsIcon aria-hidden />
@@ -436,7 +472,7 @@ export function ThreadDetailsRegression(props: {
                     size="xs"
                     variant="ghost"
                     part="meta"
-                    aria-label={`Delete ${suite.name}`}
+                    aria-label={gt("Delete {name}", { name: suite.name })}
                     onClick={() => setConfirmDelete(suite)}
                   >
                     <Trash2Icon aria-hidden />
@@ -468,7 +504,9 @@ export function ThreadDetailsRegression(props: {
             <span className="flex min-w-0 flex-1 flex-col">
               <span className="truncate">{secret.label}</span>
               <span className="truncate text-2xs text-muted-foreground">
-                Saved password{secret.site === null ? "" : ` · ${new URL(secret.site).host}`}
+                {secret.site === null
+                  ? gt("Saved password")
+                  : gt("Saved password · {host}", { host: new URL(secret.site).host })}
               </span>
             </span>
             {canForget ? (
@@ -476,7 +514,7 @@ export function ThreadDetailsRegression(props: {
                 size="xs"
                 variant="ghost"
                 part="meta"
-                aria-label={`Remove saved password ${secret.label}`}
+                aria-label={gt("Remove saved password {label}", { label: secret.label })}
                 onClick={() => setConfirmForget(secret)}
               >
                 <Trash2Icon aria-hidden />
@@ -503,18 +541,24 @@ export function ThreadDetailsRegression(props: {
       >
         <AlertDialogPopup>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove this saved password?</AlertDialogTitle>
+            <AlertDialogTitle>
+              <T>Remove this saved password?</T>
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Regression suites that sign in with it stop at that step until you save it again.
+              <T>
+                Regression suites that sign in with it stop at that step until you save it again.
+              </T>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
+            <AlertDialogClose render={<Button variant="outline" />}>
+              <T>Cancel</T>
+            </AlertDialogClose>
             <Button
               variant="destructive"
               onClick={() => confirmForget && void forget(confirmForget)}
             >
-              Remove
+              <T>Remove</T>
             </Button>
           </AlertDialogFooter>
         </AlertDialogPopup>
@@ -527,19 +571,25 @@ export function ThreadDetailsRegression(props: {
       >
         <AlertDialogPopup>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete this regression suite?</AlertDialogTitle>
+            <AlertDialogTitle>
+              <T>Delete this regression suite?</T>
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Its saved steps, checks and baselines are removed. Runs it already made stay under
-              Test run.
+              <T>
+                Its saved steps, checks and baselines are removed. Runs it already made stay under
+                Test run.
+              </T>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
+            <AlertDialogClose render={<Button variant="outline" />}>
+              <T>Cancel</T>
+            </AlertDialogClose>
             <Button
               variant="destructive"
               onClick={() => confirmDelete && void remove(confirmDelete)}
             >
-              Delete
+              <T>Delete</T>
             </Button>
           </AlertDialogFooter>
         </AlertDialogPopup>

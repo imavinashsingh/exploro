@@ -10,6 +10,7 @@ import type {
   QaSuite,
   QaSuiteId,
 } from "@t3tools/contracts";
+import { T, Var, useGT, useMessages } from "gt-react";
 import { useState } from "react";
 
 import { getTextGenerationModelOptionsByInstance } from "../../modelSelection";
@@ -44,6 +45,7 @@ function HealingModel(props: {
   readonly selection: ModelSelection | null;
   readonly onChange: (selection: ModelSelection) => void;
 }) {
+  const gt = useGT();
   const settings = useEnvironmentSettings(props.environmentId);
   const providers = useEnvironmentProviders().get(props.environmentId) ?? EMPTY_PROVIDERS;
   const targets = useTextGenerationTargets({
@@ -56,7 +58,7 @@ function HealingModel(props: {
   if (props.selection === null)
     return (
       <p className="m-0 text-xs text-muted-foreground">
-        This suite was saved before its model was recorded. Choose one to heal with.
+        <T>This suite was saved before its model was recorded. Choose one to heal with.</T>
       </p>
     );
   const available = targets.entries.some(
@@ -82,7 +84,9 @@ function HealingModel(props: {
         }
       />
       {available ? null : (
-        <p className="m-0 text-xs text-warning-foreground">Not available with this provider.</p>
+        <p className="m-0 text-xs text-warning-foreground">
+          {gt("Not available with this provider.")}
+        </p>
       )}
     </div>
   );
@@ -94,12 +98,14 @@ export function RegressionSuiteSettingsDialog(props: {
   readonly suite: QaSuite;
   readonly onClose: () => void;
 }) {
+  const gt = useGT();
+  const messages = useMessages();
   const { suite } = props;
   const update = useAtomCommand(serverEnvironment.updateQaSuite, {
     label: "update regression suite",
     reportFailure: false,
   });
-  const texts = editableTexts(suite);
+  const texts = editableTexts(suite, messages);
   const [name, setName] = useState(suite.name);
   const [thresholdPercent, setThresholdPercent] = useState(String(suite.visual.threshold * 100));
   const [masks, setMasks] = useState(suite.visual.masks.join("\n"));
@@ -115,8 +121,8 @@ export function RegressionSuiteSettingsDialog(props: {
   const save = async () => {
     const threshold = Number(thresholdPercent) / 100;
     if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1)
-      return setError("The allowed difference is a percentage from 0 to 100.");
-    const dataSet = dataSetFromCsv(csv);
+      return setError(gt("The allowed difference is a percentage from 0 to 100."));
+    const dataSet = dataSetFromCsv(csv, messages);
     if ("error" in dataSet) return setError(dataSet.error);
     setSaving(true);
     const result = await update({
@@ -144,11 +150,11 @@ export function RegressionSuiteSettingsDialog(props: {
     if (result._tag === "Failure") {
       if (!isAtomCommandInterrupted(result)) {
         const failure = squashAtomCommandFailure(result);
-        setError(failure instanceof Error ? failure.message : "Could not save the suite.");
+        setError(failure instanceof Error ? failure.message : gt("Could not save the suite."));
       }
       return;
     }
-    toastManager.add({ type: "success", title: `Saved ${result.value.name}` });
+    toastManager.add({ type: "success", title: gt("Saved {name}", { name: result.value.name }) });
     props.onClose();
   };
 
@@ -161,23 +167,29 @@ export function RegressionSuiteSettingsDialog(props: {
     <Dialog open onOpenChange={(open) => (open ? undefined : props.onClose())}>
       <DialogPopup className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>Suite settings</DialogTitle>
+          <DialogTitle>
+            <T>Suite settings</T>
+          </DialogTitle>
           <DialogDescription>
-            Steps and checks keep their order and targets; only their text can change.
+            <T>Steps and checks keep their order and targets; only their text can change.</T>
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
           <div className="flex flex-col gap-4">
             <label className="grid gap-1.5">
-              <span className="text-xs font-medium">Name</span>
+              <span className="text-xs font-medium">
+                <T>Name</T>
+              </span>
               <Input value={name} onChange={(event) => setName(event.target.value)} />
             </label>
 
             <section className="grid gap-1.5">
-              <span className="text-xs font-medium">Visual check</span>
+              <span className="text-xs font-medium">
+                <T>Visual check</T>
+              </span>
               <label className="grid gap-1">
                 <span className="text-xs text-muted-foreground">
-                  Allowed difference from the baseline, in percent of pixels
+                  <T>Allowed difference from the baseline, in percent of pixels</T>
                 </span>
                 <Input
                   inputMode="decimal"
@@ -187,7 +199,7 @@ export function RegressionSuiteSettingsDialog(props: {
               </label>
               <label className="grid gap-1">
                 <span className="text-xs text-muted-foreground">
-                  Masks: selectors for content that changes every run, one per line
+                  <T>Masks: selectors for content that changes every run, one per line</T>
                 </span>
                 <Textarea
                   rows={2}
@@ -199,19 +211,27 @@ export function RegressionSuiteSettingsDialog(props: {
             </section>
 
             <section className="grid gap-1.5">
-              <span className="text-xs font-medium">Data set</span>
+              <span className="text-xs font-medium">
+                <T>Data set</T>
+              </span>
               <span className="text-xs text-muted-foreground">
-                CSV. The first row names parameters; each later row is one replay. Use them as{" "}
-                <code>{"{{param:name}}"}</code> in the texts below.
+                <T>
+                  CSV. The first row names parameters; each later row is one replay. Use them as{" "}
+                  <code>
+                    <Var>{"{{param:name}}"}</Var>
+                  </code>{" "}
+                  in the texts below.
+                </T>
               </span>
               <Textarea
                 rows={4}
+                // oxlint-disable-next-line t3code/no-untranslated-copy -- sample CSV data, not copy
                 placeholder={"name,email\nann,ann@shop.test"}
                 value={csv}
                 onChange={(event) => setCsv(event.target.value)}
               />
               <label className="text-xs text-muted-foreground">
-                Import CSV{" "}
+                <T>Import CSV</T>{" "}
                 <input
                   type="file"
                   accept=".csv,text/csv"
@@ -222,7 +242,9 @@ export function RegressionSuiteSettingsDialog(props: {
 
             {texts.length > 0 ? (
               <section className="grid gap-1.5">
-                <span className="text-xs font-medium">Texts</span>
+                <span className="text-xs font-medium">
+                  <T>Texts</T>
+                </span>
                 {texts.map((text) => (
                   <label key={text.key} className="grid gap-1">
                     <span className="truncate text-xs text-muted-foreground">{text.label}</span>
@@ -239,12 +261,20 @@ export function RegressionSuiteSettingsDialog(props: {
 
             <section className="grid gap-1.5">
               <label className="flex items-center justify-between gap-2">
-                <span className="text-xs font-medium">Self-healing</span>
-                <Switch checked={healing} onCheckedChange={setHealing} aria-label="Self-healing" />
+                <span className="text-xs font-medium">
+                  <T>Self-healing</T>
+                </span>
+                <Switch
+                  checked={healing}
+                  onCheckedChange={setHealing}
+                  aria-label={gt("Self-healing")}
+                />
               </label>
               <span className="text-xs text-muted-foreground">
-                When an element is gone, a short call to this model proposes a new one. You accept
-                or dismiss it; it never adds steps, changes checks or passes a scenario.
+                <T>
+                  When an element is gone, a short call to this model proposes a new one. You accept
+                  or dismiss it; it never adds steps, changes checks or passes a scenario.
+                </T>
               </span>
               {healing ? (
                 <HealingModel
@@ -261,10 +291,10 @@ export function RegressionSuiteSettingsDialog(props: {
         </DialogPanel>
         <DialogFooter>
           <Button type="button" variant="outline" size="sm" onClick={props.onClose}>
-            Cancel
+            <T>Cancel</T>
           </Button>
           <Button type="button" size="sm" disabled={saving} onClick={() => void save()}>
-            {saving ? "Saving…" : "Save"}
+            {saving ? gt("Saving…") : gt("Save")}
           </Button>
         </DialogFooter>
       </DialogPopup>

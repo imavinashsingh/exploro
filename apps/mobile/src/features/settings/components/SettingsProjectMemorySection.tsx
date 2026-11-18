@@ -7,6 +7,7 @@ import {
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { useAtomValue } from "@effect/atom-react";
+import { T, useGT, useMessages } from "gt-react-native";
 import { View } from "react-native";
 
 import { AppText as Text } from "../../../components/ui/AppText";
@@ -20,6 +21,8 @@ const NOTHING_COLLAPSED: ReadonlySet<string> = new Set();
 
 /** Exploro: what QA runs in this project remember. Read-only; manage it on web or desktop. */
 export function SettingsProjectMemorySection(props: { readonly project: EnvironmentProject }) {
+  const gt = useGT();
+  const messages = useMessages();
   const { environmentId, id: projectId } = props.project;
   const config = useAtomValue(serverEnvironment.configValueAtom(environmentId));
   const enabled =
@@ -33,10 +36,13 @@ export function SettingsProjectMemorySection(props: { readonly project: Environm
   const rows = map.data === null ? [] : mapRows(map.data, NOTHING_COLLAPSED);
   const data = snapshot.data;
   const facts = data?.facts.filter((fact) => fact.status === "current") ?? [];
-  const status = snapshot.error ?? memoryStatusLine(data?.status ?? null, enabled).text;
+  const status = snapshot.error ?? memoryStatusLine(data?.status ?? null, enabled, messages).text;
 
   return (
-    <SettingsSection title="Memory" footer="Edit or delete memory on web or desktop.">
+    <SettingsSection
+      title={gt("Memory", { $context: "settings section: what test runs remember" })}
+      footer={gt("Edit or delete memory on web or desktop.")}
+    >
       <View className="gap-1 p-4">
         <Text className="text-sm text-foreground-muted">{status}</Text>
       </View>
@@ -45,11 +51,11 @@ export function SettingsProjectMemorySection(props: { readonly project: Environm
           {rows.slice(0, MAP_ROWS).map((row) => (
             <View key={row.key} style={{ paddingLeft: row.depth * 12 }}>
               <Text className="text-sm text-foreground" numberOfLines={1}>
-                {row.kind === "more" ? `+${row.count} more` : row.label}
+                {row.kind === "more" ? gt("+{count} more", { count: row.count }) : row.label}
                 {row.kind === "node" && row.page !== null ? (
                   <Text className="text-xs text-foreground-muted">
                     {"  "}
-                    {mapCoverageLabel(row.page)}
+                    {mapCoverageLabel(row.page, messages)}
                   </Text>
                 ) : null}
               </Text>
@@ -57,7 +63,7 @@ export function SettingsProjectMemorySection(props: { readonly project: Environm
           ))}
           {rows.length > MAP_ROWS ? (
             <Text className="text-xs text-foreground-muted">
-              +{rows.length - MAP_ROWS} more pages on web or desktop.
+              {gt("+{count} more pages on web or desktop.", { count: rows.length - MAP_ROWS })}
             </Text>
           ) : null}
         </View>
@@ -84,7 +90,7 @@ export function SettingsProjectMemorySection(props: { readonly project: Environm
       {data !== null && facts.length === 0 && data.understanding.length === 0 ? (
         <View className="border-t border-border-subtle px-4 py-3">
           <Text className="text-sm text-foreground-muted">
-            Nothing yet. Finished test runs in this project add to it.
+            <T>Nothing yet. Finished test runs in this project add to it.</T>
           </Text>
         </View>
       ) : null}

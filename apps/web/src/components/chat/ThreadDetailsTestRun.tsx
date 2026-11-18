@@ -21,6 +21,7 @@ import {
   HistoryIcon,
   Trash2Icon,
 } from "lucide-react";
+import { T, Var, useGT } from "gt-react";
 import { useState } from "react";
 
 import { useAssetUrlState } from "../../assets/assetUrls";
@@ -80,7 +81,12 @@ const reportFailure = (title: string, error: unknown) =>
 
 function VerdictSummary(props: { readonly run: QaRun }) {
   const summary = verdictSummary(props.run);
-  if (summary.length === 0) return <span className="text-muted-foreground">No verdicts yet</span>;
+  if (summary.length === 0)
+    return (
+      <span className="text-muted-foreground">
+        <T>No verdicts yet</T>
+      </span>
+    );
   return (
     <span className="flex flex-wrap gap-1">
       {summary.map(({ verdict, count }) => (
@@ -98,6 +104,7 @@ function EvidenceImage(props: {
   readonly path: string;
   readonly alt: string;
 }) {
+  const gt = useGT();
   const asset = useAssetUrlState(props.environmentId, {
     _tag: "media-file",
     threadId: props.threadRef.threadId,
@@ -109,7 +116,7 @@ function EvidenceImage(props: {
       type="button"
       className="block w-full overflow-hidden rounded-md border border-border/65"
       onClick={() => useRightPanelStore.getState().openFile(props.threadRef, props.path)}
-      aria-label={`Open screenshot: ${props.alt}`}
+      aria-label={gt("Open screenshot: {name}", { name: props.alt })}
     >
       {url ? (
         <img src={url} alt={props.alt} className="block w-full" loading="lazy" />
@@ -153,6 +160,7 @@ function VisualEvidence(props: {
   readonly scenario: QaScenario;
   readonly visual: NonNullable<QaScenario["visual"]>;
 }) {
+  const gt = useGT();
   const { visual } = props;
   const canAccept = useAtomValue(
     serverEnvironment.acceptQaBaseline.permissionAtom(props.environmentId),
@@ -163,9 +171,9 @@ function VisualEvidence(props: {
   const [accepted, setAccepted] = useState(false);
   const differs = visual.diffRatio !== null && visual.diffRatio > visual.threshold;
   const images = [
-    ["Baseline", visual.baselinePath],
-    ["Replay", visual.capturePath],
-    ["Difference", visual.diffPath],
+    [gt("Baseline"), visual.baselinePath],
+    [gt("Replay", { $context: "noun, a regression replay capture" }), visual.capturePath],
+    [gt("Difference"), visual.diffPath],
   ].filter((image): image is [string, string] => image[1] !== null);
   const acceptBaseline = async () => {
     if (props.run.suiteId === null) return;
@@ -184,8 +192,11 @@ function VisualEvidence(props: {
     <div className="flex flex-col gap-1">
       <span className="text-muted-foreground">
         {visual.diffRatio === null
-          ? "Visual: no baseline yet; this capture is now the baseline."
-          : `Visual: ${percent(visual.diffRatio)} of pixels differ (allowed ${percent(visual.threshold)}).`}
+          ? gt("Visual: no baseline yet; this capture is now the baseline.")
+          : gt("Visual: {diff} of pixels differ (allowed {threshold}).", {
+              diff: percent(visual.diffRatio),
+              threshold: percent(visual.threshold),
+            })}
       </span>
       {visual.diffRatio === null ? null : (
         <div className="grid grid-cols-3 gap-1">
@@ -210,7 +221,7 @@ function VisualEvidence(props: {
           disabled={accepted}
           onClick={() => void acceptBaseline()}
         >
-          {accepted ? "Accepted as new baseline" : "Accept as new baseline"}
+          {accepted ? gt("Accepted as new baseline") : gt("Accept as new baseline")}
         </ThreadDetailsControl>
       ) : null}
     </div>
@@ -223,12 +234,17 @@ function ScenarioEvidence(props: {
   readonly run: QaRun;
   readonly scenario: QaScenario;
 }) {
+  const gt = useGT();
   const { scenario } = props;
   const facts = [
-    scenario.severity ? ["Severity", scenario.severity] : null,
-    scenario.expected ? ["Expected", scenario.expected] : null,
-    scenario.actual ? ["Actual", scenario.actual] : null,
-    scenario.pageUrl ? ["Page", scenario.pageUrl] : null,
+    scenario.severity ? [gt("Severity"), scenario.severity] : null,
+    scenario.expected
+      ? [gt("Expected", { $context: "expected result of a test" }), scenario.expected]
+      : null,
+    scenario.actual
+      ? [gt("Actual", { $context: "actual result of a test" }), scenario.actual]
+      : null,
+    scenario.pageUrl ? [gt("Page", { $context: "web page" }), scenario.pageUrl] : null,
   ].filter((fact): fact is [string, string] => fact !== null);
   // Steps and requests can repeat, so their position is part of their identity.
   const steps = scenario.steps.map((step, position) => ({ id: `${position}:${step}`, step }));
@@ -254,7 +270,9 @@ function ScenarioEvidence(props: {
       ) : null}
       {scenario.steps.length > 0 ? (
         <div>
-          <div className="mb-0.5 text-muted-foreground">Steps to reproduce</div>
+          <div className="mb-0.5 text-muted-foreground">
+            <T>Steps to reproduce</T>
+          </div>
           <ol className="m-0 list-decimal ps-4">
             {steps.map(({ id, step }) => (
               <li key={id}>{step}</li>
@@ -270,7 +288,9 @@ function ScenarioEvidence(props: {
           alt={scenario.scenario}
         />
       ) : (
-        <p className="m-0 text-muted-foreground">No screenshot</p>
+        <p className="m-0 text-muted-foreground">
+          <T>No screenshot</T>
+        </p>
       )}
       {scenario.visual ? (
         <VisualEvidence
@@ -284,7 +304,9 @@ function ScenarioEvidence(props: {
       {props.run.video && scenario.videoOffsetMs !== null ? (
         <div className="flex flex-col gap-1">
           <span className="text-muted-foreground">
-            Video at {formatVideoOffset(scenario.videoOffsetMs)}
+            <T>
+              Video at <Var>{formatVideoOffset(scenario.videoOffsetMs)}</Var>
+            </T>
           </span>
           <EvidenceVideo
             environmentId={props.environmentId}
@@ -295,7 +317,11 @@ function ScenarioEvidence(props: {
         </div>
       ) : null}
       <div>
-        <div className="text-muted-foreground">Console errors: {scenario.consoleErrorCount}</div>
+        <div className="text-muted-foreground">
+          <T>
+            Console errors: <Var>{scenario.consoleErrorCount}</Var>
+          </T>
+        </div>
         {scenario.consoleErrors.length > 0 ? (
           <pre className="m-0 mt-0.5 max-h-32 overflow-auto rounded-md bg-muted/40 p-1.5 font-mono text-2xs whitespace-pre-wrap break-words">
             {scenario.consoleErrors.join("\n")}
@@ -303,7 +329,11 @@ function ScenarioEvidence(props: {
         ) : null}
       </div>
       <div>
-        <div className="text-muted-foreground">Failed requests: {scenario.failedRequestCount}</div>
+        <div className="text-muted-foreground">
+          <T>
+            Failed requests: <Var>{scenario.failedRequestCount}</Var>
+          </T>
+        </div>
         {scenario.failedRequests.length > 0 ? (
           <ul className="m-0 mt-0.5 list-none p-0 font-mono text-2xs">
             {requests.map(({ id, request }) => (
@@ -324,7 +354,7 @@ function ScenarioEvidence(props: {
               useRightPanelStore.getState().openFile(props.threadRef, scenario.consolePath!)
             }
           >
-            Console log
+            <T>Console log</T>
           </ThreadDetailsControl>
           {scenario.networkPath ? (
             <ThreadDetailsControl
@@ -335,7 +365,7 @@ function ScenarioEvidence(props: {
                 useRightPanelStore.getState().openFile(props.threadRef, scenario.networkPath!)
               }
             >
-              Network log
+              <T>Network log</T>
             </ThreadDetailsControl>
           ) : null}
         </div>
@@ -346,6 +376,7 @@ function ScenarioEvidence(props: {
 
 /** The run's verdicts and evidence, with the reports and earlier runs of this thread. */
 export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
+  const gt = useGT();
   const threadRef = scopeThreadRef(props.environmentId, props.threadId);
   const runsQuery = useEnvironmentQuery(
     serverEnvironment.qaRunsLive({
@@ -383,12 +414,12 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
       if (result._tag !== "Failure") {
         toastManager.add({
           type: "success",
-          title: "Test saved to memory",
-          description: "Review learning status in the project’s Memory settings.",
+          title: gt("Test saved to memory"),
+          description: gt("Review learning status in the project’s Memory settings."),
         });
       }
     } catch (error) {
-      reportFailure("Could not save the test to memory", error);
+      reportFailure(gt("Could not save the test to memory"), error);
     }
     setSavingMemory(false);
   };
@@ -412,7 +443,7 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
       input: { cwd: dir, editor: "file-manager" },
     });
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-      reportFailure("Could not open the evidence folder", squashAtomCommandFailure(result));
+      reportFailure(gt("Could not open the evidence folder"), squashAtomCommandFailure(result));
     }
   };
 
@@ -423,7 +454,7 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
       input: { threadId: props.threadId, runId: target.runId },
     });
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-      reportFailure("Could not delete the run", squashAtomCommandFailure(result));
+      reportFailure(gt("Could not delete the run"), squashAtomCommandFailure(result));
     } else if (target.runId === selectedRunId) {
       setSelectedRunId(null);
     }
@@ -432,7 +463,7 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
   return (
     <ThreadDetailsSection
       headingId="thread-details-test-run-heading"
-      title="Test run"
+      title={gt("Test run")}
       data-thread-test-run-panel
     >
       <div className="flex flex-col">
@@ -453,12 +484,17 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
               THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS,
             )}
           >
-            Initial memory brief: ~
-            {runsQuery.data.memoryBriefUsage.estimatedTokens.toLocaleString()} tokens
             {props.contextMaxTokens && props.contextMaxTokens > 0
-              ? ` (${((100 * runsQuery.data.memoryBriefUsage.estimatedTokens) / props.contextMaxTokens).toFixed(1)}% of context)`
-              : " (estimated)"}
-            .
+              ? gt("Initial memory brief: ~{tokens} tokens ({share}% of context).", {
+                  tokens: runsQuery.data.memoryBriefUsage.estimatedTokens.toLocaleString(),
+                  share: (
+                    (100 * runsQuery.data.memoryBriefUsage.estimatedTokens) /
+                    props.contextMaxTokens
+                  ).toFixed(1),
+                })
+              : gt("Initial memory brief: ~{tokens} tokens (estimated).", {
+                  tokens: runsQuery.data.memoryBriefUsage.estimatedTokens.toLocaleString(),
+                })}
           </p>
         ) : null}
         {(props.memoryEnabled || props.scratchProject) &&
@@ -473,10 +509,10 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
               onClick={() => void saveThread()}
             >
               {savingMemory
-                ? "Saving…"
+                ? gt("Saving…")
                 : props.scratchProject
-                  ? "Create project and save to memory"
-                  : "Save test to memory"}
+                  ? gt("Create project and save to memory")
+                  : gt("Save test to memory")}
             </ThreadDetailsControl>
           </div>
         ) : null}
@@ -484,7 +520,7 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
           <div className={cn(THREAD_DETAILS_PANEL_LOCKED_ROW_CLASS, "flex items-center")}>
             <ClipboardCheckIcon className={THREAD_DETAILS_PANEL_ICON_CLASS} aria-hidden />
             <span className="truncate text-muted-foreground">
-              {runsQuery.error ?? "No verdicts yet"}
+              {runsQuery.error ?? gt("No verdicts yet")}
             </span>
           </div>
         ) : (
@@ -498,13 +534,15 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
               <VerdictSummary run={run} />
               {run.kind === "regression" ? (
                 <Badge size="sm" variant="outline">
-                  Regression
+                  <T>Regression</T>
                 </Badge>
               ) : null}
               {run.dataRow === null ? null : (
                 <>
                   <Badge size="sm" variant="outline">
-                    Row {run.dataRow.index + 1}
+                    <T>
+                      Row <Var>{run.dataRow.index + 1}</Var>
+                    </T>
                   </Badge>
                   <span className="min-w-0 truncate text-2xs text-muted-foreground">
                     {Object.entries(run.dataRow.values)
@@ -514,7 +552,9 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
                 </>
               )}
               <span className="text-2xs text-muted-foreground">
-                {run.finishedAt === null ? "Running" : runStartedLabel(run)}
+                {run.finishedAt === null
+                  ? gt("Running", { $context: "test run status" })
+                  : runStartedLabel(run)}
               </span>
             </div>
 
@@ -557,7 +597,9 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
             {bugs.length > 0 ? (
               <div className={cn("pt-1.5 text-xs", THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS)}>
                 <div className="mb-0.5 text-2xs font-medium text-muted-foreground">
-                  Bugs ({bugs.length})
+                  <T>
+                    Bugs (<Var>{bugs.length}</Var>)
+                  </T>
                 </div>
                 <ul className="m-0 list-none p-0">
                   {bugs.map((bug) => (
@@ -583,7 +625,9 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
                   THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS,
                 )}
               >
-                Video unavailable: {run.videoUnavailableReason}
+                <T>
+                  Video unavailable: <Var>{run.videoUnavailableReason}</Var>
+                </T>
               </p>
             ) : null}
 
@@ -598,7 +642,7 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
                   }
                 >
                   <FileTextIcon aria-hidden />
-                  Open report
+                  <T>Open report</T>
                 </ThreadDetailsControl>
               ) : null}
               {run.reportMarkdownPath ? (
@@ -621,7 +665,7 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
                   onClick={() => void openFolder(run.dir)}
                 >
                   <FolderOpenIcon aria-hidden />
-                  Evidence folder
+                  <T>Evidence folder</T>
                 </ThreadDetailsControl>
               ) : null}
               <SaveRunAsRegression
@@ -637,7 +681,7 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
                   onClick={() => setConfirmDelete(run)}
                 >
                   <Trash2Icon aria-hidden />
-                  Delete
+                  <T>Delete</T>
                 </ThreadDetailsControl>
               ) : null}
             </div>
@@ -652,7 +696,11 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
                   onClick={() => setShowHistory(!showHistory)}
                 >
                   <HistoryIcon aria-hidden className={THREAD_DETAILS_PANEL_ICON_CLASS} />
-                  <span className="flex-1 truncate">Earlier runs ({earlierRuns.length})</span>
+                  <span className="flex-1 truncate">
+                    <T>
+                      Earlier runs (<Var>{earlierRuns.length}</Var>)
+                    </T>
+                  </span>
                 </ThreadDetailsControl>
                 {showHistory
                   ? earlierRuns.map((earlier) => (
@@ -688,18 +736,25 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
       >
         <AlertDialogPopup>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete this run's evidence?</AlertDialogTitle>
+            <AlertDialogTitle>
+              <T>Delete this run's evidence?</T>
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Its screenshots, video, logs and reports are removed from disk. This cannot be undone.
+              <T>
+                Its screenshots, video, logs and reports are removed from disk. This cannot be
+                undone.
+              </T>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
+            <AlertDialogClose render={<Button variant="outline" />}>
+              <T>Cancel</T>
+            </AlertDialogClose>
             <Button
               variant="destructive"
               onClick={() => confirmDelete && void removeRun(confirmDelete)}
             >
-              Delete
+              <T>Delete</T>
             </Button>
           </AlertDialogFooter>
         </AlertDialogPopup>

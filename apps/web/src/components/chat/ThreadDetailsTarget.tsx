@@ -11,6 +11,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { GlobeIcon, RotateCcwIcon } from "lucide-react";
+import { T, useGT } from "gt-react";
 
 import { openUrlInPreview } from "../../browser/openFileInPreview";
 import { browserMiniPlayerSource, usePreviewMiniPlayerStore } from "../../previewMiniPlayerStore";
@@ -64,6 +65,7 @@ function focusBrowserTab(threadRef: ScopedThreadRef, tabId: string): void {
 
 /** The site under test: the URL of the thread's browser tab. */
 export function ThreadDetailsTarget(props: ThreadDetailsTargetProps) {
+  const gt = useGT();
   const threadRef = scopeThreadRef(props.environmentId, props.threadId);
   const atom = previewStateAtom(scopedThreadKey(threadRef));
   const session = useAtomValue(atom, selectTargetSession);
@@ -78,7 +80,7 @@ export function ThreadDetailsTarget(props: ThreadDetailsTargetProps) {
       toastManager.add(
         stackedThreadToast({
           type: "error",
-          title: "Unable to reopen site",
+          title: gt("Unable to reopen site"),
           description: error instanceof Error ? error.message : String(error),
         }),
       );
@@ -89,12 +91,15 @@ export function ThreadDetailsTarget(props: ThreadDetailsTargetProps) {
   const url = sessionUrl ?? closedUrl;
 
   return (
-    <ThreadDetailsSection headingId="thread-details-target-heading" title="Target">
+    <ThreadDetailsSection
+      headingId="thread-details-target-heading"
+      title={gt("Target", { $context: "thread details item: site under test" })}
+    >
       {url === null && session === null ? (
         <p
           className={`m-0 py-1.5 text-xs text-muted-foreground ${THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS}`}
         >
-          No site opened yet
+          <T>No site opened yet</T>
         </p>
       ) : (
         <Tooltip>
@@ -121,15 +126,15 @@ export function ThreadDetailsTarget(props: ThreadDetailsTargetProps) {
             )}
             <span className="flex min-w-0 flex-1 flex-col gap-0.5">
               <span className="truncate text-sm font-medium leading-4 text-foreground/85">
-                {url === null ? "New tab" : urlLabel(url)}
+                {url === null ? gt("New tab") : urlLabel(url)}
               </span>
               <span className="truncate text-2xs font-normal leading-4 text-muted-foreground">
-                {session ? "Browser tab open" : "Tab closed · reopen"}
+                {session ? gt("Browser tab open") : gt("Tab closed · reopen")}
               </span>
             </span>
           </TooltipTrigger>
           <TooltipPopup side="left">
-            {session ? "Show the browser tab" : "Reopen this site in the browser panel"}
+            {session ? gt("Show the browser tab") : gt("Reopen this site in the browser panel")}
           </TooltipPopup>
         </Tooltip>
       )}

@@ -10,6 +10,8 @@ import {
   type ProjectUnderstandingItem,
   type ProjectUnderstandingKind,
 } from "@t3tools/contracts";
+import { mFallback, msg } from "gt-i18n";
+import type { MFunctionType } from "gt-i18n/types";
 
 export interface FactFilter {
   readonly environment: string | null;
@@ -89,22 +91,32 @@ export interface MemoryStatusLine {
   readonly text: string;
 }
 
-const runs = (count: number) => (count === 1 ? "1 run" : `${count} runs`);
-
 export function memoryStatusLine(
   status: ProjectMemoryStatus | null,
   enabled: boolean,
+  resolve: MFunctionType = mFallback,
 ): MemoryStatusLine {
-  if (!enabled) return { tone: "off", text: "Off. Runs here are not remembered." };
-  if (status === null) return { tone: "busy", text: "Loading memory…" };
+  if (!enabled) return { tone: "off", text: resolve(msg("Off. Runs here are not remembered.")) };
+  if (status === null) return { tone: "busy", text: resolve(msg("Loading memory…")) };
   if (status.failedExtractions.length > 0)
     return {
       tone: "failed",
-      text: `Could not learn from ${runs(status.failedExtractions.length)}.`,
+      text: resolve(
+        msg(
+          "{count, plural, =1 {Could not learn from 1 run.} other {Could not learn from {count} runs.}}",
+        ),
+        { count: status.failedExtractions.length },
+      ),
     };
   if (status.pendingExtractions > 0)
-    return { tone: "busy", text: `Learning from ${runs(status.pendingExtractions)}.` };
-  return { tone: "ready", text: "Ready." };
+    return {
+      tone: "busy",
+      text: resolve(
+        msg("{count, plural, =1 {Learning from 1 run.} other {Learning from {count} runs.}}"),
+        { count: status.pendingExtractions },
+      ),
+    };
+  return { tone: "ready", text: resolve(msg("Ready.")) };
 }
 
 export type MapRow =
@@ -176,8 +188,11 @@ export function mapRows(
   return rows;
 }
 
-export function mapCoverageLabel(page: ProjectMemoryMapPage): string {
-  if (page.coverage === "seen") return "seen, not tested";
+export function mapCoverageLabel(
+  page: ProjectMemoryMapPage,
+  resolve: MFunctionType = mFallback,
+): string {
+  if (page.coverage === "seen") return resolve(msg("seen, not tested"));
   return [
     page.failCount > 0 ? `${page.failCount} FAIL` : null,
     page.passCount > 0 ? `${page.passCount} PASS` : null,
