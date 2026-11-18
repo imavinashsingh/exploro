@@ -15,6 +15,7 @@ import {
   type ProjectUnderstandingItem,
 } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
+import { T, Var, msg, useGT, useMessages } from "gt-react";
 import { ChevronDownIcon, ChevronRightIcon, RefreshCwIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 
@@ -64,13 +65,13 @@ const COVERAGE_VARIANT = {
   tested: "success",
   seen: "outline",
 } as const satisfies Record<ProjectMemoryMapPage["coverage"], string>;
-const KIND_LABEL: Record<(typeof PROJECT_UNDERSTANDING_KINDS)[number], string> = {
-  workflow: "Workflows",
-  dependency: "Dependencies",
-  "test-strategy": "Test strategies",
-  lesson: "Lessons",
-  "open-question": "Open questions",
-};
+const KIND_LABEL = {
+  workflow: msg("Workflows"),
+  dependency: msg("Dependencies"),
+  "test-strategy": msg("Test strategies"),
+  lesson: msg("Lessons"),
+  "open-question": msg("Open questions"),
+} as const satisfies Record<(typeof PROJECT_UNDERSTANDING_KINDS)[number], string>;
 
 function reportFailure(title: string, result: AtomCommandResult<unknown, unknown>) {
   if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return false;
@@ -117,6 +118,7 @@ function FactRow(props: {
   onDelete: (fact: ProjectMemoryFact) => void;
   onOpenEvidence: (fact: ProjectMemoryFact) => void;
 }) {
+  const gt = useGT();
   const [open, setOpen] = useState(false);
   const { fact } = props;
   return (
@@ -125,7 +127,7 @@ function FactRow(props: {
         <Button
           size="icon-xs"
           variant="ghost-muted"
-          aria-label={open ? "Hide details" : "Show details"}
+          aria-label={open ? gt("Hide details") : gt("Show details")}
           aria-expanded={open}
           onClick={() => setOpen(!open)}
         >
@@ -142,7 +144,13 @@ function FactRow(props: {
               {fact.route}
             </span>
             <span>{fact.kind}</span>
-            {fact.appVersion ? <span>App {fact.appVersion}</span> : null}
+            {fact.appVersion ? (
+              <span>
+                <T>
+                  App <Var>{fact.appVersion}</Var>
+                </T>
+              </span>
+            ) : null}
             {fact.status === "current" ? null : <Badge variant="outline">{fact.status}</Badge>}
             <span>
               {fact.author}, {fact.observedAt.slice(0, 10)}
@@ -153,7 +161,7 @@ function FactRow(props: {
           size="icon-xs"
           variant="ghost-muted"
           disabled={!props.canEdit}
-          aria-label={`Delete fact ${fact.key}`}
+          aria-label={gt("Delete fact {key}", { key: fact.key })}
           onClick={() => props.onDelete(fact)}
         >
           <Trash2Icon />
@@ -169,14 +177,20 @@ function FactRow(props: {
               className="self-start"
               onClick={() => props.onOpenEvidence(fact)}
             >
-              Open the run with its evidence
+              <T>Open the run with its evidence</T>
             </Button>
           ) : (
-            <p className="text-muted-foreground">No evidence: written by the {fact.author}.</p>
+            <p className="text-muted-foreground">
+              <T>
+                No evidence: written by the <Var>{fact.author}</Var>.
+              </T>
+            </p>
           )}
           {props.versions.length > 1 ? (
             <div>
-              <p className="font-medium">Versions</p>
+              <p className="font-medium">
+                <T>Versions</T>
+              </p>
               <ol className="flex flex-col gap-0.5">
                 {props.versions.map((version) => (
                   <li key={version.factId} className="text-muted-foreground">
@@ -200,6 +214,7 @@ function FactsTab(props: {
   onDelete: (fact: ProjectMemoryFact) => void;
   onOpenEvidence: (fact: ProjectMemoryFact) => void;
 }) {
+  const gt = useGT();
   const [filter, setFilter] = useState<FactFilter>(EMPTY_FACT_FILTER);
   const options = factFilterOptions(props.facts, filter);
   const shown = filterFacts(props.facts, filter);
@@ -207,31 +222,31 @@ function FactsTab(props: {
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap gap-2">
         <FilterSelect
-          label="Filter by environment"
+          label={gt("Filter by environment")}
           value={filter.environment}
           options={options.environments}
-          allLabel="All environments"
+          allLabel={gt("All environments")}
           onChange={(environment) => setFilter({ ...filter, environment, route: null })}
         />
         <FilterSelect
-          label="Filter by route"
+          label={gt("Filter by route")}
           value={filter.route}
           options={options.routes}
-          allLabel="All routes"
+          allLabel={gt("All routes")}
           onChange={(route) => setFilter({ ...filter, route })}
         />
         <FilterSelect
-          label="Filter by kind"
+          label={gt("Filter by kind")}
           value={filter.kind}
           options={options.kinds}
-          allLabel="All kinds"
+          allLabel={gt("All kinds")}
           onChange={(kind) => setFilter({ ...filter, kind: kind as ProjectMemoryFactKind | null })}
         />
         <FilterSelect
-          label="Filter by status"
+          label={gt("Filter by status")}
           value={filter.status}
           options={FACT_STATUSES}
-          allLabel="Any status"
+          allLabel={gt("Any status")}
           onChange={(status) =>
             setFilter({ ...filter, status: status as ProjectMemoryFactStatus | null })
           }
@@ -240,8 +255,8 @@ function FactsTab(props: {
       {shown.length === 0 ? (
         <p className="py-2 text-sm text-muted-foreground">
           {props.facts.length === 0
-            ? "No facts yet. Finished test runs in this project add them."
-            : "No facts match these filters."}
+            ? gt("No facts yet. Finished test runs in this project add them.")
+            : gt("No facts match these filters.")}
         </p>
       ) : (
         <ul className="flex flex-col">
@@ -258,7 +273,9 @@ function FactsTab(props: {
         </ul>
       )}
       {props.truncated ? (
-        <p className="text-2xs text-muted-foreground">Showing the newest 2,000 facts.</p>
+        <p className="text-2xs text-muted-foreground">
+          <T>Showing the newest 2,000 facts.</T>
+        </p>
       ) : null}
     </div>
   );
@@ -278,15 +295,22 @@ function MapTab(props: {
       input: { projectId: props.projectId },
     }),
   );
+  const gt = useGT();
+  const messages = useMessages();
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   if (map.error !== null)
     return <p className="py-2 text-sm text-destructive-foreground">{map.error}</p>;
-  if (map.data === null) return <p className="py-2 text-sm text-muted-foreground">Loading map…</p>;
+  if (map.data === null)
+    return (
+      <p className="py-2 text-sm text-muted-foreground">
+        <T>Loading map…</T>
+      </p>
+    );
   if (map.data.environments.length === 0)
     return (
       <p className="py-2 text-sm text-muted-foreground">
-        No map yet. It grows as test runs in this project record facts.
+        <T>No map yet. It grows as test runs in this project record facts.</T>
       </p>
     );
   const rows = mapRows(map.data, collapsed);
@@ -299,7 +323,7 @@ function MapTab(props: {
   };
   return (
     <div className="flex flex-col gap-3">
-      <ul role="tree" aria-label="Project map" className="flex flex-col">
+      <ul role="tree" aria-label={gt("Project map")} className="flex flex-col">
         {rows.map((row) =>
           row.kind === "more" ? (
             <li
@@ -323,7 +347,11 @@ function MapTab(props: {
                 <Button
                   size="icon-xs"
                   variant="ghost-muted"
-                  aria-label={row.open ? `Collapse ${row.label}` : `Expand ${row.label}`}
+                  aria-label={
+                    row.open
+                      ? gt("Collapse {label}", { label: row.label })
+                      : gt("Expand {label}", { label: row.label })
+                  }
                   onClick={() => toggle(row.key)}
                 >
                   {row.open ? <ChevronDownIcon /> : <ChevronRightIcon />}
@@ -343,7 +371,7 @@ function MapTab(props: {
                     {row.label}
                   </Button>
                   <Badge variant={COVERAGE_VARIANT[row.page.coverage]}>
-                    {mapCoverageLabel(row.page)}
+                    {mapCoverageLabel(row.page, messages)}
                   </Badge>
                   {row.page.needs.map((need) => (
                     <span key={need} className="min-w-0 truncate text-2xs text-muted-foreground">
@@ -374,7 +402,7 @@ function MapTab(props: {
           ) : null}
           {page.facts.length === 0 ? (
             <p className="text-xs text-muted-foreground">
-              Reached by a link from another page. Nothing recorded here yet.
+              <T>Reached by a link from another page. Nothing recorded here yet.</T>
             </p>
           ) : (
             <ul className="flex flex-col">
@@ -394,7 +422,9 @@ function MapTab(props: {
       )}
       {map.data.workflows.length > 0 ? (
         <div className="border-t border-border/60 pt-2">
-          <p className="text-xs font-medium text-muted-foreground">Workflows</p>
+          <p className="text-xs font-medium text-muted-foreground">
+            <T>Workflows</T>
+          </p>
           <ul className="flex flex-col gap-1 text-xs">
             {map.data.workflows.map((workflow) => (
               <li key={workflow.itemId}>
@@ -423,7 +453,12 @@ function ItemHistory(props: {
     }),
   );
   if (history.error !== null) return <p className="text-destructive-foreground">{history.error}</p>;
-  if (history.data === null) return <p className="text-muted-foreground">Loading history…</p>;
+  if (history.data === null)
+    return (
+      <p className="text-muted-foreground">
+        <T>Loading history…</T>
+      </p>
+    );
   return (
     <ol className="flex flex-col gap-0.5">
       {history.data.toReversed().map((version) => (
@@ -446,6 +481,7 @@ function UnderstandingRow(props: {
   onConfirm: (item: ProjectUnderstandingItem) => void;
   onDelete: (item: ProjectUnderstandingItem) => void;
 }) {
+  const gt = useGT();
   const { item } = props;
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<string | null>(null);
@@ -457,7 +493,7 @@ function UnderstandingRow(props: {
         <Button
           size="icon-xs"
           variant="ghost-muted"
-          aria-label={open ? "Hide details" : "Show details"}
+          aria-label={open ? gt("Hide details") : gt("Show details")}
           aria-expanded={open}
           onClick={() => setOpen(!open)}
         >
@@ -468,7 +504,7 @@ function UnderstandingRow(props: {
             <p className="break-words text-sm">{item.statement}</p>
           ) : (
             <Textarea
-              aria-label="Statement"
+              aria-label={gt("Statement")}
               value={draft}
               maxLength={300}
               onChange={(event) => setDraft(event.target.value)}
@@ -491,7 +527,7 @@ function UnderstandingRow(props: {
                   disabled={!props.canEdit}
                   onClick={() => props.onConfirm(item)}
                 >
-                  Confirm
+                  <T>Confirm</T>
                 </Button>
               )}
               <Button
@@ -500,13 +536,13 @@ function UnderstandingRow(props: {
                 disabled={!props.canEdit}
                 onClick={() => setDraft(item.statement)}
               >
-                Edit
+                <T>Edit</T>
               </Button>
               <Button
                 size="icon-xs"
                 variant="ghost-muted"
                 disabled={!props.canEdit}
-                aria-label="Delete item"
+                aria-label={gt("Delete item")}
                 onClick={() => props.onDelete(item)}
               >
                 <Trash2Icon />
@@ -523,10 +559,10 @@ function UnderstandingRow(props: {
                   })
                 }
               >
-                Save
+                <T>Save</T>
               </Button>
               <Button size="xs" variant="ghost" onClick={() => setDraft(null)}>
-                Cancel
+                <T>Cancel</T>
               </Button>
             </>
           )}
@@ -535,15 +571,19 @@ function UnderstandingRow(props: {
       {open ? (
         <div className="ms-7 flex flex-col gap-2 text-xs">
           <div>
-            <p className="font-medium">Cited facts</p>
+            <p className="font-medium">
+              <T>Cited facts</T>
+            </p>
             {cited.length === 0 ? (
-              <p className="text-muted-foreground">None.</p>
+              <p className="text-muted-foreground">
+                <T>None.</T>
+              </p>
             ) : (
               <ul className="flex flex-col gap-0.5">
                 {cited.map((fact, index) => (
                   <li key={item.citedFactIds[index]} className="text-muted-foreground">
                     {fact === null
-                      ? "A fact that was deleted"
+                      ? gt("A fact that was deleted")
                       : `${fact.route} · ${fact.key}: ${fact.value}${fact.status === "current" ? "" : ` (${fact.status})`}`}
                   </li>
                 ))}
@@ -552,18 +592,22 @@ function UnderstandingRow(props: {
           </div>
           {item.dependsOn.length > 0 ? (
             <div>
-              <p className="font-medium">Depends on</p>
+              <p className="font-medium">
+                <T>Depends on</T>
+              </p>
               <ul className="flex flex-col gap-0.5">
                 {item.dependsOn.map((itemId) => (
                   <li key={itemId} className="text-muted-foreground">
-                    {props.items.get(itemId)?.statement ?? "A deleted item"}
+                    {props.items.get(itemId)?.statement ?? gt("A deleted item")}
                   </li>
                 ))}
               </ul>
             </div>
           ) : null}
           <div>
-            <p className="font-medium">History</p>
+            <p className="font-medium">
+              <T>History</T>
+            </p>
             <ItemHistory
               environmentId={props.environmentId}
               projectId={item.projectId}
@@ -580,6 +624,8 @@ function UnderstandingRow(props: {
 export function ProjectMemorySettings(props: {
   members: ReadonlyArray<SidebarProjectGroupMember>;
 }) {
+  const gt = useGT();
+  const messages = useMessages();
   const navigate = useNavigate();
   const enabled = useScopedSettings((settings) => settings.qaMemoryEnabled);
   const updateSettings = useUpdateScopedSettings();
@@ -622,7 +668,7 @@ export function ProjectMemorySettings(props: {
   });
 
   const data = snapshot.data;
-  const status = memoryStatusLine(data?.status ?? null, enabled);
+  const status = memoryStatusLine(data?.status ?? null, enabled, messages);
   const facts = new Map((data?.facts ?? []).map((fact) => [fact.factId, fact]));
   const items = new Map((data?.understanding ?? []).map((item) => [item.itemId, item]));
 
@@ -633,7 +679,7 @@ export function ProjectMemorySettings(props: {
   };
   const onDeleteFact = (fact: ProjectMemoryFact) =>
     void deleteFact({ environmentId, input: { projectId, factId: fact.factId } }).then(
-      after("Could not delete the fact"),
+      after(gt("Could not delete the fact")),
     );
   const onOpenEvidence = (fact: ProjectMemoryFact) => {
     const ref = fact.evidence[0];
@@ -647,30 +693,34 @@ export function ProjectMemorySettings(props: {
     updateItem({
       environmentId,
       input: { projectId, itemId: item.itemId, statement, confirm: true },
-    }).then(after("Could not save the item"));
+    }).then(after(gt("Could not save the item")));
 
   return (
-    <SettingsSection title="Memory">
+    <SettingsSection
+      title={gt("Memory", { $context: "settings section: what test runs remember" })}
+    >
       <SettingsRow
         serverScoped
         settingKeys={["qaMemoryEnabled"]}
-        title="Project memory"
-        description="Test runs here remember what they learn about the app and start from it next time. Turning it off keeps what is saved."
+        title={gt("Project memory")}
+        description={gt(
+          "Test runs here remember what they learn about the app and start from it next time. Turning it off keeps what is saved.",
+        )}
         control={
           <Switch
             checked={enabled}
             onCheckedChange={(checked) => updateSettings({ qaMemoryEnabled: Boolean(checked) })}
-            aria-label="Project memory"
+            aria-label={gt("Project memory")}
           />
         }
       />
       <SettingsRow
-        title="Status"
+        title={gt("Status")}
         description={
           <>
             {snapshot.error ?? status.text}
             {enabled && data?.status.recallNote
-              ? ` Searching by words only: ${data.status.recallNote}`
+              ? ` ${gt("Searching by words only: {note}", { note: data.status.recallNote })}`
               : ""}
           </>
         }
@@ -686,16 +736,16 @@ export function ProjectMemorySettings(props: {
                     (data?.status.failedExtractions ?? []).map((failed) =>
                       retry({ environmentId, input: { projectId, runId: failed.runId } }),
                     ),
-                  ).then((results) => results.forEach(after("Could not retry")))
+                  ).then((results) => results.forEach(after(gt("Could not retry"))))
                 }
               >
-                Retry
+                <T>Retry</T>
               </Button>
             ) : null}
             <Button
               size="icon-xs"
               variant="ghost-muted"
-              aria-label="Refresh memory"
+              aria-label={gt("Refresh memory")}
               onClick={refresh}
             >
               <RefreshCwIcon />
@@ -717,14 +767,14 @@ export function ProjectMemorySettings(props: {
                 appVersion: appVersion.trim(),
               },
             });
-            if (after("Could not save the app version")(result)) {
+            if (after(gt("Could not save the app version"))(result)) {
               setAppVersion("");
-              toastManager.add({ type: "success", title: "App version saved" });
+              toastManager.add({ type: "success", title: gt("App version saved") });
             }
           } catch (error) {
             toastManager.add({
               type: "error",
-              title: "Could not save the app version",
+              title: gt("Could not save the app version"),
               description: error instanceof Error ? error.message : String(error),
             });
           }
@@ -732,11 +782,13 @@ export function ProjectMemorySettings(props: {
         }}
       >
         <p className="m-0 text-sm text-muted-foreground">
-          Set the version of the app under test. Earlier facts from this site become stale; new
-          observations use this version.
+          <T>
+            Set the version of the app under test. Earlier facts from this site become stale; new
+            observations use this version.
+          </T>
         </p>
         <Input
-          aria-label="Test site"
+          aria-label={gt("Test site")}
           placeholder="https://app.example.com"
           value={versionEnvironment}
           onChange={(event) => setVersionEnvironment(event.target.value)}
@@ -746,8 +798,8 @@ export function ProjectMemorySettings(props: {
           maxLength={2048}
         />
         <Input
-          aria-label="Tested app version"
-          placeholder="App version, e.g. 2.1"
+          aria-label={gt("Tested app version")}
+          placeholder={gt("App version, e.g. 2.1")}
           value={appVersion}
           onChange={(event) => setAppVersion(event.target.value)}
           disabled={!canSetVersion || savingVersion}
@@ -763,19 +815,24 @@ export function ProjectMemorySettings(props: {
               !canSetVersion || savingVersion || !versionEnvironment.trim() || !appVersion.trim()
             }
           >
-            {savingVersion ? "Saving…" : "Set app version"}
+            {savingVersion ? gt("Saving…") : gt("Set app version")}
           </Button>
         </div>
       </form>
       <SettingsRow
-        title="Contents"
+        title={gt("Contents")}
         control={
           props.members.length > 1 ? (
             <Select
               value={member.physicalProjectKey}
               onValueChange={(value) => setMemberKey(value)}
             >
-              <SelectTrigger size="sm" aria-label="Checkout">
+              <SelectTrigger
+                size="sm"
+                aria-label={gt("Checkout", {
+                  $context: "noun, a copy of the project on a machine",
+                })}
+              >
                 <SelectValue>{member.environmentLabel ?? member.workspaceRoot}</SelectValue>
               </SelectTrigger>
               <SelectPopup>
@@ -794,18 +851,26 @@ export function ProjectMemorySettings(props: {
       >
         <div className="mt-3 flex flex-col gap-3 pb-2">
           <ToggleGroup
-            aria-label="Memory contents"
+            aria-label={gt("Memory contents")}
             value={[tab]}
             onValueChange={(next) => {
               if (next[0] === "map" || next[0] === "facts" || next[0] === "understanding")
                 setTab(next[0]);
             }}
           >
-            <Toggle value="map">Map</Toggle>
-            <Toggle value="facts">
-              Facts · {data?.facts.filter((f) => f.status === "current").length ?? 0}
+            <Toggle value="map">
+              <T>Map</T>
             </Toggle>
-            <Toggle value="understanding">Understanding · {data?.understanding.length ?? 0}</Toggle>
+            <Toggle value="facts">
+              <T>
+                Facts · <Var>{data?.facts.filter((f) => f.status === "current").length ?? 0}</Var>
+              </T>
+            </Toggle>
+            <Toggle value="understanding">
+              <T>
+                Understanding · <Var>{data?.understanding.length ?? 0}</Var>
+              </T>
+            </Toggle>
           </ToggleGroup>
           {data === null ? null : tab === "map" ? (
             <MapTab
@@ -826,14 +891,16 @@ export function ProjectMemorySettings(props: {
             />
           ) : data.understanding.length === 0 ? (
             <p className="py-2 text-sm text-muted-foreground">
-              Nothing learned yet. After a test run finishes, Exploro notes how the app works.
+              <T>
+                Nothing learned yet. After a test run finishes, Exploro notes how the app works.
+              </T>
             </p>
           ) : (
             <div className="flex flex-col gap-3">
               {understandingByKind(data.understanding).map((group) => (
                 <div key={group.kind}>
                   <p className="text-xs font-medium text-muted-foreground">
-                    {KIND_LABEL[group.kind]}
+                    {messages(KIND_LABEL[group.kind])}
                   </p>
                   <ul className="flex flex-col">
                     {group.items.map((item) => (

@@ -1,3 +1,4 @@
+import { T, useGT } from "gt-react";
 import { XIcon } from "lucide-react";
 import { useState } from "react";
 
@@ -10,6 +11,7 @@ import { useSettingsScope } from "./SettingsScopeContext";
 
 /** Exploro: the sites a QA project tests. The first run in the project fills it in. */
 export function ProjectSitesSettings() {
+  const gt = useGT();
   const { connectedEnvironments } = useSettingsScope();
   const sites = useScopedSettings((settings) => settings.qaSiteOrigins);
   const updateSettings = useUpdateScopedSettings();
@@ -23,15 +25,15 @@ export function ProjectSitesSettings() {
   };
 
   return (
-    <SettingsSection title="Testing">
+    <SettingsSection title={gt("Testing")}>
       <SettingsRow
         serverScoped
         settingKeys={["qaSiteOrigins"]}
-        title="Sites"
+        title={gt("Sites")}
         description={
           sites.length === 0
-            ? "The sites this project tests. The first site you test here is added for you."
-            : "The sites this project tests."
+            ? gt("The sites this project tests. The first site you test here is added for you.")
+            : gt("The sites this project tests.")
         }
       >
         <div className="mt-3 flex flex-col gap-2 pb-2">
@@ -42,7 +44,7 @@ export function ProjectSitesSettings() {
               value={draft}
               disabled={disabled}
               placeholder="https://staging.example.com"
-              aria-label="Add a site"
+              aria-label={gt("Add a site")}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {
                 if (event.nativeEvent.isComposing || event.keyCode === 229) return;
@@ -52,7 +54,7 @@ export function ProjectSitesSettings() {
               }}
             />
             <Button size="sm" variant="outline" disabled={disabled || added === null} onClick={add}>
-              Add
+              <T>Add</T>
             </Button>
           </div>
           {sites.length > 0 ? (
@@ -64,7 +66,7 @@ export function ProjectSitesSettings() {
                     size="icon-xs"
                     variant="ghost-muted"
                     disabled={disabled}
-                    aria-label={`Remove ${site}`}
+                    aria-label={gt("Remove {site}", { site })}
                     onClick={() =>
                       updateSettings({ qaSiteOrigins: sites.filter((entry) => entry !== site) })
                     }

@@ -1,5 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId } from "@t3tools/contracts";
+import { useGT } from "gt-react";
 import { RepeatIcon } from "lucide-react";
 
 import { useEnvironmentQuery } from "../state/query";
@@ -15,6 +16,7 @@ import {
 export function useCommandPaletteRegressionItem(
   environmentId: EnvironmentId | null,
 ): CommandPaletteSubmenuItem | null {
+  const gt = useGT();
   const suitesQuery = useEnvironmentQuery(
     environmentId === null ? null : serverEnvironment.qaSuitesLive({ environmentId, input: {} }),
   );
@@ -26,24 +28,24 @@ export function useCommandPaletteRegressionItem(
     kind: "submenu",
     value: "action:run-regression-suite",
     searchTerms: ["run regression suite", "regression", "replay", "retest", "suite", "qa"],
-    title: "Run regression suite…",
+    title: gt("Run regression suite…"),
     icon: <RepeatIcon className={ITEM_ICON_CLASS} />,
     addonIcon: <RepeatIcon className={ADDON_ICON_CLASS} />,
     groups: [
       {
         value: "regression-suites",
-        label: "Run regression suite",
+        label: gt("Run regression suite"),
         items: [
           ...(suites.length > 1
             ? [
                 {
                   kind: "action" as const,
                   value: "regression-suite:all",
-                  title: "Run all regression suites",
-                  description: `${suites.length} suites, queued by the server`,
+                  title: gt("Run all regression suites"),
+                  description: gt("{count} suites, queued by the server", { count: suites.length }),
                   searchTerms: ["all", "regression", "suites", "batch"],
                   icon: <RepeatIcon className={ITEM_ICON_CLASS} />,
-                  run: () => runSuites(suites, "All suites"),
+                  run: () => runSuites(suites, gt("All suites")),
                 },
               ]
             : []),
@@ -51,7 +53,7 @@ export function useCommandPaletteRegressionItem(
             kind: "action" as const,
             value: `regression-suite:${suite.suiteId}`,
             title: suite.name,
-            description: `${suite.scenarioCount} scenarios${suite.site ? ` · ${suite.site}` : ""}`,
+            description: `${gt("{count} scenarios", { count: suite.scenarioCount })}${suite.site ? ` · ${suite.site}` : ""}`,
             searchTerms: [suite.name, suite.site ?? "", "regression", "suite"],
             icon: <RepeatIcon className={ITEM_ICON_CLASS} />,
             run: () => runSuites([suite]),
