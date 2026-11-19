@@ -46,6 +46,7 @@ import {
   ChevronRight,
   FileDiff,
   Files,
+  FolderKanban,
   Globe2,
   MessagesSquare,
   Plus,
@@ -151,6 +152,8 @@ export interface RightPanelTabsProps {
   onAddDevice: () => void;
   /** Absent where side chats are not offered. */
   onAddSideChat?: (() => void) | undefined;
+  /** Absent where there is no server thread to scope a project to. */
+  onAddProject?: (() => void) | undefined;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
@@ -335,6 +338,8 @@ function RightPanelEmptyState(props: {
   onAddDevice: () => void;
   /** Absent where side chats are not offered. */
   onAddSideChat?: (() => void) | undefined;
+  /** Absent where there is no server thread to scope a project to. */
+  onAddProject?: (() => void) | undefined;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
@@ -418,6 +423,18 @@ function RightPanelEmptyState(props: {
             disabledReason:
               props.sideChatDisabledReason ?? messages(SURFACE_UNAVAILABLE_HINTS.sideChat),
             onClick: props.onAddSideChat,
+          },
+        ]
+      : []),
+    ...(props.onAddProject
+      ? [
+          {
+            label: msg("Project window"),
+            icon: FolderKanban,
+            shortcut: "J",
+            available: true,
+            disabledReason: "",
+            onClick: props.onAddProject,
           },
         ]
       : []),
@@ -607,6 +624,8 @@ function surfaceTitle(
       return `#${surface.number}`;
     case "pull-requests":
       return resolve(msg("Pull requests"));
+    case "project":
+      return resolve(msg("Project"));
     case "issue":
       // A git host numbers its issues; a tracker with keys of its own, such as Linear, names them.
       return /^\d+$/.test(surface.key) ? `#${surface.key}` : surface.key;
@@ -702,6 +721,8 @@ function SurfaceIcon({
       );
     case "pull-requests":
       return <PullRequestGlyph.link className="size-3 shrink-0" />;
+    case "project":
+      return <FolderKanban className="size-3 shrink-0" />;
     case "issue":
       return <IssueSurfaceIcon surface={surface} environmentId={environmentId} />;
     case "side-chat":
@@ -1238,6 +1259,18 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           },
         ]
       : []),
+    ...(props.onAddProject
+      ? [
+          {
+            label: msg("Project window"),
+            icon: FolderKanban,
+            shortcut: "J",
+            available: true,
+            disabledReason: "",
+            onClick: props.onAddProject,
+          },
+        ]
+      : []),
   ] as const;
 
   const handleAddSurfaceMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -1643,6 +1676,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddPullRequests={props.onAddPullRequests}
             onAddDevice={props.onAddDevice}
             onAddSideChat={props.onAddSideChat}
+            onAddProject={props.onAddProject}
             browserAvailable={props.browserAvailable}
             terminalAvailable={props.terminalAvailable}
             diffAvailable={props.diffAvailable}

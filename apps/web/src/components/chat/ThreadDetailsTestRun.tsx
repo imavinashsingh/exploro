@@ -13,12 +13,15 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import {
+  BrainIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   ClipboardCheckIcon,
   FileTextIcon,
   FolderOpenIcon,
   HistoryIcon,
+  MoreHorizontalIcon,
+  RepeatIcon,
   Trash2Icon,
 } from "lucide-react";
 import { T, Var, useGT } from "gt-react";
@@ -44,9 +47,10 @@ import {
 } from "../ui/alert-dialog";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
-import { SaveRunAsRegression } from "./ThreadDetailsRegression";
+import { useSaveRunAsRegression } from "./ThreadDetailsRegression";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import {
   THREAD_DETAILS_PANEL_ICON_CLASS,
@@ -63,8 +67,6 @@ import {
 interface ThreadDetailsTestRunProps {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
-  /** Why this run will not use or grow project memory; null while it does. */
-  readonly memoryNote?: string | null;
   readonly scratchProject?: boolean;
   readonly memoryEnabled?: boolean;
   readonly contextMaxTokens?: number | null;
@@ -460,6 +462,25 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
     }
   };
 
+  const reportPath = run?.reportHtmlPath ?? run?.reportMarkdownPath ?? null;
+  const saveAsRegression = useSaveRunAsRegression(props.environmentId, props.threadId, run);
+  const canSaveToMemory =
+    (props.memoryEnabled || props.scratchProject) &&
+    canSaveMemory &&
+    (!props.scratchProject || canPromote);
+  const briefUsage = runsQuery.data?.memoryBriefUsage ?? null;
+  const memoryBrief =
+    briefUsage === null
+      ? null
+      : props.contextMaxTokens && props.contextMaxTokens > 0
+        ? gt("Initial memory brief: ~{tokens} tokens ({share}% of context).", {
+            tokens: briefUsage.estimatedTokens.toLocaleString(),
+            share: ((100 * briefUsage.estimatedTokens) / props.contextMaxTokens).toFixed(1),
+          })
+        : gt("Initial memory brief: ~{tokens} tokens (estimated).", {
+            tokens: briefUsage.estimatedTokens.toLocaleString(),
+          });
+
   return (
     <ThreadDetailsSection
       headingId="thread-details-test-run-heading"
@@ -467,55 +488,6 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
       data-thread-test-run-panel
     >
       <div className="flex flex-col">
-        {props.memoryNote ? (
-          <p
-            className={cn(
-              "m-0 py-1 text-2xs text-muted-foreground",
-              THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS,
-            )}
-          >
-            {props.memoryNote}
-          </p>
-        ) : null}
-        {runsQuery.data?.memoryBriefUsage ? (
-          <p
-            className={cn(
-              "m-0 py-1 text-2xs text-muted-foreground",
-              THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS,
-            )}
-          >
-            {props.contextMaxTokens && props.contextMaxTokens > 0
-              ? gt("Initial memory brief: ~{tokens} tokens ({share}% of context).", {
-                  tokens: runsQuery.data.memoryBriefUsage.estimatedTokens.toLocaleString(),
-                  share: (
-                    (100 * runsQuery.data.memoryBriefUsage.estimatedTokens) /
-                    props.contextMaxTokens
-                  ).toFixed(1),
-                })
-              : gt("Initial memory brief: ~{tokens} tokens (estimated).", {
-                  tokens: runsQuery.data.memoryBriefUsage.estimatedTokens.toLocaleString(),
-                })}
-          </p>
-        ) : null}
-        {(props.memoryEnabled || props.scratchProject) &&
-        canSaveMemory &&
-        (!props.scratchProject || canPromote) ? (
-          <div className="px-1.5 py-1">
-            <ThreadDetailsControl
-              size="xs"
-              variant="ghost"
-              part="meta"
-              disabled={savingMemory}
-              onClick={() => void saveThread()}
-            >
-              {savingMemory
-                ? gt("Saving…")
-                : props.scratchProject
-                  ? gt("Create project and save to memory")
-                  : gt("Save test to memory")}
-            </ThreadDetailsControl>
-          </div>
-        ) : null}
         {run === null ? (
           <div className={cn(THREAD_DETAILS_PANEL_LOCKED_ROW_CLASS, "flex items-center")}>
             <ClipboardCheckIcon className={THREAD_DETAILS_PANEL_ICON_CLASS} aria-hidden />
@@ -631,59 +603,75 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
               </p>
             ) : null}
 
-            <div className="flex flex-wrap gap-1 px-1.5 pt-1">
-              {run.reportHtmlPath ? (
+            <div className="flex flex-wrap items-center gap-1 px-1.5 pt-1">
+              {reportPath ? (
                 <ThreadDetailsControl
                   size="xs"
                   variant="ghost"
                   part="meta"
-                  onClick={() =>
-                    useRightPanelStore.getState().openFile(threadRef, run.reportHtmlPath!)
-                  }
+                  onClick={() => useRightPanelStore.getState().openFile(threadRef, reportPath)}
                 >
                   <FileTextIcon aria-hidden />
-                  <T>Open report</T>
+                  <T>Report</T>
                 </ThreadDetailsControl>
               ) : null}
-              {run.reportMarkdownPath ? (
-                <ThreadDetailsControl
-                  size="xs"
-                  variant="ghost"
-                  part="meta"
-                  onClick={() =>
-                    useRightPanelStore.getState().openFile(threadRef, run.reportMarkdownPath!)
+              <Menu>
+                <MenuTrigger
+                  render={
+                    <ThreadDetailsControl
+                      size="xs"
+                      variant="ghost"
+                      part="meta"
+                      aria-label={gt("More actions for this run")}
+                    />
                   }
                 >
-                  report.md
-                </ThreadDetailsControl>
-              ) : null}
-              {canOpenFolder ? (
-                <ThreadDetailsControl
-                  size="xs"
-                  variant="ghost"
-                  part="meta"
-                  onClick={() => void openFolder(run.dir)}
-                >
-                  <FolderOpenIcon aria-hidden />
-                  <T>Evidence folder</T>
-                </ThreadDetailsControl>
-              ) : null}
-              <SaveRunAsRegression
-                environmentId={props.environmentId}
-                threadId={props.threadId}
-                run={run}
-              />
-              {canDelete ? (
-                <ThreadDetailsControl
-                  size="xs"
-                  variant="ghost"
-                  part="meta"
-                  onClick={() => setConfirmDelete(run)}
-                >
-                  <Trash2Icon aria-hidden />
-                  <T>Delete</T>
-                </ThreadDetailsControl>
-              ) : null}
+                  <MoreHorizontalIcon aria-hidden />
+                </MenuTrigger>
+                <MenuPopup align="start" side="bottom" sideOffset={4}>
+                  {canSaveToMemory ? (
+                    <MenuItem disabled={savingMemory} onClick={() => void saveThread()}>
+                      <BrainIcon className="size-3.5" />
+                      {props.scratchProject
+                        ? gt("Create project and save to memory")
+                        : gt("Save test to memory")}
+                    </MenuItem>
+                  ) : null}
+                  {saveAsRegression === null ? null : (
+                    <MenuItem onClick={() => void saveAsRegression()}>
+                      <RepeatIcon className="size-3.5" />
+                      <T>Save as regression</T>
+                    </MenuItem>
+                  )}
+                  {run.reportHtmlPath && run.reportMarkdownPath ? (
+                    <MenuItem
+                      onClick={() =>
+                        useRightPanelStore.getState().openFile(threadRef, run.reportMarkdownPath!)
+                      }
+                    >
+                      <FileTextIcon className="size-3.5" />
+                      report.md
+                    </MenuItem>
+                  ) : null}
+                  {canOpenFolder ? (
+                    <MenuItem onClick={() => void openFolder(run.dir)}>
+                      <FolderOpenIcon className="size-3.5" />
+                      <T>Evidence folder</T>
+                    </MenuItem>
+                  ) : null}
+                  {canDelete ? (
+                    <MenuItem variant="destructive" onClick={() => setConfirmDelete(run)}>
+                      <Trash2Icon className="size-3.5" />
+                      <T>Delete</T>
+                    </MenuItem>
+                  ) : null}
+                  {memoryBrief === null ? null : (
+                    <p className="m-0 max-w-64 px-2 pt-1.5 pb-1 text-xs text-muted-foreground">
+                      {memoryBrief}
+                    </p>
+                  )}
+                </MenuPopup>
+              </Menu>
             </div>
 
             {earlierRuns.length > 0 ? (

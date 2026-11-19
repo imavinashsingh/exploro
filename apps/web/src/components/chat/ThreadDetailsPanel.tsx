@@ -207,7 +207,6 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                 <ThreadDetailsTestRun
                   environmentId={props.environmentId}
                   threadId={props.threadId}
-                  memoryNote={memoryNote}
                   scratchProject={
                     serverConfig !== undefined &&
                     project !== null &&

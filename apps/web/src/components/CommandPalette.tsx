@@ -83,6 +83,7 @@ import {
   SquarePenIcon,
   TextSearchIcon,
   UserPlusIcon,
+  FolderKanbanIcon,
 } from "lucide-react";
 import { openThreadFind } from "./chat/threadFindStore";
 import { dispatchPreviewAction } from "./preview/previewActionBus";
@@ -1526,6 +1527,20 @@ function OpenCommandPaletteDialog(props: {
       icon: <PullRequestGlyph.link className={ITEM_ICON_CLASS} />,
       run: async () => {
         useRightPanelStore.getState().open(threadRef, "pull-requests");
+      },
+    });
+  }
+
+  if (activeThread !== null) {
+    const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
+    actionItems.push({
+      kind: "action",
+      value: "action:open-project-window",
+      searchTerms: ["project window", "regression", "suites", "site map", "map", "qa", "passwords"],
+      title: gt("Open project window"),
+      icon: <FolderKanbanIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        useRightPanelStore.getState().open(threadRef, "project");
       },
     });
   }
