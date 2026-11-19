@@ -1,7 +1,7 @@
 # Usage data and diagnostics
 
 Exploro sends no usage data, analytics, or diagnostics to T3 Code or to Exploro. The upstream
-T3 Code product analytics (`ingest.t3.codes`, PostHog) are off by default and have no built-in
+Exploro product analytics (`ingest.t3.codes`, PostHog) are off by default and have no built-in
 endpoint, so an unconfigured server sends nothing.
 
 T3 Connect (sign-in, the relay, mobile notifications, and relay connection traces) only turns on

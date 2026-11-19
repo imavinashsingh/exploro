@@ -31,7 +31,7 @@ const GNOME_ACCESS_COPY = {
   "not-installed": {
     title: msg("Install the extension"),
     description: msg(
-      "The T3 Code GNOME extension lets you capture other windows and bring them into your draft. Sign out once after installing.",
+      "The Exploro GNOME extension lets you capture other windows and bring them into your draft. Sign out once after installing.",
     ),
   },
   "restart-required": {
@@ -48,7 +48,7 @@ const GNOME_ACCESS_COPY = {
   },
   disabled: {
     title: msg("Enable the extension"),
-    description: msg("Enable T3 Code SnapShots to start capturing windows."),
+    description: msg("Enable Exploro SnapShots to start capturing windows."),
   },
   enabled: {
     title: msg("Capture is ready"),
@@ -60,7 +60,7 @@ const GNOME_ACCESS_COPY = {
   },
   error: {
     title: msg("Couldn't set up the extension"),
-    description: msg("Check T3 Code SnapShots in GNOME Extensions, then try again."),
+    description: msg("Check Exploro SnapShots in GNOME Extensions, then try again."),
   },
 };
 
