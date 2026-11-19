@@ -354,13 +354,14 @@ it.layer(NodeServices.layer)("ProjectMemory", (it) => {
         assert.isTrue(
           Exit.isFailure(yield* Effect.exit(runs.rememberRun(threadId, run.runId, blog))),
         );
+        const interruptedThread = ThreadId.make("thread-memory-interrupted");
         yield* runs.recordEvidence(
-          threadId,
+          interruptedThread,
           { scenario: "Interrupted", verdict: "PASS", note: "Observed" },
           page("https://shop.test/cart"),
         );
-        const open = (yield* runs.openRun(threadId))!;
-        const interrupted = yield* runs.rememberRun(threadId, open.runId, shop);
+        const open = (yield* runs.openRun(interruptedThread))!;
+        const interrupted = yield* runs.rememberRun(interruptedThread, open.runId, shop);
         assert.isNotNull(interrupted.finishedAt);
         assert.strictEqual((yield* memory.lookupFacts(shop, { runId: open.runId })).length, 1);
       }),
@@ -597,13 +598,14 @@ it.layer(NodeServices.layer)("ProjectMemory", (it) => {
         const qaRuns = yield* QaRuns.QaRuns;
         const scenario = { scenario: "Login works", url: "https://shop.test/login" };
         yield* finishedRun(shop, [{ ...scenario, verdict: "PASS" }]);
-        const second = yield* finishedRun(shop, [{ ...scenario, verdict: "FAIL" }]);
+        const secondThread = ThreadId.make("thread-memory-second");
+        const second = yield* finishedRun(shop, [{ ...scenario, verdict: "FAIL" }], secondThread);
         assert.deepStrictEqual(
           (yield* memory.lookupFacts(shop, { kind: "result" })).map((row) => row.value),
           ["FAIL major"],
         );
 
-        yield* qaRuns.deleteRun({ threadId, runId: second.runId });
+        yield* qaRuns.deleteRun({ threadId: secondThread, runId: second.runId });
         const facts = yield* memory.lookupFacts(shop, { kind: "result" });
         assert.deepStrictEqual(
           facts.map((row) => [row.value, row.supersededBy]),

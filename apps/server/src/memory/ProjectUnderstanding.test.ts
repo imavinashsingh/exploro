@@ -145,12 +145,13 @@ const finishedRun = (
     path: string;
     origin?: string;
   }>,
+  thread = threadId,
 ) =>
   Effect.gen(function* () {
     const qaRuns = yield* QaRuns.QaRuns;
     for (const { scenario, verdict, path, origin = site } of scenarios) {
       yield* qaRuns.recordEvidence(
-        threadId,
+        thread,
         { scenario, verdict, note: `${scenario}: ${verdict}` },
         {
           url: `${origin}${path}`,
@@ -162,7 +163,7 @@ const finishedRun = (
         },
       );
     }
-    const run = (yield* qaRuns.finishRun(threadId, { projectId }))!;
+    const run = (yield* qaRuns.finishRun(thread, { projectId }))!;
     const facts = yield* (yield* ProjectMemory.ProjectMemory).lookupFacts(projectId, {
       runId: run.runId,
     });
@@ -588,9 +589,11 @@ it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
           const first = yield* finishedRun(shop, [
             { scenario: "Locked out user is rejected", verdict: "PASS", path: "/login" },
           ]);
-          const second = yield* finishedRun(shop, [
-            { scenario: "locked_out_user cannot sign in", verdict: "FAIL", path: "/login" },
-          ]);
+          const second = yield* finishedRun(
+            shop,
+            [{ scenario: "locked_out_user cannot sign in", verdict: "FAIL", path: "/login" }],
+            ThreadId.make("thread-understanding-second"),
+          );
           yield* extraction.enqueue(second.run);
           yield* extraction.extract(second.run.runId);
           const current = () =>
