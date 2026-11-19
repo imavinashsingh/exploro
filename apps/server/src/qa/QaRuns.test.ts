@@ -138,7 +138,7 @@ it.layer(NodeServices.layer)("QaRuns", (it) => {
     ),
   );
 
-  it.effect("starts a new run after one finishes, and deletes a run with its folder", () =>
+  it.effect("continues the thread's run after a turn ends, and deletes a run with its folder", () =>
     withQaRuns(
       Effect.gen(function* () {
         const qaRuns = yield* QaRuns.QaRuns;
@@ -146,17 +146,19 @@ it.layer(NodeServices.layer)("QaRuns", (it) => {
         const input = { scenario: "Home loads", verdict: "PASS", note: "ok" } as const;
         yield* qaRuns.recordEvidence(threadId, input, page());
         const first = yield* qaRuns.finishRun(threadId, { projectId: null });
-        yield* qaRuns.recordEvidence(threadId, input, page());
+        yield* qaRuns.recordEvidence(threadId, { ...input, scenario: "Login" }, page());
         const runs = yield* qaRuns.list(threadId);
-        assert.strictEqual(runs.length, 2);
-        assert.isNull(runs.find((run) => run.runId !== first!.runId)?.finishedAt);
+        assert.strictEqual(runs.length, 1);
+        assert.strictEqual(runs[0]!.runId, first!.runId);
+        assert.isNull(runs[0]!.finishedAt);
+        assert.deepStrictEqual(
+          runs[0]!.scenarios.map((scenario) => scenario.scenario),
+          ["Home loads", "Login"],
+        );
 
         yield* qaRuns.deleteRun({ threadId, runId: first!.runId });
         assert.isFalse(yield* fs.exists(first!.dir));
-        assert.deepStrictEqual(
-          (yield* qaRuns.list(threadId)).map((run) => run.runId),
-          runs.filter((run) => run.runId !== first!.runId).map((run) => run.runId),
-        );
+        assert.deepStrictEqual(yield* qaRuns.list(threadId), []);
       }),
     ),
   );

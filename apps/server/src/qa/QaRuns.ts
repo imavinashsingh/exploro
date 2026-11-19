@@ -229,6 +229,16 @@ const make = Effect.gen(function* () {
     const open = findOpen(yield* load(threadId));
     if (open?.kind === "regression") return yield* new QaRunError({ message: REPLAY_RUNNING });
     if (open) return open.site === null && site !== null ? yield* save({ ...open, site }) : open;
+    // One thread is one test: a follow-up turn continues the run instead of starting another.
+    const last = (yield* load(threadId)).find((run) => run.kind === "exploratory");
+    if (last) {
+      return yield* save({
+        ...last,
+        site: last.site ?? site,
+        finishedAt: null,
+        recordingStartedAt: last.video === null ? null : last.recordingStartedAt,
+      });
+    }
     return yield* createRunUnlocked(threadId, site, {
       kind: "exploratory",
       suiteId: null,
@@ -410,7 +420,8 @@ const make = Effect.gen(function* () {
       input: { readonly sourcePath: string; readonly sizeBytes: number },
     ) {
       const open = findOpen(yield* load(threadId));
-      if (!open) {
+      // A continued run keeps its first recording.
+      if (!open || open.video !== null) {
         yield* fileSystem.remove(input.sourcePath).pipe(Effect.ignore);
         return;
       }
