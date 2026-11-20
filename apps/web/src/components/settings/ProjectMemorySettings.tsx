@@ -391,34 +391,18 @@ function MapTab(props: {
             {page.environment}
             {page.route}
           </p>
-          {page.navigation.length > 0 ? (
-            <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">
-              {page.navigation.map((link) => (
-                <li key={link.factId} className="break-all">
-                  → {link.environment === page.environment ? "" : link.environment}
-                  {link.route} ({link.label})
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          {page.facts.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              <T>Reached by a link from another page. Nothing recorded here yet.</T>
-            </p>
-          ) : (
-            <ul className="flex flex-col">
-              {page.facts.map((fact) => (
-                <FactRow
-                  key={fact.factId}
-                  fact={fact}
-                  versions={factVersions(props.facts, fact)}
-                  canEdit={props.canEdit}
-                  onDelete={props.onDelete}
-                  onOpenEvidence={props.onOpenEvidence}
-                />
-              ))}
-            </ul>
-          )}
+          <ul className="flex flex-col">
+            {page.facts.map((fact) => (
+              <FactRow
+                key={fact.factId}
+                fact={fact}
+                versions={factVersions(props.facts, fact)}
+                canEdit={props.canEdit}
+                onDelete={props.onDelete}
+                onOpenEvidence={props.onOpenEvidence}
+              />
+            ))}
+          </ul>
         </div>
       )}
       {map.data.workflows.length > 0 ? (
@@ -431,7 +415,7 @@ function MapTab(props: {
               <li key={workflow.itemId}>
                 {workflow.statement}
                 <span className="block break-all text-muted-foreground">
-                  {workflow.pages.map((step) => step.route).join(" → ")}
+                  {workflow.pages.map((page) => page.route).join(", ")}
                 </span>
               </li>
             ))}

@@ -91,7 +91,7 @@ const MemoryText = (max: number) =>
 
 const MemoryMapTool = Tool.make("memory_map", {
   description:
-    "Read this project's app map from current facts: environments, route tree, controls, validations, APIs, navigation links, PASS/FAIL coverage, dependencies and workflow paths. Use it to find pages seen but not tested.",
+    "Read this project's app map from current facts: environments, route tree, controls, validations, APIs, PASS/FAIL coverage, dependencies and behavioral workflows. Use this map to find pages seen but not tested. When navigation memory is enabled, use navigation_route to reach a feature.",
   success: Schema.Struct({ map: Schema.String }),
   failure: memoryFailure,
   dependencies: memoryDependencies,
@@ -103,10 +103,10 @@ const MemoryMapTool = Tool.make("memory_map", {
 
 const MemoryFactPutTool = Tool.make("memory_fact_put", {
   description:
-    "Save one fact worth knowing on the next run of this project: what a page is for, a control, a validation message, where a link goes, an API, a rule, test data. First record what you saw with qa_evidence_record and pass that scenario's index; the page must be on the site under test. Saving the same page, kind and key again replaces the old value, so when memory turns out wrong, save what the page shows now.",
+    "Save one fact worth knowing on the next run of this project: what a page is for, a control, a validation message, an API, a behavioral rule, or test data. Store how to reach a feature only with navigation_observe when navigation memory is enabled; otherwise explore without saving paths. Tested redirects, denied access, and incorrect link destinations are QA facts when they describe a requirement or defect. First record what you saw with qa_evidence_record and pass that scenario's index; the page must be on the site under test. Saving the same page, kind and key again replaces the old value, so when memory turns out wrong, save what the page shows now.",
   parameters: Schema.Struct({
     pageUrl: MemoryText(2048),
-    kind: Schema.Literals(["page", "control", "validation", "navigation", "api", "rule", "data"]),
+    kind: Schema.Literals(["page", "control", "validation", "api", "rule", "data"]),
     key: MemoryText(200),
     value: MemoryText(500),
     detail: Schema.optional(MemoryText(2000)),
@@ -141,7 +141,7 @@ const MemoryFactsLookupTool = Tool.make("memory_facts_lookup", {
 
 const MemoryRecallTool = Tool.make("memory_recall", {
   description:
-    "Search by meaning what earlier runs learned about this project: workflows, dependencies, test strategies, lessons, open questions. Items a match depends on come with it. Hypotheses are unproven.",
+    "Search by meaning what earlier runs learned about this project: behavioral workflows, dependencies, test strategies, lessons, open questions. Items a match depends on come with it. Hypotheses are unproven.",
   parameters: Schema.Struct({ query: MemoryText(1000) }),
   success: Schema.Struct({ items: Schema.String }),
   failure: memoryFailure,
@@ -187,9 +187,9 @@ const QaRegressionRunTool = Tool.make("qa_regression_run", {
 const navigationDependencies = [...dependencies, NavigationCapture.NavigationCapture];
 const NavigationObserveTool = Tool.make("navigation_observe", {
   description:
-    "Record a live screen that memory does not know yet. Call when exploring: on an unrecognized start (without action) and after each explored step. Not needed while following a found route or a matching directUrl. Supply visible distinguishing checks and known context (authenticated, role, ownership). action describes the navigation performed since the previous observation; it is accepted only when browser actions were recorded. Never put credentials or personal values in memory.",
+    "Record a live screen that memory does not know yet. Call when exploring, on every task: on the start screen (without action) when navigation_route did not return found, and after each explored step, including arrival at the destination. Only an observation with an action saves a connection. Not needed while following a found route or a matching directUrl. Supply visible distinguishing checks and known context (authenticated, role, ownership). action describes the navigation performed since the previous observation; it is accepted only when browser actions were recorded. Never put credentials or personal values in memory.",
   parameters: NavigationObserveInput,
-  success: NavigationState,
+  success: Schema.Struct({ ...NavigationState.fields, next: Schema.optional(Schema.String) }),
   failure: memoryFailure,
   dependencies: navigationDependencies,
 })
@@ -197,7 +197,7 @@ const NavigationObserveTool = Tool.make("navigation_observe", {
   .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenWithoutNavigationMemory);
 const NavigationRouteTool = Tool.make("navigation_route", {
   description:
-    "Find a remembered path from the current screen to a destination name or alias. Recognizes the starting screen by checking remembered screens live; fromStateId is an optional hint. Composes observed connections, including ones learned from different starting screens. directUrl, when present, is the address the destination was seen at: open it, then check it live. Returned steps are quoted past observations, not permission or proof. Check each destination live and explore normally if no route or the state is ambiguous.",
+    "Find a remembered path from the current screen to a destination name or alias. Recognizes the starting screen by checking remembered screens live; fromStateId is an optional hint. Composes observed connections, including ones learned from different starting screens. directUrl, when present, is the address the destination was seen at: open it, then check it live. Returned steps are quoted past observations, not permission or proof. Check each destination live. Any status other than found means explore, and record as you go: call navigation_observe on the current screen now, then after each step, including the destination. Otherwise the path is lost.",
   parameters: NavigationRouteInput,
   success: NavigationRouteResult,
   failure: memoryFailure,

@@ -9,7 +9,6 @@ const PROJECT_MEMORY_FACT_KINDS = [
   "page",
   "control",
   "validation",
-  "navigation",
   "api",
   "result",
   "rule",
@@ -172,14 +171,6 @@ export const ProjectMemoryMapPage = Schema.Struct({
   failCount: NonNegativeInt,
   facts: Schema.Array(ProjectMemoryFact),
   details: Schema.Array(ProjectMemoryFact),
-  navigation: Schema.Array(
-    Schema.Struct({
-      environment: Schema.String,
-      route: Schema.String,
-      factId: Schema.String,
-      label: Schema.String,
-    }),
-  ),
   needs: Schema.Array(Schema.String),
 });
 export type ProjectMemoryMapPage = typeof ProjectMemoryMapPage.Type;

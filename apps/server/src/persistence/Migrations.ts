@@ -112,6 +112,7 @@ import Migration0100 from "./Migrations/100_ProjectUnderstanding.ts";
 import Migration0101 from "./Migrations/101_MemoryBriefUsage.ts";
 
 import Migration0102 from "./Migrations/102_ProjectNavigation.ts";
+import Migration0103 from "./Migrations/103_ResetProjectMemory.ts";
 
 const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -217,6 +218,7 @@ const migrationEntries = [
   [100, "ProjectUnderstanding", Migration0100],
   [101, "MemoryBriefUsage", Migration0101],
   [102, "ProjectNavigation", Migration0102],
+  [103, "ResetProjectMemory", Migration0103],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

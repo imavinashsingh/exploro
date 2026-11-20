@@ -94,7 +94,6 @@ describe("map rows", () => {
     failCount: 0,
     facts: [],
     details: [],
-    navigation: [],
     needs: [],
     ...overrides,
   });
