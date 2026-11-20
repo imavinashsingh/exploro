@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 
 import { findNavigationPath, navigationDestinations, navigationStateKey } from "./navigation.ts";
+import { navigationRoute } from "./ProjectNavigationMemory.ts";
 
 const state = (id: string, context: Record<string, string> = {}) => ({
   id,
@@ -32,6 +33,15 @@ describe("navigation routing", () => {
       })),
       { ...state("Customers"), aliases: ["Clients for time tracking"] },
       { ...state("Recruitment Candidates"), aliases: ["Candidates list"] },
+      state("Employee List"),
+      { ...state("Edit Profile"), aliases: ["Profile editor"] },
+      state("Contact Form"),
+      state("Leave List"),
+      state("Employee Directory"),
+      state("Settings"),
+      state("Go to cart"),
+      state("Example 1"),
+      state("Example 20"),
     ];
     const names = (query: string) => navigationDestinations(states, query).map((s) => s.name);
     expect(names("my personal details editor")).toEqual(["Personal Details"]);
@@ -42,6 +52,18 @@ describe("navigation routing", () => {
     ]);
     expect(names("details")).toEqual(["Personal Details", "Contact Details"]);
     expect(names("billing")).toEqual([]);
+    for (const [query, expected] of [
+      ["employee list page", ["Employee List"]],
+      ["edit profile page", ["Edit Profile"]],
+      ["contact form page", ["Contact Form"]],
+      ["leave list page", ["Leave List"]],
+      ["profile editor page", ["Edit Profile"]],
+      ["employee directory", ["Employee Directory"]],
+      ["go to settings", ["Settings"]],
+      ["Example 2", []],
+    ] as const) {
+      expect.soft(names(query), query).toEqual(expected);
+    }
   });
 
   it("composes separately observed paths, handles cycles and filters role conditions", () => {
@@ -102,6 +124,25 @@ describe("navigation routing", () => {
     ).toBe(2);
     expect(findNavigationPath(states, edges, "profile", "profile", {})).toEqual([]);
     expect(findNavigationPath(states, edges, "missing", "missing", {})).toBeNull();
+    const index = {
+      ...state("dynamic-index"),
+      name: "Dynamic Loading index",
+      path: "/dynamic_loading",
+      aliases: ["Dynamic Loading"],
+    };
+    const snapshot = { states: [index, ...states], transitions: edges, truncated: false };
+    for (const [from, destination, status] of [
+      [index.id, "Dynamic Loading Example 2", "no-route"],
+      [index.id, "Dynamic Loading", "already-there"],
+      [index.id, "Dynamic Loading index", "already-there"],
+      [index.id, index.id, "already-there"],
+    ] as const) {
+      const result = navigationRoute(snapshot, from, destination);
+      expect.soft(result.status, destination).toBe(status);
+      expect.soft(result.candidates, destination).toEqual([index]);
+      expect.soft(result.directUrl, destination).toBeUndefined();
+      expect.soft(result.steps, destination).toEqual([]);
+    }
   });
 
   it("does not merge states by URL or label alone and canonicalizes aliases and check ordering", () => {

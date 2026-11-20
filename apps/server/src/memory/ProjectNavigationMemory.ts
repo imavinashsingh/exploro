@@ -18,6 +18,7 @@ import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as SqlClient from "effect/sql/SqlClient";
 import {
   findNavigationPath,
+  isExactNavigationDestination,
   navigationDestinations,
   navigationStateKey,
   navigationTransitionKey,
@@ -86,6 +87,8 @@ export function navigationRoute(
       steps: [],
     };
   const target = candidates[0]!;
+  if (from === target.id && !isExactNavigationDestination(target, destination))
+    return { status: "no-route", candidates: [target], steps: [] };
   const path =
     from === target.id
       ? []
