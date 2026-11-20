@@ -91,6 +91,8 @@ export const PreviewAutomationStatus = Schema.Struct({
   title: Schema.NullOr(Schema.String),
   loading: Schema.Boolean,
   loadError: Schema.optional(PreviewAutomationLoadError),
+  /** When the tab's latest successful page-changing action finished. */
+  lastActionAt: Schema.optional(Schema.String),
   control: Schema.optional(
     Schema.Struct({
       owner: PreviewAutomationTabOwner,

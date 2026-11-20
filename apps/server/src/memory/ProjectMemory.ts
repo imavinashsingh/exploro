@@ -30,6 +30,7 @@ import { buildProjectMap } from "./projectMap.ts";
 import * as ServerConfig from "../config.ts";
 import { hideProvidedSecrets } from "./providedSecrets.ts";
 import { qaThreadFolder } from "../qa/qaEvidence.ts";
+import { forgetNavigationRun } from "./ProjectNavigationMemory.ts";
 import {
   memoryEnvironment,
   memoryRoute,
@@ -636,6 +637,7 @@ const make = Effect.gen(function* () {
               ORDER BY observed_at ASC, rowid ASC
             `.pipe(Effect.flatMap(decodeRows));
             yield* deleteRows(rows);
+            yield* forgetNavigationRun(sql, runId);
           }),
         );
       },
@@ -664,6 +666,9 @@ const make = Effect.gen(function* () {
             yield* sql`DELETE FROM project_memory_facts WHERE project_id = ${projectId}`;
             yield* sql`DELETE FROM project_memory_deleted WHERE project_id = ${projectId}`;
             yield* sql`DELETE FROM project_memory_extractions WHERE project_id = ${projectId}`;
+            yield* sql`DELETE FROM project_navigation_feedback WHERE project_id = ${projectId}`;
+            yield* sql`DELETE FROM project_navigation_observations WHERE project_id = ${projectId}`;
+            yield* sql`DELETE FROM project_navigation_states WHERE project_id = ${projectId}`;
           }),
         );
       },

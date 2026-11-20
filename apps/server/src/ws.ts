@@ -1,3 +1,4 @@
+import * as ProjectNavigationMemory from "./memory/ProjectNavigationMemory.ts";
 import * as ProjectMemory from "./memory/ProjectMemory.ts";
 import * as ProjectMemoryControl from "./memory/ProjectMemoryControl.ts";
 import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
@@ -1488,6 +1489,7 @@ export const layerWsRpc = (
       const qaSuites = yield* QaSuites.QaSuites;
       const projectMemory = yield* ProjectMemory.ProjectMemory;
       const memoryControl = yield* ProjectMemoryControl.ProjectMemoryControl;
+      const navigation = yield* ProjectNavigationMemory.ProjectNavigationMemory;
       const secretRequests = yield* SecretRequests.SecretRequests;
       const guestShares = yield* GuestShareService.GuestShareService;
       const pullRequests = yield* PullRequestService.PullRequestService;
@@ -2334,6 +2336,8 @@ export const layerWsRpc = (
           providerSessionManager.subscribePromptSuggestion(input.threadId),
         [WS_METHODS.scheduledTasksSubscribe]: (_input) =>
           scheduledTasks.subscribeList().pipe(Stream.map(withVisibleWebhookUrls)),
+        [WS_METHODS.projectNavigationDelete]: (input) =>
+          navigation.deleteRecord(input.projectId, input.id),
         [WS_METHODS.projectMemoryMap]: (input) => projectMemory.map(input.projectId),
         [WS_METHODS.projectMemorySaveThread]: (input) => memoryControl.saveThread(input.threadId),
         [WS_METHODS.projectMemorySetAppVersion]: (input) => memoryControl.setAppVersion(input),
@@ -3656,6 +3660,7 @@ export const layer = Layer.unwrap(
     const qaSuites = yield* QaSuites.QaSuites;
     const projectMemory = yield* ProjectMemory.ProjectMemory;
     const memoryControl = yield* ProjectMemoryControl.ProjectMemoryControl;
+    const navigation = yield* ProjectNavigationMemory.ProjectNavigationMemory;
     const sql = yield* SqlClient.SqlClient;
     return HttpRouter.add(
       "GET",
@@ -3758,6 +3763,9 @@ export const layer = Layer.unwrap(
               Layer.provide(Layer.succeed(QaRuns.QaRuns, qaRuns)),
               Layer.provide(Layer.succeed(QaSuites.QaSuites, qaSuites)),
               Layer.provide(Layer.succeed(ProjectMemory.ProjectMemory, projectMemory)),
+              Layer.provide(
+                Layer.succeed(ProjectNavigationMemory.ProjectNavigationMemory, navigation),
+              ),
               Layer.provide(
                 Layer.succeed(ProjectMemoryControl.ProjectMemoryControl, memoryControl),
               ),

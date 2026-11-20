@@ -83,6 +83,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.qaSuitesUpdate]: AuthOrchestrationOperateScope,
   [WS_METHODS.qaSuitesAcceptBaseline]: AuthOrchestrationOperateScope,
   [WS_METHODS.qaSuitesResolveProposal]: AuthOrchestrationOperateScope,
+  [WS_METHODS.projectNavigationDelete]: AuthOrchestrationOperateScope,
   [WS_METHODS.projectMemoryDeleteFact]: AuthOrchestrationOperateScope,
   [WS_METHODS.projectMemoryUpdateItem]: AuthOrchestrationOperateScope,
   [WS_METHODS.projectMemoryDeleteItem]: AuthOrchestrationOperateScope,

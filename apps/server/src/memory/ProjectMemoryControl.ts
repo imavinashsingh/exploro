@@ -1,3 +1,5 @@
+import * as ProjectNavigationMemory from "./ProjectNavigationMemory.ts";
+import * as Option from "effect/Option";
 import {
   ProjectMemoryError,
   type ProjectId,
@@ -64,6 +66,7 @@ export class ProjectMemoryControl extends Context.Service<
 
 const make = Effect.gen(function* () {
   const memory = yield* ProjectMemory.ProjectMemory;
+  const navigation = yield* Effect.serviceOption(ProjectNavigationMemory.ProjectNavigationMemory);
   const understanding = yield* ProjectUnderstanding.ProjectUnderstanding;
   const extraction = yield* UnderstandingExtraction.UnderstandingExtraction;
 
@@ -154,6 +157,9 @@ const make = Effect.gen(function* () {
     snapshot: Effect.fn("ProjectMemoryControl.snapshot")(function* (projectId) {
       const facts = yield* memory.listFacts(projectId, SNAPSHOT_FACT_LIMIT + 1);
       return {
+        ...(Option.isSome(navigation)
+          ? { navigation: yield* navigation.value.snapshot(projectId) }
+          : {}),
         facts: facts.slice(0, SNAPSHOT_FACT_LIMIT),
         factsTruncated: facts.length > SNAPSHOT_FACT_LIMIT,
         understanding: yield* understanding.getItems(projectId),

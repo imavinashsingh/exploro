@@ -1,3 +1,4 @@
+import * as NavigationCapture from "../memory/NavigationCapture.ts";
 import * as ProjectMemory from "../memory/ProjectMemory.ts";
 import * as ProjectUnderstanding from "../memory/ProjectUnderstanding.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
@@ -115,6 +116,8 @@ const layerTest = McpHttpServer.layerPreviewToolkit.pipe(
       Layer.mock(SecretRequests.SecretRequests)({}),
       Layer.mock(QaSavedSecrets.QaSavedSecrets)({}),
       Layer.mock(ProjectMemory.ProjectMemory)({}),
+      Layer.mock(NavigationCapture.NavigationCapture)({}),
+      ServerSettings.layerTest({}),
       Layer.mock(ProjectUnderstanding.ProjectUnderstanding)({}),
       Layer.mock(QaRecorder.QaRecorder)({
         browserOpened: () => Effect.void,
@@ -2140,7 +2143,21 @@ it.effect("hides memory tools from a thread without a project and refuses their 
       Effect.sync(McpInvocationContext.hiddenWithoutMemory).pipe(withCapabilities(capabilities));
     expect(yield* visible(["preview"])).toBe(false);
     expect(yield* visible(["preview", "memory"])).toBe(true);
-    for (const name of memoryTools) {
+    expect(
+      yield* Effect.sync(McpInvocationContext.hiddenWithoutNavigationMemory).pipe(
+        withCapabilities(["preview", "memory"]),
+      ),
+    ).toBe(false);
+    expect(
+      yield* Effect.sync(McpInvocationContext.hiddenWithoutNavigationMemory).pipe(
+        withCapabilities(["preview", "navigation-memory"]),
+      ),
+    ).toBe(true);
+    const navigationTools = server.tools
+      .filter(({ tool }) => tool.name.startsWith("navigation_"))
+      .map(({ tool }) => tool.name);
+    expect(navigationTools).toHaveLength(3);
+    for (const name of [...memoryTools, ...navigationTools]) {
       const refused = yield* server
         .callTool({ name, arguments: {} })
         .pipe(

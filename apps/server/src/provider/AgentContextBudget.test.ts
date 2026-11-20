@@ -1,3 +1,4 @@
+import * as NavigationCapture from "../memory/NavigationCapture.ts";
 import * as ProjectMemory from "../memory/ProjectMemory.ts";
 import * as ProjectUnderstanding from "../memory/ProjectUnderstanding.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
@@ -86,6 +87,7 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(QaRuns.QaRuns)({}),
   Layer.mock(QaSuites.QaSuites)({}),
   Layer.mock(ProjectMemory.ProjectMemory)({}),
+  Layer.mock(NavigationCapture.NavigationCapture)({}),
   Layer.mock(ProjectUnderstanding.ProjectUnderstanding)({}),
   Layer.mock(QaRecorder.QaRecorder)({}),
   Layer.mock(SecretRequests)({}),

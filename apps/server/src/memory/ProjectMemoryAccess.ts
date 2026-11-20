@@ -17,6 +17,7 @@ export class ProjectMemoryAccess extends Context.Service<
   {
     /** Scratch threads have no project, and the user can turn memory off for a project. */
     readonly hasMemory: (projectId: ProjectId) => Effect.Effect<boolean>;
+    readonly hasNavigation: (projectId: ProjectId) => Effect.Effect<boolean>;
     /** The brief for a thread's first turn, or "" when memory has nothing or fails. */
     readonly firstTurnBrief: (
       projectId: ProjectId,
@@ -43,11 +44,32 @@ const make = Effect.gen(function* () {
     );
   });
 
+  const hasNavigation = Effect.fn("ProjectMemoryAccess.hasNavigation")(function* (
+    projectId: ProjectId,
+  ) {
+    if (yield* folders.isScratchProject(projectId)) return false;
+    return yield* serverSettings.getSettings.pipe(
+      Effect.map(
+        (settings) => resolveProjectSettings(settings, projectId).settings.qaNavigationMemory,
+      ),
+      Effect.orElseSucceed(() => false),
+    );
+  });
   return ProjectMemoryAccess.of({
     hasMemory,
+    hasNavigation,
     firstTurnBrief: Effect.fn("ProjectMemoryAccess.firstTurnBrief")(
       function* (projectId, goal, threadId) {
-        if (!(yield* hasMemory(projectId))) return "";
+        if (!(yield* hasMemory(projectId)) && !(yield* hasNavigation(projectId))) return "";
+        const scoped = yield* serverSettings.getSettings.pipe(
+          Effect.map((settings) => resolveProjectSettings(settings, projectId).settings),
+          Effect.option,
+        );
+        const navigationNote =
+          scoped._tag === "Some" && scoped.value.qaNavigationMemory
+            ? "Project Navigation Memory is enabled. Ask navigation_route for the requested feature first; open its directUrl or follow its steps, verifying live. Observe only screens you had to explore."
+            : "";
+        if (scoped._tag === "None" || !scoped.value.qaMemoryEnabled) return navigationNote;
         return yield* Effect.gen(function* () {
           const known = yield* memory.lookupFacts(projectId, { limit: 500 });
           const target = memoryTarget(goal, known);
@@ -80,7 +102,7 @@ const make = Effect.gen(function* () {
           if (threadId !== undefined) {
             yield* memory.recordBriefUsage(threadId, brief).pipe(Effect.ignore);
           }
-          return brief;
+          return [navigationNote, brief].filter(Boolean).join("\n\n");
         }).pipe(
           Effect.catchCause((cause) =>
             Effect.logWarning("Project memory brief was not built", { projectId, cause }).pipe(

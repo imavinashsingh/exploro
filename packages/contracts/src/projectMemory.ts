@@ -1,3 +1,4 @@
+import { NavigationSnapshot } from "./projectNavigation.ts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
@@ -247,6 +248,7 @@ export type ProjectMemoryStatus = typeof ProjectMemoryStatus.Type;
 
 /** Everything the Memory screen shows: every version of every fact, newest first. */
 export const ProjectMemorySnapshot = Schema.Struct({
+  navigation: Schema.optional(NavigationSnapshot),
   facts: Schema.Array(ProjectMemoryFact),
   /** More facts exist than were sent. */
   factsTruncated: Schema.Boolean,

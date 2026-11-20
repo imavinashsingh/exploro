@@ -59,6 +59,17 @@ but keep nothing between sessions.
 When the first test in a project finishes, the site it opened is added for you. Add, change or
 remove sites there at any time; Exploro never replaces sites you set yourself.
 
+### Project Navigation Memory
+
+Enable **Project Navigation Memory** in **Settings → Projects → Memory** to remember how to reach
+features in a project's website. It connects paths learned from different starting screens, and
+can open a remembered screen by its address. Every remembered step is checked against the live
+website, and agents explore normally when no route applies.
+
+Navigation records show the observed connection, its conditions, and the source run. Delete a
+connection there to let a later test learn it again. Turning navigation memory off
+keeps saved records. Mobile shows navigation read-only; manage it on web or desktop.
+
 ### Project memory
 
 Each finished test in a project leaves memory behind for the next one. Memory stores:
