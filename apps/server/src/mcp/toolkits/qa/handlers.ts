@@ -56,11 +56,16 @@ const memoryScope = Effect.gen(function* () {
   return { threadId: scope.thread.threadId, projectId: thread.projectId };
 });
 
+const EXPLORATION_NEXT =
+  "When a step reaches the destination screen, call navigation_observe there with that action before testing it. That call saves the path for later runs.";
+
 export const layer = McpToolAccess.toLayer(QaToolkit, {
   navigation_observe: McpToolAccess.actsAsCaller((input) =>
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.requireThreadMcpCapability("navigation-memory");
-      return yield* (yield* NavigationCapture.NavigationCapture).observe(scope, input);
+      const state = yield* (yield* NavigationCapture.NavigationCapture).observe(scope, input);
+      // Models skip the arrival observation once testing starts; remind them while it is still ahead.
+      return input.action === undefined ? { ...state, next: EXPLORATION_NEXT } : state;
     }),
   ),
   navigation_route: McpToolAccess.readsAsCaller((input) =>

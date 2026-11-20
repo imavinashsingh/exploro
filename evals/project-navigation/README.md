@@ -43,6 +43,7 @@ comparison repeats the independent pilot. `prepare` learns with a real agent and
 seed without facts, and an observed connection into every destination. The
 learning turn gets ten minutes. Inspect it before use: the quality of learned checks matters too.
 
+Seeds created before migration 103 must be rebuilt: that upgrade resets pre-release project memory.
 The seed must be stopped before copying. Every trial gets its own database, browser profile,
 fresh project workspace, and fresh thread. Only installed browser binaries are shared. The
 runner hashes the complete source snapshot before and after the comparison and pins the seed's

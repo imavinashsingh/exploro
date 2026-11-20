@@ -64,7 +64,8 @@ remove sites there at any time; Exploro never replaces sites you set yourself.
 Enable **Project Navigation Memory** in **Settings → Projects → Memory** to remember how to reach
 features in a project's website. It connects paths learned from different starting screens, and
 can open a remembered screen by its address. Every remembered step is checked against the live
-website, and agents explore normally when no route applies.
+website, and agents explore normally when no route applies. Navigation paths are stored here;
+Project memory keeps application behavior and testing knowledge. The two settings work independently.
 
 Navigation records show the observed connection, its conditions, and the source run. Delete a
 connection there to let a later test learn it again. Turning navigation memory off
@@ -74,7 +75,7 @@ keeps saved records. Mobile shows navigation read-only; manage it on web or desk
 
 Each finished test in a project leaves memory behind for the next one. Memory stores:
 
-- **Facts**: what a run saw on a page, such as a validation message or where a link goes. Each
+- **Facts**: what a run saw on a page, such as a validation message, a cart update, or an access rule. Each
   fact points at the run's screenshot.
 - **Understanding**: how the app works, such as "the dashboard needs a signed-in session",
   written from the runs and from what you told the agent.

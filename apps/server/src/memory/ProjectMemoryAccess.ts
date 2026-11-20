@@ -67,7 +67,7 @@ const make = Effect.gen(function* () {
         );
         const navigationNote =
           scoped._tag === "Some" && scoped.value.qaNavigationMemory
-            ? "Project Navigation Memory is enabled. Ask navigation_route for the requested feature first; open its directUrl or follow its steps, verifying live. Observe only screens you had to explore."
+            ? "Project Navigation Memory is enabled. Ask navigation_route for the requested feature first; open its directUrl or follow its steps, verifying live. If it returns anything other than found, call navigation_observe on the current screen, then after each step you explore, including the destination."
             : "";
         if (scoped._tag === "None" || !scoped.value.qaMemoryEnabled) return navigationNote;
         return yield* Effect.gen(function* () {

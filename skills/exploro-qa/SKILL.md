@@ -121,8 +121,12 @@ has the `memory_*` tools. A thread without a project has neither; test as usual.
 - `memory_facts_lookup` finds exact facts about a page, `memory_recall` finds how the app works (for
   example what the dashboard needs first), and `memory_map` shows pages seen but not tested.
 - When you observe something worth knowing next time (what a page is for, a validation message,
-  where a link goes, test data that works), record its evidence with `qa_evidence_record`, then save
-  it with `memory_fact_put`.
+  application behavior, test data that works), record its evidence with `qa_evidence_record`, then
+  save it with `memory_fact_put`.
+- Navigation memory owns how to reach a feature. Do not save click paths, menu sequences, or
+  screen recognition details as facts. When navigation memory is disabled, explore normally
+  without saving paths. Keep behavioral rules and tested findings, including redirects, denied
+  access, and incorrect link destinations, when they describe a requirement or defect.
 - When the page contradicts memory, trust the page and save a fact with what you saw.
 - When the user corrects you, record the scenario again with the corrected verdict and a note on what
   changed, and save the correction as a fact.
@@ -143,7 +147,9 @@ test. It stores observed navigation, not expected product behavior or permission
 - Record only what is new. When the start is unrecognized, no route exists, or a step mismatched,
   call `navigation_observe` on the current screen without an action, giving a concise name,
   useful aliases, known context, and visible distinguishing checks. Then observe after each
-  explored action, with the action you performed. Those observations are what later routes use.
+  explored action, with the action you performed, including the step that reaches the destination.
+  Do this on every task, not only when asked to remember the way: the last observation with an
+  action is what saves the connection for later routes.
   A URL alone does not identify a screen. Use provided credentials only; never put passwords,
   tokens, or personal form values in state names, actions, context, or checks.
 - Check login, role, and ownership conditions. Unknown conditions need verification. A remembered
