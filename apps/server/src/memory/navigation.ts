@@ -62,9 +62,23 @@ export function findNavigationPath(
   return null;
 }
 
-const fillerWords = new Set(["the", "for", "and", "that", "with", "from", "can", "into", "this"]);
+const fillerWords = new Set([
+  "the",
+  "for",
+  "and",
+  "that",
+  "with",
+  "from",
+  "can",
+  "into",
+  "this",
+  "page",
+  "screen",
+  "view",
+]);
 // Word forms match ("add"/"adding", "tracked"/"tracking"); a short word does not match any long one.
 const sameWord = (a: string, b: string) => {
+  if (a.length < 3 || b.length < 3 || /\p{N}/u.test(a + b)) return a === b;
   const [short, long] = a.length <= b.length ? [a, b] : [b, a];
   return (
     (long.startsWith(short) && long.length - short.length <= 3) ||
@@ -72,24 +86,32 @@ const sameWord = (a: string, b: string) => {
   );
 };
 
+export function isExactNavigationDestination(state: NavigationState, query: string) {
+  const normalized = query.trim().toLowerCase();
+  return [state.id, state.name, ...state.aliases].some((name) => name.toLowerCase() === normalized);
+}
+
 export function navigationDestinations(
   states: ReadonlyArray<NavigationState>,
   query: string,
 ): ReadonlyArray<NavigationState> {
   const normalized = query.trim().toLowerCase();
-  const exact = states.filter((s) =>
-    [s.id, s.name, ...s.aliases].some((name) => name.toLowerCase() === normalized),
-  );
+  const exact = states.filter((state) => isExactNavigationDestination(state, normalized));
   if (exact.length > 0) return exact;
   // Requests name features loosely ("my personal details editor"); the closest remembered names win.
   const tokens = (text: string) =>
     [...new Set(text.toLowerCase().split(/[^\p{L}\p{N}]+/u))].filter(
-      (word) => word.length >= 3 && !fillerWords.has(word),
+      (word) => (word.length >= 3 || /\p{N}/u.test(word)) && !fillerWords.has(word),
     );
   const words = tokens(normalized);
-  const scored = states.map((s) => {
+  const numbers = words.filter((word) => /\p{N}/u.test(word));
+  const scored = states.flatMap((s) => {
     const names = tokens(`${s.name} ${s.aliases.join(" ")}`);
-    return { s, score: words.filter((word) => names.some((name) => sameWord(word, name))).length };
+    if (names.some((name) => /\p{N}/u.test(name)) && !numbers.every((word) => names.includes(word)))
+      return [];
+    return [
+      { s, score: words.filter((word) => names.some((name) => sameWord(word, name))).length },
+    ];
   });
   const best = Math.max(0, ...scored.map((entry) => entry.score));
   return best === 0 ? [] : scored.filter((entry) => entry.score === best).map((entry) => entry.s);
