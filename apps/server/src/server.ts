@@ -1,3 +1,5 @@
+import * as ProjectNavigationMemory from "./memory/ProjectNavigationMemory.ts";
+import * as NavigationCapture from "./memory/NavigationCapture.ts";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import type { RelayManagedEndpointRuntimeConfig } from "@t3tools/contracts/relay";
 import * as Random from "effect/Random";
@@ -903,7 +905,9 @@ const layerMakeRoutes = Layer.mergeAll(
       Layer.provideMerge(
         QaRecorder.layer.pipe(
           // The Memory screen shares the recorder's extraction queue.
+          Layer.provideMerge(NavigationCapture.layer),
           Layer.provideMerge(ProjectMemoryControl.layer),
+          Layer.provideMerge(ProjectNavigationMemory.layer),
           Layer.provideMerge(
             UnderstandingExtraction.layer.pipe(Layer.provideMerge(MiniLmEmbedder.layer)),
           ),
@@ -1410,7 +1414,8 @@ const layerMakeServer = Layer.unwrap(
   }),
 ).pipe(Layer.provide(ProcessRunner.layer));
 
-export const runServer = Layer.launch(
-  // For the layers above whose spawner requirement is not met by one of them.
-  layerMakeServer.pipe(Layer.provide(NonBlockingSpawner.layer.pipe(Layer.provide(layerSpawner)))),
+export const layerServer = layerMakeServer.pipe(
+  Layer.provide(NonBlockingSpawner.layer.pipe(Layer.provide(layerSpawner))),
 );
+
+export const runServer = Layer.launch(layerServer);

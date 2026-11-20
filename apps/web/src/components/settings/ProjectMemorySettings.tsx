@@ -8,6 +8,7 @@ import {
   PROJECT_UNDERSTANDING_KINDS,
   type EnvironmentId,
   type ProjectId,
+  type ThreadId,
   type ProjectMemoryFact,
   type ProjectMemoryFactKind,
   type ProjectMemoryFactStatus,
@@ -628,6 +629,7 @@ export function ProjectMemorySettings(props: {
   const messages = useMessages();
   const navigate = useNavigate();
   const enabled = useScopedSettings((settings) => settings.qaMemoryEnabled);
+  const navigationEnabled = useScopedSettings((settings) => settings.qaNavigationMemory);
   const updateSettings = useUpdateScopedSettings();
   const [versionEnvironment, setVersionEnvironment] = useState("");
   const [appVersion, setAppVersion] = useState("");
@@ -667,8 +669,17 @@ export function ProjectMemorySettings(props: {
     label: "retry memory extraction",
   });
 
+  const deleteNavigation = useAtomCommand(serverEnvironment.deleteNavigationRecord, {
+    label: "delete navigation memory",
+  });
+  const canDeleteNavigation = useAtomValue(
+    serverEnvironment.deleteNavigationRecord.permissionAtom(environmentId),
+  );
   const data = snapshot.data;
   const status = memoryStatusLine(data?.status ?? null, enabled, messages);
+  const navigationStates = new Map(
+    (data?.navigation?.states ?? []).map((state) => [state.id, state]),
+  );
   const facts = new Map((data?.facts ?? []).map((fact) => [fact.factId, fact]));
   const items = new Map((data?.understanding ?? []).map((item) => [item.itemId, item]));
 
@@ -714,6 +725,85 @@ export function ProjectMemorySettings(props: {
           />
         }
       />
+      <SettingsRow
+        serverScoped
+        settingKeys={["qaNavigationMemory"]}
+        title={gt("Project Navigation Memory")}
+        description={gt(
+          "Remember how to reach features. Each remembered step is checked against the live website. Turning it off keeps saved navigation.",
+        )}
+        control={
+          <Switch
+            checked={navigationEnabled}
+            onCheckedChange={(checked) => updateSettings({ qaNavigationMemory: Boolean(checked) })}
+            aria-label={gt("Project Navigation Memory")}
+          />
+        }
+      />
+      {data?.navigation ? (
+        <div className="flex flex-col gap-3 py-3">
+          <p className="text-sm">{gt("Observed navigation")}</p>
+          {data.navigation.transitions.slice(0, 50).map((edge) => {
+            return (
+              <div key={edge.id} className="flex items-center justify-between gap-3">
+                <div className="min-w-0 text-sm">
+                  <p>
+                    {navigationStates.get(edge.from)?.name ?? "?"} →{" "}
+                    {navigationStates.get(edge.to)?.name ?? "?"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {edge.action} · {edge.observedAt.slice(0, 10)}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {Object.entries(edge.conditions)
+                      .map(([key, value]) => `${key}: ${value}`)
+                      .join(", ")}
+                  </p>
+                  {!edge.available ? <p className="text-xs">{gt("Needs rechecking")}</p> : null}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    onClick={() =>
+                      void navigate({
+                        to: "/$environmentId/$threadId",
+                        params: { environmentId, threadId: edge.threadId as ThreadId },
+                      })
+                    }
+                  >
+                    {gt("Open source run")}
+                  </Button>
+                  <Button
+                    size="icon-xs"
+                    variant="ghost-muted"
+                    aria-label={gt("Delete navigation connection")}
+                    disabled={!canDeleteNavigation}
+                    onClick={() =>
+                      void deleteNavigation({
+                        environmentId,
+                        input: { projectId, id: edge.id },
+                      }).then(after(gt("Could not delete navigation memory")))
+                    }
+                  >
+                    <Trash2Icon />
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+          {data.navigation.truncated || data.navigation.transitions.length > 50 ? (
+            <p className="text-xs">{gt("Some navigation records are not shown.")}</p>
+          ) : null}
+          {data.navigation.states.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              {gt(
+                "No navigation learned yet. Turn it on and explore a feature in a project thread.",
+              )}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       <SettingsRow
         title={gt("Status")}
         description={

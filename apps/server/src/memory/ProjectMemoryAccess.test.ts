@@ -11,6 +11,7 @@ import * as ProjectUnderstanding from "./ProjectUnderstanding.ts";
 
 const shop = ProjectId.make("shop");
 const off = ProjectId.make("off");
+const navigationOnly = ProjectId.make("navigation-only");
 const scratch = ProjectId.make("scratch");
 
 const layer = ProjectMemoryAccess.layer.pipe(
@@ -21,7 +22,12 @@ const layer = ProjectMemoryAccess.layer.pipe(
     }),
   ),
   Layer.provide(
-    ServerSettings.layerTest({ projectSettingsOverrides: { [off]: { qaMemoryEnabled: false } } }),
+    ServerSettings.layerTest({
+      projectSettingsOverrides: {
+        [off]: { qaMemoryEnabled: false },
+        [navigationOnly]: { qaMemoryEnabled: false, qaNavigationMemory: true },
+      },
+    }),
   ),
   Layer.provide(Layer.mock(ProjectMemory.ProjectMemory)({})),
   Layer.provide(Layer.mock(ProjectUnderstanding.ProjectUnderstanding)({})),
@@ -33,6 +39,12 @@ it.effect("gives memory only to projects that have it on", () =>
     assert.isTrue(yield* access.hasMemory(shop));
     assert.isFalse(yield* access.hasMemory(off));
     assert.isFalse(yield* access.hasMemory(scratch));
+    assert.isFalse(yield* access.hasMemory(navigationOnly));
+    assert.isTrue(yield* access.hasNavigation(navigationOnly));
+    assert.include(
+      yield* access.firstTurnBrief(navigationOnly, "Reach profile"),
+      "Project Navigation Memory is enabled",
+    );
     assert.strictEqual(yield* access.firstTurnBrief(off, "Test the dashboard"), "");
   }).pipe(Effect.provide(layer)),
 );

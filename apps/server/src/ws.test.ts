@@ -1,3 +1,4 @@
+import * as ProjectNavigationMemory from "./memory/ProjectNavigationMemory.ts";
 import * as ProjectMemory from "./memory/ProjectMemory.ts";
 import * as ProjectMemoryControl from "./memory/ProjectMemoryControl.ts";
 import * as SecretResolver from "@t3tools/secret-provider-core/server/SecretResolver";
@@ -875,6 +876,7 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(QaRuns.QaRuns)({}),
   Layer.mock(QaSuites.QaSuites)({}),
   Layer.mock(ProjectMemory.ProjectMemory)({}),
+  Layer.mock(ProjectNavigationMemory.ProjectNavigationMemory)({}),
   Layer.mock(ProjectMemoryControl.ProjectMemoryControl)({}),
   Layer.mock(SecretRequests.SecretRequests)({}),
   Layer.mock(SecretResolver.SecretResolver)({}),

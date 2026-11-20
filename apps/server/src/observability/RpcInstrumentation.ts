@@ -98,6 +98,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.serverSignalProcess]: "server",
   [WS_METHODS.serverReportClientActivity]: "server",
   [WS_METHODS.scheduledTasksSubscribe]: "scheduledTasks",
+  [WS_METHODS.projectNavigationDelete]: "projectMemory",
   [WS_METHODS.projectMemoryMap]: "projectMemory",
   [WS_METHODS.projectMemorySnapshot]: "projectMemory",
   [WS_METHODS.projectMemoryDeleteFact]: "projectMemory",

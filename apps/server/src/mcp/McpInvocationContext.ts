@@ -22,6 +22,7 @@ const ALL_MCP_CAPABILITIES = [
   "device",
   "pull-requests",
   "memory",
+  "navigation-memory",
   "issues",
 ] as const;
 export type McpCapability = (typeof ALL_MCP_CAPABILITIES)[number];
@@ -200,6 +201,12 @@ export const hiddenWithoutMemory = (): boolean => {
   return scope === undefined || scope.capabilities.has("memory");
 };
 
+export const hiddenWithoutNavigationMemory = (): boolean => {
+  const fiber = Fiber.getCurrent();
+  const scope = fiber && Context.getOrUndefined(fiber.context, McpInvocationContext);
+  return scope === undefined || scope.capabilities.has("navigation-memory");
+};
+
 /** `McpSchema.EnabledWhen` for tools that only serve links, hidden while the beta is off. */
 export const hiddenWhileLinksOff = (): boolean => {
   const fiber = Fiber.getCurrent();
@@ -241,7 +248,9 @@ export const requireMcpCapability = <const C extends McpCapability>(
     Effect.withSpan("mcp.requireCapability"),
   );
 
-export const requireThreadMcpCapability = <const C extends "preview" | "device" | "memory">(
+export const requireThreadMcpCapability = <
+  const C extends "preview" | "device" | "memory" | "navigation-memory",
+>(
   capability: C,
 ): Effect.Effect<McpThreadInvocationScope, McpCapabilityError<C>, McpInvocationContext> =>
   McpInvocationContext.pipe(

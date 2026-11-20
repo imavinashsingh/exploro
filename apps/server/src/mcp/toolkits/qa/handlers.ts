@@ -1,3 +1,6 @@
+import * as ServerSettings from "../../../serverSettings.ts";
+import { memoryEnabled } from "../../../memory/ProjectMemoryAccess.ts";
+import * as NavigationCapture from "../../../memory/NavigationCapture.ts";
 import { ProjectMemoryError } from "@t3tools/contracts";
 import * as ProjectMemory from "../../../memory/ProjectMemory.ts";
 import { formatProjectMap } from "../../../memory/projectMap.ts";
@@ -38,10 +41,40 @@ const memoryScope = Effect.gen(function* () {
     );
   if (thread === null)
     return yield* new ProjectMemoryError({ message: "This thread has no project memory." });
+  const settings = yield* ServerSettings.ServerSettingsService;
+  if (
+    !memoryEnabled(
+      yield* settings.getSettings.pipe(
+        Effect.mapError(
+          (cause) => new ProjectMemoryError({ message: "Could not read memory settings.", cause }),
+        ),
+      ),
+      thread.projectId,
+    )
+  )
+    return yield* new ProjectMemoryError({ message: "Fact memory is off for this project." });
   return { threadId: scope.thread.threadId, projectId: thread.projectId };
 });
 
 export const layer = McpToolAccess.toLayer(QaToolkit, {
+  navigation_observe: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.requireThreadMcpCapability("navigation-memory");
+      return yield* (yield* NavigationCapture.NavigationCapture).observe(scope, input);
+    }),
+  ),
+  navigation_route: McpToolAccess.readsAsCaller((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.requireThreadMcpCapability("navigation-memory");
+      return yield* (yield* NavigationCapture.NavigationCapture).route(scope, input);
+    }),
+  ),
+  navigation_feedback: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.requireThreadMcpCapability("navigation-memory");
+      return yield* (yield* NavigationCapture.NavigationCapture).feedback(scope, input);
+    }),
+  ),
   memory_map: McpToolAccess.readsAsCaller(() =>
     Effect.gen(function* () {
       const { projectId } = yield* memoryScope;

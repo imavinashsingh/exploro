@@ -429,7 +429,8 @@ const routed = Effect.fn("McpToolAccess.routed")(function* <Tools extends Record
       remote === undefined &&
       enabledWhen !== McpInvocationContext.hiddenFromOutsideClients &&
       // Only thread credentials are granted memory, so this hides it from outside clients too.
-      enabledWhen !== McpInvocationContext.hiddenWithoutMemory
+      enabledWhen !== McpInvocationContext.hiddenWithoutMemory &&
+      enabledWhen !== McpInvocationContext.hiddenWithoutNavigationMemory
     )
       return yield* Effect.die(
         `${name} acts as its calling thread, so outside clients must not be offered it.`,

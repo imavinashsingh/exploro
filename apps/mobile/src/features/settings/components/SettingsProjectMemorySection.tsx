@@ -46,6 +46,20 @@ export function SettingsProjectMemorySection(props: { readonly project: Environm
       <View className="gap-1 p-4">
         <Text className="text-sm text-foreground-muted">{status}</Text>
       </View>
+      {data?.navigation ? (
+        <View className="gap-1 border-t border-border-subtle px-4 py-3">
+          <Text className="text-sm text-foreground">{gt("Project Navigation Memory")}</Text>
+          {data.navigation.transitions.slice(0, SHOWN).map((edge) => (
+            <View key={edge.id} className="gap-1 py-1">
+              <Text className="text-sm text-foreground">
+                {data.navigation!.states.find((state) => state.id === edge.from)?.name ?? "?"} →{" "}
+                {data.navigation!.states.find((state) => state.id === edge.to)?.name ?? "?"}
+              </Text>
+              <Text className="text-xs text-foreground-muted">{edge.action}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
       {rows.length > 0 ? (
         <View className="gap-1 border-t border-border-subtle px-4 py-3">
           {rows.slice(0, MAP_ROWS).map((row) => (

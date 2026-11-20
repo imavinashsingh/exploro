@@ -1,3 +1,4 @@
+import { NavigationDeleteInput } from "./projectNavigation.ts";
 import {
   ProjectMemoryError,
   ProjectMemoryFactDeleteInput,
@@ -615,6 +616,7 @@ export const WS_METHODS = {
 
   scheduledTasksSubscribe: "scheduledTasks.subscribe",
   projectMemoryMap: "projectMemory.map",
+  projectNavigationDelete: "projectNavigation.delete",
   projectMemorySnapshot: "projectMemory.snapshot",
   projectMemorySaveThread: "projectMemory.saveThread",
   projectMemorySetAppVersion: "projectMemory.setAppVersion",
@@ -2221,6 +2223,10 @@ const WsProjectMemoryMapRpc = Rpc.make(WS_METHODS.projectMemoryMap, {
 });
 
 const memoryError = Schema.Union([ProjectMemoryError, EnvironmentAuthorizationError]);
+const WsProjectNavigationDeleteRpc = Rpc.make(WS_METHODS.projectNavigationDelete, {
+  payload: NavigationDeleteInput,
+  error: memoryError,
+});
 const WsProjectMemorySaveThreadRpc = Rpc.make(WS_METHODS.projectMemorySaveThread, {
   payload: ProjectMemorySaveThreadInput,
   error: memoryError,
@@ -2483,6 +2489,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerSignalProcessRpc,
   WsScheduledTasksSubscribeRpc,
   WsProjectMemoryMapRpc,
+  WsProjectNavigationDeleteRpc,
   WsProjectMemorySnapshotRpc,
   WsProjectMemorySaveThreadRpc,
   WsProjectMemorySetAppVersionRpc,

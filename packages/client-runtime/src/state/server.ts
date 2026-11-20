@@ -1874,6 +1874,10 @@ export function createServerEnvironmentAtoms<R, E>(
       scheduler: configScheduler,
       concurrency: configConcurrency,
     }),
+    deleteNavigationRecord: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:navigation:delete",
+      tag: WS_METHODS.projectNavigationDelete,
+    }),
     deleteMemoryFact: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:project-memory:delete-fact",
       tag: WS_METHODS.projectMemoryDeleteFact,

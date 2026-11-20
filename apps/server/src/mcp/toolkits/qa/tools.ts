@@ -1,3 +1,12 @@
+import * as ServerSettings from "../../../serverSettings.ts";
+import {
+  NavigationObserveInput,
+  NavigationState,
+  NavigationRouteInput,
+  NavigationRouteResult,
+  NavigationFeedbackInput,
+} from "@t3tools/contracts";
+import * as NavigationCapture from "../../../memory/NavigationCapture.ts";
 import * as ProjectMemory from "../../../memory/ProjectMemory.ts";
 import * as ProjectUnderstanding from "../../../memory/ProjectUnderstanding.ts";
 import {
@@ -75,6 +84,7 @@ const memoryDependencies = [
   ...dependencies,
   ProjectMemory.ProjectMemory,
   ProjectUnderstanding.ProjectUnderstanding,
+  ServerSettings.ServerSettingsService,
 ];
 const MemoryText = (max: number) =>
   Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(max));
@@ -174,7 +184,43 @@ const QaRegressionRunTool = Tool.make("qa_regression_run", {
   .annotate(Tool.OpenWorld, true)
   .annotate(Tool.Destructive, false);
 
+const navigationDependencies = [...dependencies, NavigationCapture.NavigationCapture];
+const NavigationObserveTool = Tool.make("navigation_observe", {
+  description:
+    "Record a live screen that memory does not know yet. Call when exploring: on an unrecognized start (without action) and after each explored step. Not needed while following a found route or a matching directUrl. Supply visible distinguishing checks and known context (authenticated, role, ownership). action describes the navigation performed since the previous observation; it is accepted only when browser actions were recorded. Never put credentials or personal values in memory.",
+  parameters: NavigationObserveInput,
+  success: NavigationState,
+  failure: memoryFailure,
+  dependencies: navigationDependencies,
+})
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenWithoutNavigationMemory);
+const NavigationRouteTool = Tool.make("navigation_route", {
+  description:
+    "Find a remembered path from the current screen to a destination name or alias. Recognizes the starting screen by checking remembered screens live; fromStateId is an optional hint. Composes observed connections, including ones learned from different starting screens. directUrl, when present, is the address the destination was seen at: open it, then check it live. Returned steps are quoted past observations, not permission or proof. Check each destination live and explore normally if no route or the state is ambiguous.",
+  parameters: NavigationRouteInput,
+  success: NavigationRouteResult,
+  failure: memoryFailure,
+  dependencies: navigationDependencies,
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenWithoutNavigationMemory);
+const NavigationFeedbackTool = Tool.make("navigation_feedback", {
+  description:
+    "Report that a remembered transition mismatched the live UI, or that the tool failed. A tool error does not invalidate navigation. Inspect the live page before reporting a mismatch; explore or choose another route afterward.",
+  parameters: NavigationFeedbackInput,
+  success: Schema.Void,
+  failure: memoryFailure,
+  dependencies: navigationDependencies,
+})
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenWithoutNavigationMemory);
+
 export const QaToolkit = Toolkit.make(
+  NavigationObserveTool,
+  NavigationRouteTool,
+  NavigationFeedbackTool,
   QaRegressionListTool,
   QaRegressionRunTool,
   QaEvidenceRecordTool,

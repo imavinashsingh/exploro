@@ -169,6 +169,21 @@ const NAVIGATION_TIMEOUT_MS = 15_000;
 const STATUS_READ_MS = 250;
 const VIEWER_NAVIGATION_OPTIONS = { waitUntil: "commit", timeout: NAVIGATION_TIMEOUT_MS } as const;
 const ACTION_TIMELINE_LIMIT = 50;
+const PAGE_CHANGING_ACTIONS = new Set([
+  "navigate",
+  "click",
+  "type",
+  "select",
+  "press",
+  "drag",
+  "upload",
+  "hover",
+  "scroll",
+]);
+const lastActionAt = (tab: ServerTab) =>
+  tab.actionTimeline.findLast(
+    (event) => event.status === "succeeded" && PAGE_CHANGING_ACTIONS.has(event.action),
+  )?.completedAt;
 
 export class ServerBrowserTabNotFoundError extends Schema.TaggedError<ServerBrowserTabNotFoundError>()(
   "ServerBrowserTabNotFoundError",
@@ -2121,6 +2136,7 @@ const make = Effect.gen(function* () {
       title,
       loading: tab.loading,
       ...(loadError ? { loadError } : {}),
+      ...(lastActionAt(tab) === undefined ? {} : { lastActionAt: lastActionAt(tab) }),
       control: {
         owner: tabOwner(tab),
         ownedByCaller: tab.control.agentId === agentSessionId,
