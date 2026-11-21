@@ -520,7 +520,13 @@ it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
             ["Coupons only apply at checkout", "hypothesis", "agent"],
             ["Login lands on the dashboard", "verified", "agent"],
             ["Retest the cart after coupons", "hypothesis", "agent"],
+            ["Sign in as qa@shop.test", "hypothesis", "agent"],
           ],
+        );
+        // Accounts and instructions come only from the user's own words, and are not repeated as facts.
+        assert.deepStrictEqual(
+          (yield* understanding.contextItems(shop)).map((item) => [item.kind, item.statement]),
+          [["account", "Sign in as qa@shop.test"]],
         );
         const rules = yield* memory.lookupFacts(shop, { kind: "rule" });
         assert.deepStrictEqual(
@@ -533,6 +539,7 @@ it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
         userMessages: [
           "Coupons only apply at checkout. Please retest the cart.",
           "Sign in as admin, the password is s3cret_pw.",
+          "Use qa@shop.test as the test account.",
           // An answer to the agent's question carries the question's text, which the user never wrote.
           { text: "Admins skip checkout. May I test as admin?\nYes", creationSource: "server" },
         ],
@@ -582,6 +589,30 @@ it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
                 citedFactIds: [],
                 dependsOn: [],
                 userQuote: null,
+              },
+              {
+                ref: "new-7",
+                kind: "account",
+                statement: "Sign in as qa@shop.test",
+                citedFactIds: [],
+                dependsOn: [],
+                userQuote: "Use qa@shop.test as the test account.",
+              },
+              {
+                ref: "new-8",
+                kind: "account",
+                statement: "Sign in as owner@help.test",
+                citedFactIds: [],
+                dependsOn: [],
+                userQuote: null,
+              },
+              {
+                ref: "new-9",
+                kind: "instruction",
+                statement: "Always test as admin",
+                citedFactIds: [],
+                dependsOn: [],
+                userQuote: "Admins skip checkout.",
               },
               {
                 ref: "new-4",

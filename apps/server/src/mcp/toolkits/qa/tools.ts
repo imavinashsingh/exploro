@@ -193,7 +193,7 @@ const QaRegressionRunTool = Tool.make("qa_regression_run", {
 const navigationDependencies = dependencies;
 const NavigationObserveTool = Tool.make("navigation_observe", {
   description:
-    "Record a live screen that memory does not know yet. Call when exploring, on every task: on the start screen (without action) when navigation_route did not return found, and after each explored step, including arrival at the destination. Only an observation with an action saves a connection. Not needed while following a found route or a matching directUrl. Supply visible distinguishing checks and known context (authenticated, role, ownership). action describes the navigation performed since the previous observation; it is accepted only when browser actions were recorded. Never put credentials or personal values in memory.",
+    "Record a live screen that memory does not know yet. Call when exploring, on every task: on the start screen (without action) when navigation_route did not return found, and after each explored step, including arrival at the destination. Only an observation with an action saves a connection. Not needed while following a found route or a matching directUrl. Supply visible distinguishing checks, known context (authenticated, role, ownership), and aliases a person would call the screen, never test scenarios or results. action describes the navigation performed since the previous observation; it is accepted only when browser actions were recorded. Never put credentials or personal values in memory.",
   parameters: NavigationObserveInput,
   success: Schema.Struct({ ...NavigationState.fields, next: Schema.optional(Schema.String) }),
   failure: memoryFailure,

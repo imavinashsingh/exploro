@@ -1,6 +1,7 @@
 import {
   ProjectId,
   ProjectMemoryAuthor,
+  PROJECT_CONTEXT_KINDS,
   ProjectMemoryError,
   ProjectUnderstandingKind,
   ProjectUnderstandingStatus,
@@ -71,6 +72,10 @@ export class ProjectUnderstanding extends Context.Service<
     readonly getItems: (
       projectId: ProjectId,
       itemIds?: ReadonlyArray<string>,
+    ) => Effect.Effect<ReadonlyArray<ProjectUnderstandingItem>, ProjectMemoryError>;
+    /** The project's accounts and standing instructions, newest first. */
+    readonly contextItems: (
+      projectId: ProjectId,
     ) => Effect.Effect<ReadonlyArray<ProjectUnderstandingItem>, ProjectMemoryError>;
     readonly history: (
       projectId: ProjectId,
@@ -176,7 +181,11 @@ const make = Effect.gen(function* () {
     DateTime.formatIso(DateTime.makeUnsafe(millis)),
   );
 
-  const loadItems = (projectId: ProjectId, itemIds?: ReadonlyArray<string>) =>
+  const loadItems = (
+    projectId: ProjectId,
+    itemIds?: ReadonlyArray<string>,
+    kinds?: ReadonlyArray<ProjectUnderstandingKind>,
+  ) =>
     sql`
       SELECT
         item.item_id AS "itemId",
@@ -207,6 +216,7 @@ const make = Effect.gen(function* () {
       WHERE ${sql.and([
         sql`item.project_id = ${projectId}`,
         ...(itemIds === undefined ? [] : [sql.in("item.item_id", itemIds)]),
+        ...(kinds === undefined ? [] : [sql.in("item.kind", kinds)]),
       ])}
       ORDER BY item.updated_at DESC
     `.pipe(
@@ -446,6 +456,12 @@ const make = Effect.gen(function* () {
         return yield* loadItems(projectId, itemIds);
       },
       Effect.mapError(failure("Could not read the project's understanding.")),
+    ),
+    contextItems: Effect.fn("ProjectUnderstanding.contextItems")(
+      function* (projectId) {
+        return yield* loadItems(projectId, undefined, PROJECT_CONTEXT_KINDS);
+      },
+      Effect.mapError(failure("Could not read the project's context.")),
     ),
     history: Effect.fn("ProjectUnderstanding.history")(
       function* (projectId, itemId) {

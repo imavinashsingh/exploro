@@ -1,4 +1,5 @@
 import {
+  PROJECT_CONTEXT_KINDS,
   ProjectMemoryError,
   type ProjectId,
   type ProjectMemoryStatus,
@@ -52,6 +53,8 @@ export class UnderstandingExtraction extends Context.Service<
     ) => Effect.Effect<ProjectMemoryStatus, ProjectMemoryError>;
   }
 >()("t3/memory/UnderstandingExtraction") {}
+
+const CONTEXT_KINDS = new Set<string>(PROJECT_CONTEXT_KINDS);
 
 const errorText = (error: unknown) =>
   typeof error === "object" &&
@@ -122,6 +125,9 @@ const make = Effect.gen(function* () {
       [...facts.map((fact) => `${fact.key} ${fact.value}`), ...userMessages].join("\n"),
       { limit: 15 },
     );
+    // Every account and instruction, so a changed one is revised rather than added twice.
+    const context = yield* understanding.contextItems(projectId);
+    const recalled = related.items.map(({ item }) => item);
     const runFactIds = new Set(facts.map((fact) => fact.factId));
     const pages = new Map(facts.map((fact) => [`${fact.stateId} ${fact.kind}`, fact] as const));
     const earlier = (yield* Effect.forEach([...pages.values()], (fact) =>
@@ -138,7 +144,10 @@ const make = Effect.gen(function* () {
       site: environment,
       facts,
       earlier,
-      related: related.items.map(({ item }) => item),
+      related: [
+        ...context,
+        ...recalled.filter((item) => !context.some((known) => known.itemId === item.itemId)),
+      ],
       userMessages,
     };
     const settings = resolveProjectSettings(yield* serverSettings.getSettings, projectId).settings;
@@ -159,7 +168,13 @@ const make = Effect.gen(function* () {
           facts.find(
             (fact) => fact.environment === environment && write.citedFactIds.includes(fact.factId),
           )?.stateId ?? facts.find((fact) => fact.environment === environment)?.stateId;
-        if (userQuote === null || environment === null || stateId === undefined)
+        // A context item is the record of what the user said; a page fact would repeat it.
+        if (
+          userQuote === null ||
+          CONTEXT_KINDS.has(write.kind) ||
+          environment === null ||
+          stateId === undefined
+        )
           return { ...write, author: "agent" as const };
         const userFact = yield* memory.putFact(projectId, {
           stateId,

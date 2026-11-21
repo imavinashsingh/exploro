@@ -229,12 +229,19 @@ const make = Effect.gen(function* () {
       const context = Object.fromEntries(
         Object.entries(input.context).map(([key, value]) => [hide(key), hide(value)]),
       );
-      // A screen the live page already satisfies keeps one identity, whatever the model calls it.
-      const [known] = yield* recognize(
+      // A screen the live page already satisfies keeps one identity, whatever the model calls it
+      // or however it words the context; a matching context only breaks a tie.
+      const verified = yield* recognize(
         scope,
         current.tabId,
-        yield* memory.statesAtAddress(projectId, current.url.origin, current.url.pathname, context),
+        yield* memory.statesAtAddress(projectId, current.url.origin, current.url.pathname),
       );
+      const known =
+        verified.find((state) =>
+          Object.entries(context).every(
+            ([key, value]) => state.context[key] === undefined || state.context[key] === value,
+          ),
+        ) ?? verified[0];
       return yield* memory.observe(projectId, {
         state:
           known === undefined
