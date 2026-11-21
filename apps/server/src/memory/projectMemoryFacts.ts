@@ -49,41 +49,11 @@ export interface RunResultFact {
   readonly observedAt: string;
 }
 
-const withoutFragment = (url: string) => url.split("#", 1)[0];
-
-/**
- * The page a scenario opened when the site redirected it to `pageUrl`: its first request was a
- * same-site GET redirect that ended on `pageUrl`. A redirect after a form POST is not one.
- */
-export function openedBeforeRedirect(
-  requests: ReadonlyArray<unknown>,
-  pageUrl: string,
-): string | null {
-  const isRequest = (
-    entry: unknown,
-  ): entry is { readonly url: string; readonly method?: unknown; readonly status?: unknown } =>
-    typeof entry === "object" && entry !== null && "url" in entry && typeof entry.url === "string";
-  const [first, ...rest] = requests.filter(isRequest);
-  if (first === undefined || first.method !== "GET") return null;
-  if (typeof first.status !== "number" || first.status < 300 || first.status >= 400) return null;
-  const environment = memoryEnvironment(first.url);
-  if (environment === null || environment !== memoryEnvironment(pageUrl)) return null;
-  const landed = withoutFragment(pageUrl);
-  return rest.some((entry) => withoutFragment(entry.url) === landed) ? first.url : null;
-}
-
-/**
- * One `result` fact per scenario that has a page on an http(s) site, filed under the page the
- * scenario opened (`opened`, by scenario index) when a redirect moved it elsewhere.
- */
-export function resultFactsFor(
-  run: QaRun,
-  opened: ReadonlyMap<number, string> = new Map(),
-): ReadonlyArray<RunResultFact> {
+export function resultFactsFor(run: QaRun): ReadonlyArray<RunResultFact> {
   return run.scenarios.flatMap((scenario) => {
     const url = scenario.pageUrl ?? run.site;
     const environment = url === null ? null : memoryEnvironment(url);
-    if (url === null || environment === null) return [];
+    if (url === null || environment === null || scenario.stateId === null) return [];
     const ref = (type: ProjectMemoryEvidenceRef["type"]): ProjectMemoryEvidenceRef => ({
       threadId: run.threadId,
       runId: run.runId,
@@ -100,8 +70,7 @@ export function resultFactsFor(
       {
         observedAt: scenario.recordedAt,
         input: redactFactInput({
-          environment,
-          route: memoryRoute(opened.get(scenario.index) ?? url),
+          stateId: scenario.stateId,
           kind: "result",
           key: scenario.scenario,
           value:
@@ -116,16 +85,4 @@ export function resultFactsFor(
       },
     ];
   });
-}
-
-/**
- * The sites an agent may save facts about: the one this run tests and the ones the project
- * already has facts for. Pages a link led to elsewhere are not among them.
- */
-export function projectOrigins(
-  run: Pick<QaRun, "site">,
-  knownEnvironments: Iterable<string>,
-): ReadonlySet<string> {
-  const site = run.site === null ? null : memoryEnvironment(run.site);
-  return new Set([...(site === null ? [] : [site]), ...knownEnvironments]);
 }

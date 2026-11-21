@@ -49,11 +49,16 @@ const TONE_CLASS = {
 function factsByPage(facts: ReadonlyArray<ProjectMemoryFact>) {
   const pages = new Map<
     string,
-    { route: string; environment: string; facts: ProjectMemoryFact[] }
+    { route: string; stateName: string; environment: string; facts: ProjectMemoryFact[] }
   >();
   for (const fact of facts) {
-    const key = `${fact.environment}\n${fact.route}`;
-    const page = pages.get(key) ?? { route: fact.route, environment: fact.environment, facts: [] };
+    const key = fact.stateId;
+    const page = pages.get(key) ?? {
+      route: fact.route,
+      stateName: fact.stateName,
+      environment: fact.environment,
+      facts: [],
+    };
     page.facts.push(fact);
     pages.set(key, page);
   }
@@ -189,7 +194,9 @@ export function ProjectMemoryTab(props: {
             className="flex flex-col overflow-hidden rounded-lg border border-border/65"
           >
             <header className="flex items-baseline justify-between gap-2 bg-muted/40 px-3 py-1.5">
-              <h4 className="m-0 truncate font-mono text-xs font-medium">{page.route}</h4>
+              <h4 className="m-0 truncate font-mono text-xs font-medium">
+                {page.stateName} · {page.route}
+              </h4>
               <span className="truncate text-2xs text-muted-foreground">{page.environment}</span>
             </header>
             <dl className="m-0 flex flex-col">

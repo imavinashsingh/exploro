@@ -1489,7 +1489,6 @@ export const layerWsRpc = (
       const qaSuites = yield* QaSuites.QaSuites;
       const projectMemory = yield* ProjectMemory.ProjectMemory;
       const memoryControl = yield* ProjectMemoryControl.ProjectMemoryControl;
-      const navigation = yield* ProjectNavigationMemory.ProjectNavigationMemory;
       const secretRequests = yield* SecretRequests.SecretRequests;
       const guestShares = yield* GuestShareService.GuestShareService;
       const pullRequests = yield* PullRequestService.PullRequestService;
@@ -2337,7 +2336,7 @@ export const layerWsRpc = (
         [WS_METHODS.scheduledTasksSubscribe]: (_input) =>
           scheduledTasks.subscribeList().pipe(Stream.map(withVisibleWebhookUrls)),
         [WS_METHODS.projectNavigationDelete]: (input) =>
-          navigation.deleteRecord(input.projectId, input.id),
+          projectMemory.deleteNavigationRecord(input.projectId, input.id),
         [WS_METHODS.projectMemoryMap]: (input) => projectMemory.map(input.projectId),
         [WS_METHODS.projectMemorySaveThread]: (input) => memoryControl.saveThread(input.threadId),
         [WS_METHODS.projectMemorySetAppVersion]: (input) => memoryControl.setAppVersion(input),

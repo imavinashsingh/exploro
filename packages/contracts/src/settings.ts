@@ -1201,7 +1201,6 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
   "speechProjectCustomWords",
   "qaSiteOrigins",
   "qaMemoryEnabled",
-  "qaNavigationMemory",
 ] as const;
 export type ProjectScopedServerSettingKey = (typeof PROJECT_SCOPED_SERVER_SETTING_KEYS)[number];
 
@@ -1242,7 +1241,6 @@ export const ProjectSettingsOverrides = Schema.Struct({
   speechProjectCustomWords: Schema.optionalKey(SpeechCustomWords),
   qaSiteOrigins: Schema.optionalKey(QaSiteOrigins),
   qaMemoryEnabled: Schema.optionalKey(Schema.Boolean),
-  qaNavigationMemory: Schema.optionalKey(Schema.Boolean),
   providerInstances: Schema.optionalKey(
     Schema.Record(ProviderInstanceId, ProjectProviderInstanceOverride),
   ),
@@ -1423,7 +1421,6 @@ export const ServerSettings = Schema.Struct({
   qaSiteOrigins: QaSiteOrigins.pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   /** Exploro: whether QA runs in a project read and grow its memory. */
   qaMemoryEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  qaNavigationMemory: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   // Null follows textGenerationModelSelection; a selection pins transcript cleanup to its own model.
   speechPostProcessingModelSelection: Schema.NullOr(ModelSelection).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
@@ -1890,7 +1887,6 @@ export const ServerSettingsPatch = Schema.Struct({
   speechProjectCustomWords: Schema.optionalKey(SpeechCustomWords),
   qaSiteOrigins: Schema.optionalKey(QaSiteOrigins),
   qaMemoryEnabled: Schema.optionalKey(Schema.Boolean),
-  qaNavigationMemory: Schema.optionalKey(Schema.Boolean),
   speechPostProcessingModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   projectAgentBrowserAccessOverrides: Schema.optionalKey(
     Schema.Record(ProjectId, Schema.NullOr(Schema.Boolean)),

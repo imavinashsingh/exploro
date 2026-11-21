@@ -119,12 +119,15 @@ it.effect(
         tabId: "tab-a",
         stepIndex: 0,
       });
+      yield* sql`INSERT INTO project_memory_facts
+        (fact_id, project_id, state_id, environment, route, kind, fact_key, value, evidence_json, author, status, observed_at)
+        VALUES ('keep-fact', ${project}, ${settings.id}, 'https://shop.test', '/shared', 'page', 'purpose', 'Settings', '[]', 'agent', 'current', 'now')`;
       yield* Navigation.forgetNavigationRun(sql, "run");
       const remaining = yield* sql<{ name: string }>`
       SELECT json_extract(data, '$.name') AS name FROM project_navigation_states`;
       assert.deepStrictEqual(
         remaining.map((row) => row.name),
-        ["Dashboard"],
+        ["Dashboard", "Settings"],
       );
     }).pipe(Effect.provide(layer)),
 );

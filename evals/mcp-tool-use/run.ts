@@ -283,7 +283,6 @@ const McpToolUseWorld = Schema.StructWithRest(
     browserAgentAccess: Schema.optional(Schema.Boolean),
     /** true: the thread belongs to a project, so T3 lists its memory tools. */
     projectMemory: Schema.optional(Schema.Boolean),
-    projectNavigationMemory: Schema.optional(Schema.Boolean),
     /** Every capture reaches T3 with adb screencap's warning ahead of the PNG: T3 reports 0×0. */
     deviceInvalidCapture: Schema.optional(Schema.Boolean),
     /** Devices another thread's agent-device session holds, by device id: that thread's id. */
@@ -540,20 +539,15 @@ const hiddenFromSubagents = enabledWhen(McpInvocationContext.hiddenFromSubagents
 const hiddenWhileLinksOff = enabledWhen(McpInvocationContext.hiddenWhileLinksOff);
 // Only threads of a project hold the `memory` capability.
 const hiddenWithoutMemory = enabledWhen(McpInvocationContext.hiddenWithoutMemory);
-const hiddenWithoutNavigationMemory = enabledWhen(
-  McpInvocationContext.hiddenWithoutNavigationMemory,
-);
 const visibleT3Tools = (options: {
   readonly subagent?: boolean;
   readonly links?: boolean;
   readonly memory?: boolean;
-  readonly navigation?: boolean;
 }) =>
   t3Tools.filter(
     (tool) =>
       (options.links === true || !hiddenWhileLinksOff.has(tool.name)) &&
       (options.memory === true || !hiddenWithoutMemory.has(tool.name)) &&
-      (options.navigation === true || !hiddenWithoutNavigationMemory.has(tool.name)) &&
       !(options.subagent === true && hiddenFromSubagents.has(tool.name)),
   );
 
@@ -665,7 +659,6 @@ export const buildBase = (
     readonly subagent?: boolean;
     readonly links?: boolean;
     readonly memory?: boolean;
-    readonly navigation?: boolean;
     /** A native subagent starts from its task: T3 appends nothing to its system prompt. */
     readonly nativeSubagent?: boolean;
     /** false: the thread has no agent device access, so T3's text leaves devices out. */
@@ -763,7 +756,6 @@ const buildCodexBase = (
     readonly subagent?: boolean;
     readonly links?: boolean;
     readonly memory?: boolean;
-    readonly navigation?: boolean;
     /** false: the thread has no agent device access, so T3's text leaves devices out. */
     readonly deviceAccess?: boolean;
     /** false: the thread has no agent browser access, so T3's text leaves the browser out. */
@@ -2605,7 +2597,6 @@ const main = Effect.gen(function* () {
     browserAccess: boolean,
     links: boolean,
     memory = false,
-    navigation = false,
   ): Effect.Effect<Base, Schema.SchemaError> =>
     codex
       ? decodeCodexCapture(template).pipe(
@@ -2617,7 +2608,6 @@ const main = Effect.gen(function* () {
               subagent: role === "delegated-child",
               links,
               memory,
-              navigation,
               deviceAccess,
               browserAccess,
             }),
@@ -2632,7 +2622,6 @@ const main = Effect.gen(function* () {
               nativeSubagent: role === "native-subagent",
               links,
               memory,
-              navigation,
               deviceAccess,
               browserAccess,
             });
@@ -2645,15 +2634,14 @@ const main = Effect.gen(function* () {
         );
   // Codex has no native subagents; its cases with that role run as top-level threads.
   const baseKey = ({ setup }: McpToolUseCase) =>
-    `${codex && setup.role === "native-subagent" ? "top" : setup.role}:${setup.world?.deviceAgentAccess !== false}:${setup.world?.browserAgentAccess !== false}:${setup.linkedEnvironments === true}:${setup.world?.projectMemory === true}:${setup.world?.projectNavigationMemory === true}`;
+    `${codex && setup.role === "native-subagent" ? "top" : setup.role}:${setup.world?.deviceAgentAccess !== false}:${setup.world?.browserAgentAccess !== false}:${setup.linkedEnvironments === true}:${setup.world?.projectMemory === true}`;
   const base = yield* buildFor("top", true, true, false);
-  const bases = new Map<string, Base>([["top:true:true:false:false:false", base]]);
+  const bases = new Map<string, Base>([["top:true:true:false:false", base]]);
   for (const testCase of selected) {
     const key = baseKey(testCase);
     if (bases.has(key)) continue;
-    const [role = "top", device, browser, links, memory, navigation] = key.split(":") as [
+    const [role = "top", device, browser, links, memory] = key.split(":") as [
       McpToolUseCase["setup"]["role"],
-      string,
       string,
       string,
       string,
@@ -2667,7 +2655,6 @@ const main = Effect.gen(function* () {
         browser === "true",
         links === "true",
         memory === "true",
-        navigation === "true",
       ),
     );
   }

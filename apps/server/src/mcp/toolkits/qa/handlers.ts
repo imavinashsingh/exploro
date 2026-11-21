@@ -62,7 +62,7 @@ const EXPLORATION_NEXT =
 export const layer = McpToolAccess.toLayer(QaToolkit, {
   navigation_observe: McpToolAccess.actsAsCaller((input) =>
     Effect.gen(function* () {
-      const scope = yield* McpInvocationContext.requireThreadMcpCapability("navigation-memory");
+      const scope = yield* McpInvocationContext.requireThreadMcpCapability("memory");
       const state = yield* (yield* NavigationCapture.NavigationCapture).observe(scope, input);
       // Models skip the arrival observation once testing starts; remind them while it is still ahead.
       return input.action === undefined ? { ...state, next: EXPLORATION_NEXT } : state;
@@ -70,13 +70,13 @@ export const layer = McpToolAccess.toLayer(QaToolkit, {
   ),
   navigation_route: McpToolAccess.readsAsCaller((input) =>
     Effect.gen(function* () {
-      const scope = yield* McpInvocationContext.requireThreadMcpCapability("navigation-memory");
+      const scope = yield* McpInvocationContext.requireThreadMcpCapability("memory");
       return yield* (yield* NavigationCapture.NavigationCapture).route(scope, input);
     }),
   ),
   navigation_feedback: McpToolAccess.actsAsCaller((input) =>
     Effect.gen(function* () {
-      const scope = yield* McpInvocationContext.requireThreadMcpCapability("navigation-memory");
+      const scope = yield* McpInvocationContext.requireThreadMcpCapability("memory");
       return yield* (yield* NavigationCapture.NavigationCapture).feedback(scope, input);
     }),
   ),
@@ -171,7 +171,20 @@ export const layer = McpToolAccess.toLayer(QaToolkit, {
             });
         });
       }
-      const page = yield* capturePage(broker, scope, tabId);
+      const state = scope.capabilities.has("memory")
+        ? yield* (yield* NavigationCapture.NavigationCapture).recognize(scope, tabId)
+        : null;
+      const captured = yield* capturePage(broker, scope, tabId);
+      if (
+        state !== null &&
+        captured.url !== null &&
+        (new URL(captured.url).origin !== state.environment ||
+          new URL(captured.url).pathname !== state.path)
+      )
+        return yield* new ProjectMemoryError({
+          message: "The page changed. Call navigation_observe before recording evidence.",
+        });
+      const page = { ...captured, ...(state === null ? {} : { stateId: state.id }) };
       const scenario = yield* qaRuns.recordEvidence(scope.thread.threadId, input, page, kept);
       return { ...scenario, droppedChecks };
     }),

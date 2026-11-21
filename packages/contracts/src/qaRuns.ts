@@ -143,6 +143,7 @@ export const QaScenario = Schema.Struct({
   actual: Schema.optional(Schema.String),
   severity: Schema.optional(QaBugSeverity),
   steps: Schema.Array(Schema.String),
+  stateId: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
   pageUrl: Schema.NullOr(Schema.String),
   pageTitle: Schema.NullOr(Schema.String),
   recordedAt: Schema.String,

@@ -121,6 +121,5 @@ export function summarizeNavigation(
 }
 
 export const modeSettings = (mode: NavigationMode) => ({
-  qaMemoryEnabled: mode === "current",
-  qaNavigationMemory: mode === "graph",
+  qaMemoryEnabled: mode !== "none",
 });

@@ -460,6 +460,17 @@ it("validates remote device hosts and rejects ambiguous host ids", () => {
 describe("ServerSettings project overrides across versions", () => {
   it("sends back an override key from a newer server when an older client edits the entry", () => {
     const projectId = ProjectId.make("project-a");
+    expect(decodeServerSettings({ qaNavigationMemory: false }).qaMemoryEnabled).toBe(true);
+    expect(
+      decodeServerSettings({
+        projectSettingsOverrides: {
+          [projectId]: { qaNavigationMemory: true, qaMemoryEnabled: false },
+        },
+      }).projectSettingsOverrides[projectId]?.qaMemoryEnabled,
+    ).toBe(false);
+    expect(
+      decodeServerSettings({ qaMemoryEnabled: false, qaNavigationMemory: true }).qaMemoryEnabled,
+    ).toBe(false);
     // As an older client reads a newer server's settings, with one key it does not know.
     const entry = decodeServerSettings({
       projectSettingsOverrides: {

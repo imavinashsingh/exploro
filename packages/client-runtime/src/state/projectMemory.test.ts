@@ -20,6 +20,8 @@ import {
 
 const fact = (factId: string, overrides: Partial<ProjectMemoryFact> = {}): ProjectMemoryFact => ({
   factId,
+  stateId: overrides.route ?? "/login",
+  stateName: overrides.route ?? "Login",
   projectId: ProjectId.make("shop"),
   environment: "https://shop.test",
   route: "/login",
@@ -88,6 +90,9 @@ describe("memoryStatusLine", () => {
 describe("map rows", () => {
   const page = (route: string, overrides: Partial<ProjectMemoryMapPage> = {}) => ({
     environment: "https://shop.test",
+    stateId: route,
+    stateName: route,
+    reachedBy: [],
     route,
     coverage: "seen" as const,
     passCount: 0,
@@ -133,7 +138,7 @@ describe("map rows", () => {
       "0 https://shop.test",
       "1 /",
       "1 /orders",
-      "2 /:id",
+      "2 /orders/:id · /orders/:id",
       "2 +3",
       "0 +2",
     ]);
