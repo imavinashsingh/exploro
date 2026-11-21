@@ -57,14 +57,6 @@ export default Effect.gen(function* () {
   yield* sql`UPDATE project_navigation_states SET
     environment = json_extract(data, '$.environment'), path = json_extract(data, '$.path'),
     check_count = json_array_length(data, '$.checks')`;
-  yield* sql`WITH paths AS (
-    SELECT rowid, ltrim(substr(path, 1, min(
-      CASE WHEN instr(path, '?') = 0 THEN length(path) + 1 ELSE instr(path, '?') END,
-      CASE WHEN instr(path, '#') = 0 THEN length(path) + 1 ELSE instr(path, '#') END) - 1), '/') AS clean
-    FROM project_navigation_states)
-    UPDATE project_navigation_states SET path_group = '/' ||
-      substr(p.clean, 1, CASE WHEN instr(p.clean, '/') = 0 THEN length(p.clean) ELSE instr(p.clean, '/') - 1 END)
-    FROM paths p WHERE project_navigation_states.rowid = p.rowid`;
   yield* sql`CREATE TEMP TABLE navigation_backfill_text (state_rowid INTEGER PRIMARY KEY, names TEXT NOT NULL, path TEXT NOT NULL, state_id TEXT NOT NULL)`;
   let cursor = 0;
   while (true) {
@@ -83,6 +75,9 @@ export default Effect.gen(function* () {
     // SQLite lower() is ASCII-only; matching requires Unicode case folding and word splitting.
     const normalized = yield* Effect.forEach(rows, (row) =>
       Effect.gen(function* () {
+        const segments = row.path.split(/[?#]/u)[0]!.split("/").filter(Boolean);
+        const controller = segments.findIndex((segment) => segment.includes("."));
+        yield* sql`UPDATE project_navigation_states SET path_group = ${`/${segments[controller + 1] ?? ""}`} WHERE rowid = ${row.rowid}`;
         const names = (yield* decodeNames(row.names)).map((name) => name.toLowerCase());
         return { row, names: yield* encodeNames(names), words: words(names.join(" ")) };
       }),
@@ -156,6 +151,7 @@ export default Effect.gen(function* () {
   yield* sql`CREATE INDEX navigation_feedback_run_idx ON project_navigation_feedback(run_id, project_id, transition_id)`;
   yield* sql`CREATE INDEX navigation_feedback_mismatch_idx ON project_navigation_feedback(project_id, transition_id, outcome, observed_at DESC)`;
   yield* sql`CREATE INDEX navigation_observation_tab_idx ON project_navigation_observations(project_id, run_id, thread_id, tab_id)`;
+  yield* sql`CREATE INDEX navigation_page_connections_idx ON project_navigation_connections(project_id, from_state_id, to_state_id, transition_id)`;
   yield* sql`CREATE INDEX navigation_outgoing_idx ON project_navigation_connections(project_id, from_state_id, transition_id)`;
   yield* sql`CREATE INDEX navigation_incoming_idx ON project_navigation_connections(project_id, to_state_id, transition_id)`;
   yield* sql`CREATE INDEX navigation_outgoing_available_idx ON project_navigation_connections(project_id, from_state_id, available, transition_id)`;

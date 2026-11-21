@@ -4,8 +4,11 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import { navigationDestinationWords } from "./navigation.ts";
 
-export const navigationPathGroup = (path: string) =>
-  `/${path.split(/[?#]/u)[0]!.split("/").find(Boolean) ?? ""}`;
+export const navigationPathGroup = (path: string) => {
+  const segments = path.split(/[?#]/u)[0]!.split("/").filter(Boolean);
+  const controller = segments.findIndex((segment) => segment.includes("."));
+  return `/${segments[controller + 1] ?? ""}`;
+};
 
 const encodeContext = Schema.encodeEffect(Schema.fromJsonString(NavigationState.fields.context));
 const decodeTransition = Schema.decodeEffect(Schema.fromJsonString(NavigationTransition));

@@ -45,6 +45,7 @@ import {
   type FactFilter,
   type UnderstandingBadge,
 } from "@t3tools/client-runtime/state/projectMemory";
+import { ProjectNavigationDialog } from "../projectMemory/navigation/ProjectNavigationDialog";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 
@@ -729,7 +730,16 @@ export function ProjectMemorySettings(props: {
         }
       />
       {data?.navigation ? (
-        <SettingsRow title={gt("Observed navigation")}>
+        <SettingsRow
+          title={gt("Observed navigation")}
+          control={
+            <ProjectNavigationDialog
+              key={`${environmentId}:${projectId}`}
+              environmentId={environmentId}
+              projectId={projectId}
+            />
+          }
+        >
           <div className="flex flex-col gap-3 pb-2">
             {data.navigation.transitions.slice(0, 50).map((edge) => {
               return (

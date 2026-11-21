@@ -1578,31 +1578,38 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:scheduled-tasks:live",
       tag: WS_METHODS.scheduledTasksSubscribe,
     }),
-    // Not polled: a project's facts can be large, so the Memory screen refreshes after each change.
+    // Drop inactive navigation requests so closing the explorer or changing search cancels the RPC.
     navigationOverview: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:navigation:overview",
+      idleTtlMs: 0,
       tag: WS_METHODS.projectNavigationOverview,
     }),
     navigationChildren: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:navigation:children",
+      idleTtlMs: 0,
       tag: WS_METHODS.projectNavigationChildren,
     }),
     navigationNeighborhood: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:navigation:neighborhood",
+      idleTtlMs: 0,
       tag: WS_METHODS.projectNavigationNeighborhood,
     }),
     navigationSearch: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:navigation:search",
+      idleTtlMs: 0,
       tag: WS_METHODS.projectNavigationSearch,
     }),
     navigationDetails: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:navigation:details",
+      idleTtlMs: 0,
       tag: WS_METHODS.projectNavigationDetails,
     }),
     navigationRoutePreview: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:navigation:routepreview",
+      idleTtlMs: 0,
       tag: WS_METHODS.projectNavigationRoutePreview,
     }),
+    // Not polled: a project's facts can be large, so the Memory screen refreshes after each change.
     projectMemorySnapshot: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:project-memory:snapshot",
       tag: WS_METHODS.projectMemorySnapshot,

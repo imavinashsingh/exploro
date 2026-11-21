@@ -3,6 +3,7 @@ import {
   NavigationOverviewInput,
   NavigationOverview,
   NavigationChildrenInput,
+  NavigationChildren,
   NavigationStatePage,
   NavigationNeighborhoodInput,
   NavigationNeighborhood,
@@ -2250,7 +2251,7 @@ const WsProjectNavigationOverviewRpc = Rpc.make(WS_METHODS.projectNavigationOver
 });
 const WsProjectNavigationChildrenRpc = Rpc.make(WS_METHODS.projectNavigationChildren, {
   payload: NavigationChildrenInput,
-  success: NavigationStatePage,
+  success: NavigationChildren,
   error: memoryError,
 });
 const WsProjectNavigationNeighborhoodRpc = Rpc.make(WS_METHODS.projectNavigationNeighborhood, {

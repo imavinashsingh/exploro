@@ -143,13 +143,17 @@ describe("runMigrations", () => {
         (yield* sql`SELECT status FROM orchestration_v2_projection_runs`)[0]?.status,
         "completed",
       );
-      yield* sql`INSERT INTO project_navigation_states VALUES ('project', 'new-state', ${JSON.stringify({ id: "new-state", name: "Home", environment: "https://shop.test", path: "/", aliases: [], context: {}, checks: [{ kind: "textVisible", text: "Home" }] })})`;
+      yield* sql`INSERT INTO project_navigation_states VALUES ('project', 'new-state', ${JSON.stringify({ id: "new-state", name: "Home", environment: "https://shop.test", path: "/web/index.php/pim/view", aliases: [], context: {}, checks: [{ kind: "textVisible", text: "Home" }] })})`;
       yield* sql`INSERT INTO project_memory_facts
         (fact_id, project_id, environment, route, kind, fact_key, value, evidence_json, author, status, observed_at)
         VALUES ('legacy', 'project', 'https://shop.test', '/', 'page', 'purpose', 'Home', '[]', 'agent', 'current', 'now')`;
       yield* runMigrations();
       assert.deepStrictEqual(yield* sql`SELECT * FROM project_memory_facts`, []);
       assert.lengthOf(yield* sql`SELECT * FROM project_navigation_states`, 1);
+      assert.strictEqual(
+        (yield* sql`SELECT path_group FROM project_navigation_states`)[0]?.path_group,
+        "/pim",
+      );
       const indexes = yield* sql<{
         sql: string;
       }>`SELECT sql FROM sqlite_master WHERE name = 'project_memory_facts_current_idx'`;

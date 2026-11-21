@@ -11,6 +11,7 @@ import {
   NavigationOverviewInput,
   NavigationOverview,
   NavigationChildrenInput,
+  NavigationChildren,
   NavigationStatePage,
   NavigationNeighborhoodInput,
   NavigationNeighborhood,
@@ -37,6 +38,7 @@ import {
   navigationTransitionKey,
 } from "./navigation.ts";
 import {
+  navigationPathGroup,
   indexNavigationState,
   deleteNavigationState,
   storeNavigationConnection,
@@ -79,7 +81,7 @@ export class ProjectNavigationMemory extends Context.Service<
     ) => Effect.Effect<typeof NavigationOverview.Type, ProjectMemoryError>;
     readonly navigationChildren: (
       input: typeof NavigationChildrenInput.Type,
-    ) => Effect.Effect<typeof NavigationStatePage.Type, ProjectMemoryError>;
+    ) => Effect.Effect<typeof NavigationChildren.Type, ProjectMemoryError>;
     readonly navigationNeighborhood: (
       input: typeof NavigationNeighborhoodInput.Type,
     ) => Effect.Effect<typeof NavigationNeighborhood.Type, ProjectMemoryError>;
@@ -318,15 +320,20 @@ const make = Effect.gen(function* () {
     id: string,
   ) {
     const [row] = yield* sql<{
+      needsRecheck: number;
       name: string;
       environment: string;
       path: string;
       incomingCount: number;
       outgoingCount: number;
     }>`SELECT json_extract(data, '$.name') AS name, environment, path,
+      (EXISTS(SELECT 1 FROM project_navigation_connections WHERE project_id = ${projectId} AND from_state_id = ${id} AND available = 0)
+       OR EXISTS(SELECT 1 FROM project_navigation_connections WHERE project_id = ${projectId} AND to_state_id = ${id} AND available = 0)) AS needsRecheck,
       incoming_count AS incomingCount, outgoing_count AS outgoingCount
       FROM project_navigation_states WHERE project_id = ${projectId} AND state_id = ${id}`;
-    return row === undefined ? null : ({ id, ...row } satisfies NavigationSummary);
+    if (row === undefined) return null;
+    const { needsRecheck, ...fields } = row;
+    return { id, ...fields, hasNeedsRecheck: needsRecheck === 1 } satisfies NavigationSummary;
   });
   const statesAtAddress = Effect.fn("ProjectNavigationMemory.statesAtAddress")(function* (
     projectId: ProjectId,
@@ -542,15 +549,128 @@ const make = Effect.gen(function* () {
     input: typeof NavigationChildrenInput.Type,
   ) {
     const limit = Math.max(1, Math.min(200, input.limit));
-    const rows = yield* sql<{
-      state_id: string;
-    }>`SELECT state_id FROM project_navigation_states WHERE project_id = ${input.projectId}
-      AND environment = ${input.environment} AND path_group = ${input.pathGroup} AND state_id > ${yield* cursorValue(input.cursor)} ORDER BY state_id LIMIT ${limit + 1}`;
-    return yield* statePage(
+    const scope = yield* encodeJson([input.environment, input.pathGroup, input.prefix ?? null]);
+    const decoded = yield* cursorValue(input.cursor);
+    if (decoded && !decoded.startsWith(`${scope}\n`))
+      return yield* new ProjectMemoryError({ message: "Invalid children cursor scope" });
+    const cursor = decoded ? decoded.slice(scope.length + 1) : "";
+    const [first] = yield* sql<{ path: string }>`SELECT path FROM project_navigation_states
+      WHERE project_id = ${input.projectId} AND environment = ${input.environment}
+      AND path_group = ${input.pathGroup} ORDER BY state_id LIMIT 1`;
+    const parts = first?.path.split(/[?#]/u)[0]!.split("/").filter(Boolean) ?? [];
+    const controller = parts.findIndex((segment) => segment.includes("."));
+    let prefix = input.prefix ?? `/${parts.slice(0, controller + 2).join("/")}`;
+    if (
+      input.prefix !== undefined &&
+      (!input.prefix.startsWith("/") ||
+        input.prefix.includes("?") ||
+        navigationPathGroup(input.prefix) !== input.pathGroup)
+    )
+      return yield* new ProjectMemoryError({ message: "Invalid children prefix" });
+    const root = input.prefix === undefined;
+    const predicate = () =>
+      root
+        ? sql`path_group = ${input.pathGroup}`
+        : sql`path_group = ${input.pathGroup} AND (path = ${prefix} OR path >= ${prefix + "/"} AND path < ${prefix + "/" + String.fromCodePoint(0x10ffff)} OR path >= ${prefix + "?"} AND path < ${prefix + "?" + String.fromCodePoint(0x10ffff)} OR path >= ${prefix + "#"} AND path < ${prefix + "#" + String.fromCodePoint(0x10ffff)})`;
+    const [size] = yield* sql<{ count: number }>`SELECT count(*) AS count FROM
+      (SELECT 1 FROM project_navigation_states WHERE project_id = ${input.projectId}
+      AND environment = ${input.environment} AND ${predicate()} LIMIT 41)`;
+    if (!cursor && (size?.count ?? 0) > 40) {
+      // Address-index seeks skip whole segments; neither DISTINCT nor GROUP BY scans the cluster.
+      while (true) {
+        const base = prefix.endsWith("/") ? prefix : `${prefix}/`;
+        let after = base;
+        const groups: Array<{ prefix: string; stateCount: number; countCapped: boolean }> = [];
+        let more = false;
+        const seen = new Set<string>();
+        while (groups.length <= 200) {
+          const [next] = yield* sql<{ path: string }>`SELECT path FROM project_navigation_states
+            WHERE project_id = ${input.projectId} AND environment = ${input.environment}
+            AND path > ${after} AND path < ${base + String.fromCodePoint(0x10ffff)} ORDER BY path LIMIT 1`;
+          if (!next) break;
+          const segment = next.path.slice(base.length).split(/[/?#]/u)[0]!;
+          const child = base + segment;
+          if (seen.has(child)) {
+            after = child + next.path.charAt(child.length) + String.fromCodePoint(0x10ffff);
+            continue;
+          }
+          seen.add(child);
+          const [count] = yield* sql<{ count: number }>`SELECT count(*) AS count FROM
+            (SELECT 1 FROM project_navigation_states WHERE project_id = ${input.projectId}
+            AND environment = ${input.environment} AND path >= ${child}
+            AND path < ${child + String.fromCodePoint(0x10ffff)}
+            AND (path = ${child} OR path >= ${child + "/"} AND path < ${child + "/" + String.fromCodePoint(0x10ffff)} OR path >= ${child + "?"} AND path < ${child + "?" + String.fromCodePoint(0x10ffff)} OR path >= ${child + "#"} AND path < ${child + "#" + String.fromCodePoint(0x10ffff)}) LIMIT 10001)`;
+          groups.push({
+            prefix: child,
+            stateCount: Math.min(10000, count?.count ?? 0),
+            countCapped: (count?.count ?? 0) > 10000,
+          });
+          after = child;
+          if (groups.length > 200) {
+            more = true;
+            break;
+          }
+        }
+        if (groups.length > 1) {
+          const visible = groups.slice(0, 200);
+          const singles = visible.filter((group) => group.stateCount === 1);
+          const direct = yield* Effect.forEach(singles, (group) =>
+            Effect.gen(function* () {
+              const [row] = yield* sql<{
+                state_id: string;
+              }>`SELECT state_id FROM project_navigation_states
+                WHERE project_id = ${input.projectId} AND environment = ${input.environment}
+                AND (path = ${group.prefix} OR path >= ${group.prefix + "/"} AND path < ${group.prefix + "/" + String.fromCodePoint(0x10ffff)} OR path >= ${group.prefix + "?"} AND path < ${group.prefix + "?" + String.fromCodePoint(0x10ffff)} OR path >= ${group.prefix + "#"} AND path < ${group.prefix + "#" + String.fromCodePoint(0x10ffff)}) LIMIT 1`;
+              return row ? yield* summary(input.projectId, row.state_id) : null;
+            }),
+          );
+          const terminals = yield* sql<{
+            state_id: string;
+          }>`SELECT state_id FROM project_navigation_states
+            WHERE project_id = ${input.projectId} AND environment = ${input.environment}
+            AND path = ${prefix} ORDER BY state_id LIMIT 200`;
+          const terminalStates = yield* Effect.forEach(terminals, (row) =>
+            summary(input.projectId, row.state_id),
+          );
+          return {
+            kind: "subgroups" as const,
+            subgroups: visible.filter((group) => group.stateCount > 1),
+            states: [...terminalStates, ...direct].filter((state) => state !== null),
+            nextCursor: null,
+            limit: 200,
+            truncated: more,
+          };
+        }
+        if (groups.length === 0) break;
+        const [terminal] =
+          yield* sql`SELECT 1 FROM project_navigation_states WHERE project_id = ${input.projectId}
+          AND environment = ${input.environment} AND path = ${prefix} LIMIT 1`;
+        if (terminal) break;
+        prefix = groups[0]!.prefix;
+      }
+    }
+    const rows = yield* sql<{ state_id: string }>`SELECT state_id FROM project_navigation_states
+      WHERE project_id = ${input.projectId} AND environment = ${input.environment}
+      AND ${predicate()} AND state_id > ${cursor} ORDER BY state_id LIMIT ${limit + 1}`;
+    const page = yield* statePage(
       input.projectId,
       rows.map((row) => row.state_id),
       limit,
     );
+    const ids = page.states.map((state) => state.id);
+    const edges =
+      ids.length === 0
+        ? []
+        : yield* sql<ConnectionRow>`SELECT * FROM project_navigation_connections
+      WHERE project_id = ${input.projectId} AND from_state_id IN ${sql.in(ids)} AND to_state_id IN ${sql.in(ids)}
+      ORDER BY from_state_id, to_state_id, transition_id LIMIT 501`;
+    return {
+      ...page,
+      kind: "states" as const,
+      nextCursor: rows.length > limit ? pageCursor(`${scope}\n${rows[limit - 1]!.state_id}`) : null,
+      connections: edges.slice(0, 500).map(connection),
+      connectionsTruncated: edges.length > 500,
+    };
   }, Effect.mapError(failure));
   const navigationNeighborhood = Effect.fn("ProjectNavigationMemory.navigationNeighborhood")(
     function* (input: typeof NavigationNeighborhoodInput.Type) {
@@ -637,6 +757,11 @@ const make = Effect.gen(function* () {
   ) {
     const state = yield* getState(input.projectId, input.stateId);
     const counts = yield* summary(input.projectId, input.stateId);
+    const [recheck] = yield* sql<{ count: number }>`SELECT count(*) AS count FROM
+      (SELECT transition_id FROM project_navigation_connections WHERE project_id = ${input.projectId}
+        AND from_state_id = ${input.stateId} AND available = 0
+       UNION SELECT transition_id FROM project_navigation_connections WHERE project_id = ${input.projectId}
+        AND to_state_id = ${input.stateId} AND available = 0)`;
     const runs =
       state === null
         ? []
@@ -652,6 +777,7 @@ const make = Effect.gen(function* () {
       GROUP BY run_id, thread_id ORDER BY observedAt DESC, run_id, thread_id LIMIT 21`;
     return {
       state,
+      needsRecheckCount: recheck?.count ?? 0,
       incomingCount: counts?.incomingCount ?? 0,
       outgoingCount: counts?.outgoingCount ?? 0,
       runs: runs

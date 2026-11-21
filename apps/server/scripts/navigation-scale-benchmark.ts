@@ -398,7 +398,11 @@ try {
       ...base,
       environment: group.environment,
       pathGroup: group.pathGroup,
-      cursor: Buffer.from(JSON.stringify(id(Math.floor(group.end * 0.9)))).toString("base64url"),
+      cursor: Buffer.from(
+        JSON.stringify(
+          `${JSON.stringify([group.environment, group.pathGroup, null])}\n${id(Math.floor(group.end * 0.9))}`,
+        ),
+      ).toString("base64url"),
     }),
   );
   for (const [label, stateId] of [

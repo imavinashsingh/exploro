@@ -77,6 +77,7 @@ const Count = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 const PageLimit = (max: number) => Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: max }));
 const Cursor = Schema.optional(Text(4096));
 export const NavigationSummary = Schema.Struct({
+  hasNeedsRecheck: Schema.Boolean,
   id: Schema.String,
   name: Schema.String,
   environment: Schema.String,
@@ -112,6 +113,7 @@ export const NavigationChildrenInput = Schema.Struct({
   projectId: ProjectId,
   environment: Schema.String,
   pathGroup: Schema.String,
+  prefix: Schema.optional(Schema.String),
   cursor: Cursor,
   limit: PageLimit(200),
 });
@@ -121,6 +123,25 @@ export const NavigationStatePage = Schema.Struct({
   limit: Count,
   truncated: Schema.Boolean,
 });
+// Subgroups have no cursor. State cursors are opaque and scoped to environment, group and prefix.
+export const NavigationChildren = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("subgroups"),
+    subgroups: Schema.Array(
+      Schema.Struct({ prefix: Schema.String, stateCount: Count, countCapped: Schema.Boolean }),
+    ),
+    states: Schema.Array(NavigationSummary),
+    nextCursor: Schema.Null,
+    limit: Count,
+    truncated: Schema.Boolean,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("states"),
+    ...NavigationStatePage.fields,
+    connections: Schema.Array(NavigationTransition),
+    connectionsTruncated: Schema.Boolean,
+  }),
+]);
 export const NavigationNeighborhoodInput = Schema.Struct({
   projectId: ProjectId,
   stateId: Schema.String,
@@ -148,6 +169,7 @@ export const NavigationDetailsInput = Schema.Struct({
   stateId: Schema.String,
 });
 export const NavigationDetails = Schema.Struct({
+  needsRecheckCount: Count,
   state: Schema.NullOr(NavigationState),
   incomingCount: Count,
   outgoingCount: Count,

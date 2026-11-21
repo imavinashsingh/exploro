@@ -294,6 +294,53 @@ it.effect(
         },
       ]);
       assert.strictEqual(overview.connections[0]?.count, 6);
+      const connected = yield* memory.navigationChildren({
+        projectId: project,
+        environment: "https://shop.test",
+        pathGroup: "/pim",
+        limit: 100,
+      });
+      assert.strictEqual(connected.kind, "states");
+      if (connected.kind === "states") {
+        assert.strictEqual(connected.connections.length, 6);
+        assert.isFalse(connected.connectionsTruncated);
+        const sql = yield* SqlClient.SqlClient;
+        const edge = connected.connections[0]!;
+        yield* sql`WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i + 1 FROM n WHERE i < 501)
+          INSERT INTO project_navigation_connections(project_id, transition_id, from_state_id, to_state_id, action, conditions_json, last_run_id, last_thread_id, last_observed_at, observation_count)
+          SELECT ${project}, 'cap-' || i, ${edge.from}, ${edge.to}, 'Open', '{}', 'run', 'thread', ${edge.observedAt}, 1 FROM n`;
+        const capped = yield* memory.navigationChildren({
+          projectId: project,
+          environment: "https://shop.test",
+          pathGroup: "/pim",
+          limit: 100,
+        });
+        assert.strictEqual(capped.kind, "states");
+        if (capped.kind === "states") {
+          assert.strictEqual(capped.connections.length, 500);
+          assert.isTrue(capped.connectionsTruncated);
+        }
+        yield* sql`DELETE FROM project_navigation_connections WHERE project_id = ${project} AND transition_id LIKE 'cap-%'`;
+        const firstPage = yield* memory.navigationChildren({
+          projectId: project,
+          environment: "https://shop.test",
+          pathGroup: "/pim",
+          limit: 2,
+        });
+        assert.isNotNull(firstPage.nextCursor);
+        assert.strictEqual(
+          (yield* Effect.result(
+            memory.navigationChildren({
+              projectId: project,
+              environment: "https://different.test",
+              pathGroup: "/pim",
+              limit: 2,
+              cursor: firstPage.nextCursor!,
+            }),
+          ))._tag,
+          "Failure",
+        );
+      }
       const neighbors = yield* memory.navigationNeighborhood({
         projectId: project,
         stateId: ids[3]!,
@@ -303,6 +350,14 @@ it.effect(
       assert.strictEqual(neighbors.outgoing[0]?.state.id, ids[4]);
       const edge = neighbors.outgoing[0]!.transition;
       yield* memory.feedback(project, "review", edge.id, "mismatch");
+      const warningPage = yield* memory.navigationChildren({
+        projectId: project,
+        environment: "https://shop.test",
+        pathGroup: "/pim",
+        limit: 100,
+      });
+      assert.isTrue(warningPage.states.find((s) => s.id === edge.from)?.hasNeedsRecheck);
+      assert.isTrue(warningPage.states.find((s) => s.id === edge.to)?.hasNeedsRecheck);
       assert.strictEqual(
         (yield* memory.navigationNeighborhood({
           projectId: project,
@@ -606,4 +661,74 @@ it.effect(
         assert.isTrue((yield* memory.snapshot(project)).transitions[0]!.available);
       }).pipe(Effect.provide(Navigation.layer.pipe(Layer.provide(NodeCrypto.layer))));
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+);
+
+it.effect(
+  "subdivides front-controller clusters and caps counts while collapsing single-child chains",
+  () =>
+    Effect.gen(function* () {
+      const memory = yield* Navigation.ProjectNavigationMemory;
+      const sql = yield* SqlClient.SqlClient;
+      const seed = yield* memory.observe(project, {
+        state: { ...state("Employee list"), path: "/web/index.php/pim/employee/list" },
+        threadId: "thread",
+        runId: "run",
+        tabId: "tab",
+        stepIndex: 0,
+      });
+      yield* sql`WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i + 1 FROM n WHERE i < 10002)
+      INSERT INTO project_navigation_states(project_id, state_id, data, environment, path, path_group, check_count)
+      SELECT ${project}, 'bulk-' || printf('%05d', i),
+        json_set(${JSON.stringify(seed)}, '$.id', 'bulk-' || printf('%05d', i), '$.path', '/web/index.php/pim/employee/' || i),
+        'https://shop.test', '/web/index.php/pim/employee/' || i, '/pim', 1 FROM n`;
+      const settings = yield* memory.observe(project, {
+        state: { ...state("Settings"), path: "/web/index.php/pim/settings/view" },
+        threadId: "thread",
+        runId: "run",
+        tabId: "tab",
+        stepIndex: 1,
+        action: "Open settings",
+      });
+      const input = {
+        projectId: project,
+        environment: seed.environment,
+        pathGroup: "/pim",
+        limit: 50,
+      };
+      const groups = yield* memory.navigationChildren(input);
+      assert.strictEqual(groups.kind, "subgroups");
+      if (groups.kind !== "subgroups") return;
+      assert.deepStrictEqual(groups.subgroups, [
+        { prefix: "/web/index.php/pim/employee", stateCount: 10000, countCapped: true },
+      ]);
+      assert.deepStrictEqual(
+        groups.states.map((s) => s.id),
+        [settings.id],
+      );
+      assert.isNull(groups.nextCursor);
+      const page = yield* memory.navigationChildren({
+        ...input,
+        prefix: "/web/index.php/pim/settings",
+      });
+      assert.strictEqual(page.kind, "states");
+      assert.strictEqual(page.states[0]?.id, settings.id);
+      const connected = yield* memory.navigationChildren({
+        ...input,
+        prefix: "/web/index.php/pim",
+        limit: 2,
+        cursor: Buffer.from(
+          JSON.stringify(`${JSON.stringify([seed.environment, "/pim", "/web/index.php/pim"])}\n`),
+        ).toString("base64url"),
+      });
+      assert.strictEqual(connected.kind, "subgroups");
+      yield* sql`DELETE FROM project_navigation_states WHERE project_id = ${project} AND state_id = ${settings.id}`;
+      const collapsed = yield* memory.navigationChildren(input);
+      assert.strictEqual(collapsed.kind, "subgroups");
+      if (collapsed.kind === "subgroups") {
+        assert.strictEqual(collapsed.subgroups.length, 0);
+        assert.strictEqual(collapsed.states.length, 200);
+        assert.isTrue(collapsed.truncated);
+        assert.ok(collapsed.states.every((s) => s.path.startsWith("/web/index.php/pim/employee/")));
+      }
+    }).pipe(Effect.provide(layer)),
 );
