@@ -1,3 +1,4 @@
+import { isExploroPanelSurfaceVisible } from "./exploroFeatures";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { type EnvironmentId, RunId, ThreadId } from "@t3tools/contracts";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
@@ -40,6 +41,16 @@ async function reloadRightPanelStore() {
 }
 
 describe("rightPanelStore", () => {
+  it("shows QA surfaces while hiding developer tabs, including restored workspace files", () => {
+    for (const kind of ["terminal", "diff", "files", "file", "pull-request", "pull-requests"]) {
+      expect(isExploroPanelSurfaceVisible({ kind })).toBe(false);
+    }
+    for (const kind of ["preview", "device", "issue", "side-chat"]) {
+      expect(isExploroPanelSurfaceVisible({ kind })).toBe(true);
+    }
+    expect(isExploroPanelSurfaceVisible({ kind: "file", attachment: {} })).toBe(true);
+  });
+
   it("opens a hosted side chat's panel actions in its parent's panel until unhosted", () => {
     const store = useRightPanelStore.getState();
     const unhost = hostRightPanel(refB, refA);

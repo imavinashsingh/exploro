@@ -4,12 +4,12 @@ import { describe, expect, it } from "vite-plus/test";
 import { shouldShowOpenInPicker } from "./OpenInPicker.logic";
 
 describe("shouldShowOpenInPicker", () => {
-  it("shows both local environments when the primary has a separate WSL home", () => {
+  it("hides editor launchers for local, host and remote environments", () => {
     const primaryEnvironmentId = EnvironmentId.make("wsl");
     const hostEnvironmentId = EnvironmentId.make("host");
     for (const [activeThreadEnvironmentId, visible] of [
-      [primaryEnvironmentId, true],
-      [hostEnvironmentId, true],
+      [primaryEnvironmentId, false],
+      [hostEnvironmentId, false],
       [EnvironmentId.make("other"), false],
     ] as const) {
       expect(

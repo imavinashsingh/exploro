@@ -1,3 +1,4 @@
+import { EXPLORO_HIDDEN_PANEL_SHORTCUTS } from "../exploroFeatures";
 import { msg, T, useGT, useMessages } from "gt-react";
 import { m, type MessageResolver } from "../i18n/messages";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
@@ -438,7 +439,7 @@ function RightPanelEmptyState(props: {
           },
         ]
       : []),
-  ] as const;
+  ].filter((action) => !EXPLORO_HIDDEN_PANEL_SHORTCUTS.has(action.shortcut));
 
   type SurfaceAction = (typeof actions)[number];
 
@@ -1271,7 +1272,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           },
         ]
       : []),
-  ] as const;
+  ].filter((action) => !EXPLORO_HIDDEN_PANEL_SHORTCUTS.has(action.shortcut));
 
   const handleAddSurfaceMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const action = surfaceShortcutActionForKey(addSurfaceActions, event.nativeEvent);

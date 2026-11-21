@@ -1,3 +1,4 @@
+import { isExploroDestinationVisible } from "../exploroFeatures";
 import { useNavigation, useRoute, StackActions } from "@react-navigation/native";
 import { resolveIssueLinkTarget } from "@t3tools/client-runtime/issue-links";
 import {
@@ -34,6 +35,8 @@ export function useNavigateToPullRequest(options?: { readonly replace?: boolean 
     const destination = nativePullRequestDestination(url, context, projects, (environmentId) =>
       serverConfigs.has(environmentId),
     );
+    // Exploro: issue links still use the fallback below; PR destinations stay hidden.
+    if (destination && !isExploroDestinationVisible("PullRequest")) return false;
     if (!destination) {
       // An issue link from the same text opens the issue; anything else leaves for the browser.
       const environmentId = context && EnvironmentId.make(context.environmentId);

@@ -1,3 +1,4 @@
+import { isExploroDestinationVisible } from "../../exploroFeatures";
 import { msg, T, useGT, useLocale, useMessages } from "gt-react-native";
 import { m } from "../../i18n/messages";
 import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
@@ -2650,6 +2651,8 @@ function TurnDiffStat(props: {
   const additions = files.reduce((total, file) => total + file.additions, 0);
   const deletions = files.reduce((total, file) => total + file.deletions, 0);
   const gt = useGT();
+  // Exploro: checkpoint statistics are links into the hidden review screen.
+  if (!isExploroDestinationVisible("review")) return null;
   return (
     <Pressable
       accessibilityRole="button"

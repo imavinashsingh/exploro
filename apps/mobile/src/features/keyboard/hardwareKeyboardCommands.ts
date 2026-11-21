@@ -1,3 +1,4 @@
+import { isExploroDestinationVisible } from "../../exploroFeatures";
 import { EnvironmentId, ThreadId, type ThreadJumpKeybindingCommand } from "@t3tools/contracts";
 import { useEffect } from "react";
 
@@ -29,7 +30,9 @@ export function useHardwareKeyboardCommand(
 ): void {
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers the handler in the module-level hardware keyboard command registry
   useEffect(() => {
-    const commands = typeof command === "string" ? [command] : command;
+    const commands = (typeof command === "string" ? [command] : command).filter(
+      isExploroDestinationVisible,
+    );
     for (const command of commands) {
       const commandHandlers = handlers.get(command) ?? new Set<CommandHandler>();
       commandHandlers.add(handler);
@@ -63,6 +66,8 @@ export function subscribeToHardwareKeyboardCommandRegistrations(listener: () => 
 }
 
 export function dispatchHardwareKeyboardCommand(command: HardwareKeyboardCommand): boolean {
+  // Exploro: hidden destinations cannot be opened by hardware shortcuts.
+  if (!isExploroDestinationVisible(command)) return false;
   const commandHandlers = handlers.get(command);
   if (!commandHandlers) return false;
   const handlersInRegistrationOrder = Array.from(commandHandlers);

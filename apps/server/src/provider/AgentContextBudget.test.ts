@@ -149,6 +149,21 @@ it.effect("only request_secret and send_to_user ask Claude Code to load them up 
   }).pipe(Effect.provide(layerAdvertisedTools)),
 );
 
+it.effect("QA agents get issue tools but no worktree, pull request or clone tools", () =>
+  Effect.gen(function* () {
+    const names = (yield* McpServer.McpServer).tools.map(({ tool }) => tool.name);
+    expect(names).toEqual(expect.arrayContaining(["create_issue", "t3_project_create"]));
+    expect(
+      names.filter(
+        (name) =>
+          name.startsWith("t3_worktree_") ||
+          name.includes("pull_request") ||
+          name === "t3_project_clone",
+      ),
+    ).toEqual([]);
+  }).pipe(Effect.provide(layerAdvertisedTools)),
+);
+
 // CI rejects a PR that raises any value above main's agentContextBudget.json, so growth
 // needs the agent-context-increase label. Lower the values when the text shrinks.
 it.effect("agent context matches the committed budget", () =>

@@ -9,6 +9,8 @@ import { resolveShortcutCommand } from "../../keybindings";
 
 import {
   buildKeybindingRows,
+  buildKeybindingCommandOptions,
+  filterKeybindingRows,
   buildWhenVariableOptions,
   keybindingConflictLabels,
   keybindingFromKeyboardEvent,
@@ -19,6 +21,21 @@ import {
 } from "./KeybindingsSettings.logic";
 
 describe("KeybindingsSettings.logic", () => {
+  it("hides developer commands in rows and the add-binding picker", () => {
+    const bindings = compileResolvedKeybindingsConfig([
+      { command: "terminal.toggle", key: "mod+j" },
+      { command: "script.dev.run", key: "mod+k" },
+      { command: "sidebar.toggle", key: "mod+b" },
+    ]);
+    expect(
+      filterKeybindingRows(buildKeybindingRows(bindings), "").map((row) => row.command),
+    ).toEqual(["sidebar.toggle"]);
+    const commands = buildKeybindingCommandOptions(bindings);
+    expect(commands).not.toContain("terminal.toggle");
+    expect(commands).not.toContain("script.dev.run");
+    expect(commands).toContain("sidebar.toggle");
+  });
+
   it("keeps sibling row identities when a saved binding moves to the end", () => {
     const bindings = compileResolvedKeybindingsConfig([
       { command: "chat.new", key: "mod+n" },

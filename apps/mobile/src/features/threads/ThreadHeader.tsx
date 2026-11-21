@@ -1,3 +1,4 @@
+import { isExploroDestinationVisible } from "../../exploroFeatures";
 import { useGT, useMessages } from "gt-react-native";
 
 import { AppBar } from "../../components/ui/AppBar";
@@ -32,19 +33,24 @@ export function ThreadHeader(props: {
   const gitMenu = useThreadGitMenuDefinition(props.gitControls);
   const terminalMenu = threadTerminalMenu(props.gitControls, m);
   const filesVisible = props.inspectorMode === "files" && panes.auxiliaryPaneVisible;
-  const actions: AppBarAction[] = props.hasThreadCwd
-    ? [
-        {
-          accessibilityLabel: filesVisible ? gt("Close files") : gt("Open files"),
-          icon: "folder",
-          selected: filesVisible,
-          disabled: !props.gitControls.canOpenFiles,
-          separateBackground: false,
-          onPress: filesVisible ? toggleAuxiliaryPane : props.onOpenFilesInspector,
-        },
-      ]
-    : [];
-  const menus = [gitMenu, terminalMenu].filter((menu): menu is AppBarMenu => menu !== null);
+  const actions: AppBarAction[] =
+    props.hasThreadCwd && isExploroDestinationVisible("files")
+      ? [
+          {
+            accessibilityLabel: filesVisible ? gt("Close files") : gt("Open files"),
+            icon: "folder",
+            selected: filesVisible,
+            disabled: !props.gitControls.canOpenFiles,
+            separateBackground: false,
+            onPress: filesVisible ? toggleAuxiliaryPane : props.onOpenFilesInspector,
+          },
+        ]
+      : [];
+  // Exploro: keep the upstream header menu definitions without offering git or terminal.
+  const menus = [gitMenu, terminalMenu].filter(
+    (menu, index): menu is AppBarMenu =>
+      menu !== null && isExploroDestinationVisible(index === 0 ? "git" : "terminal"),
+  );
 
   return (
     <AppBar

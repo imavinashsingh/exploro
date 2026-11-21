@@ -1,3 +1,4 @@
+import { EXPLORO_HIDDEN_COMPOSER_ITEMS } from "../../exploroFeatures";
 import { useGT, useMessages } from "gt-react";
 import {
   legacyThreadPullRequestKey,
@@ -144,8 +145,8 @@ export function useComposerMenuItems({
   const workspaceEntries = useComposerPathSearch(
     {
       environmentId,
-      cwd: isPathTrigger ? gitCwd : null,
-      query: isPathTrigger ? pathTriggerQuery : null,
+      cwd: isPathTrigger && !EXPLORO_HIDDEN_COMPOSER_ITEMS.has("path") ? gitCwd : null,
+      query: isPathTrigger && !EXPLORO_HIDDEN_COMPOSER_ITEMS.has("path") ? pathTriggerQuery : null,
     },
     messages,
   );
@@ -209,7 +210,11 @@ export function useComposerMenuItems({
       : composerPullRequestsFromLinks(threadPullRequests ?? [], pullRequestProjectId);
 
   const items = ((): ComposerCommandItem[] => {
-    if (!composerTrigger) return [];
+    if (
+      !composerTrigger ||
+      (composerTrigger.kind === "pull-request" && EXPLORO_HIDDEN_COMPOSER_ITEMS.has("pull-request"))
+    )
+      return [];
     if (composerTrigger.kind === "path") {
       return [
         ...matchComposerThreadItems(

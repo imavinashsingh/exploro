@@ -78,7 +78,7 @@ const ProjectReadTool = Tool.make("t3_project_read", {
 const ProjectCreateTool = Tool.make("t3_project_create", {
   ...shared,
   description:
-    "Register a project folder. `createWorkspaceRootIfMissing` creates it; a registered folder is rejected. No `workspaceRoot`: makes a git repo from `title` with README, icon, first commit (`commitError` on failure; project still exists). Clone first with `t3_project_clone` if needed.",
+    "Register a project folder. `createWorkspaceRootIfMissing` creates it; a registered folder is rejected. No `workspaceRoot`: makes a git repo from `title` with README, icon, first commit (`commitError` on failure; project still exists).",
   parameters: Schema.Struct({
     environmentId: OrchestratorMcpEnvironmentTarget,
     ...ProjectCreatePayload.fields,
@@ -191,4 +191,14 @@ export const ProjectToolkit = Toolkit.make(
   ProjectUpdateTool,
   ProjectDeleteTool,
   ProjectCloneTool,
+);
+
+/** Exploro: QA projects are folders Exploro manages, so agents get no clone tool. */
+export const ExploroProjectToolkit = Toolkit.make(
+  ThreadLaunchTool,
+  ProjectListTool,
+  ProjectReadTool,
+  ProjectCreateTool,
+  ProjectUpdateTool,
+  ProjectDeleteTool,
 );
