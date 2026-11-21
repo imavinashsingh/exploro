@@ -1579,6 +1579,30 @@ export function createServerEnvironmentAtoms<R, E>(
       tag: WS_METHODS.scheduledTasksSubscribe,
     }),
     // Not polled: a project's facts can be large, so the Memory screen refreshes after each change.
+    navigationOverview: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:navigation:overview",
+      tag: WS_METHODS.projectNavigationOverview,
+    }),
+    navigationChildren: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:navigation:children",
+      tag: WS_METHODS.projectNavigationChildren,
+    }),
+    navigationNeighborhood: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:navigation:neighborhood",
+      tag: WS_METHODS.projectNavigationNeighborhood,
+    }),
+    navigationSearch: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:navigation:search",
+      tag: WS_METHODS.projectNavigationSearch,
+    }),
+    navigationDetails: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:navigation:details",
+      tag: WS_METHODS.projectNavigationDetails,
+    }),
+    navigationRoutePreview: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:navigation:routepreview",
+      tag: WS_METHODS.projectNavigationRoutePreview,
+    }),
     projectMemorySnapshot: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:project-memory:snapshot",
       tag: WS_METHODS.projectMemorySnapshot,

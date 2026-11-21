@@ -1489,6 +1489,7 @@ export const layerWsRpc = (
       const qaSuites = yield* QaSuites.QaSuites;
       const projectMemory = yield* ProjectMemory.ProjectMemory;
       const memoryControl = yield* ProjectMemoryControl.ProjectMemoryControl;
+      const navigationMemory = yield* ProjectNavigationMemory.ProjectNavigationMemory;
       const secretRequests = yield* SecretRequests.SecretRequests;
       const guestShares = yield* GuestShareService.GuestShareService;
       const pullRequests = yield* PullRequestService.PullRequestService;
@@ -2335,6 +2336,16 @@ export const layerWsRpc = (
           providerSessionManager.subscribePromptSuggestion(input.threadId),
         [WS_METHODS.scheduledTasksSubscribe]: (_input) =>
           scheduledTasks.subscribeList().pipe(Stream.map(withVisibleWebhookUrls)),
+        [WS_METHODS.projectNavigationOverview]: (input) =>
+          navigationMemory.navigationOverview(input),
+        [WS_METHODS.projectNavigationChildren]: (input) =>
+          navigationMemory.navigationChildren(input),
+        [WS_METHODS.projectNavigationNeighborhood]: (input) =>
+          navigationMemory.navigationNeighborhood(input),
+        [WS_METHODS.projectNavigationSearch]: (input) => navigationMemory.navigationSearch(input),
+        [WS_METHODS.projectNavigationDetails]: (input) => navigationMemory.navigationDetails(input),
+        [WS_METHODS.projectNavigationRoutePreview]: (input) =>
+          navigationMemory.navigationRoutePreview(input),
         [WS_METHODS.projectNavigationDelete]: (input) =>
           projectMemory.deleteNavigationRecord(input.projectId, input.id),
         [WS_METHODS.projectMemoryMap]: (input) => projectMemory.map(input.projectId),

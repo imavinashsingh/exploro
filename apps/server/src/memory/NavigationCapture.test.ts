@@ -15,6 +15,7 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as SqlClient from "effect/sql/SqlClient";
 import type { McpThreadInvocationScope } from "../mcp/McpInvocationContext.ts";
 import * as Broker from "../mcp/PreviewAutomationBroker.ts";
 import * as Threads from "../orchestration-v2/ThreadManagementService.ts";
@@ -78,7 +79,7 @@ it.effect("requires a live screen check and runtime access before persisting nav
     const operations = new Set<string>();
     const layer = Capture.layer.pipe(
       Layer.provideMerge(Navigation.layer),
-      Layer.provide(Sqlite.layerMemory),
+      Layer.provideMerge(Sqlite.layerMemory),
       Layer.provide(NodeCrypto.layer),
       Layer.provide(
         Layer.mock(Broker.PreviewAutomationBroker)({
@@ -146,7 +147,39 @@ it.effect("requires a live screen check and runtime access before persisting nav
       matches = true;
       const state = yield* capture.observe(scope, input);
       assert.strictEqual(state.path, "/profile");
+      const destination = {
+        ...state,
+        name: "Details",
+        path: "/details",
+        checks: [{ kind: "textVisible" as const, text: "Details" }],
+      };
+      for (let index = 0; index < 1002; index += 1)
+        yield* memory.observe(projectId, {
+          state: destination,
+          threadId,
+          runId: run.runId,
+          tabId,
+          stepIndex: index + 1,
+          action: index === 0 ? "Open details" : "Stay on details",
+        });
+      assert.strictEqual((yield* capture.route(scope, { destination: "Details" })).status, "found");
+      yield* memory.deleteRecord(
+        projectId,
+        (yield* memory.destinations(projectId, state.environment, "Details")).states[0]!.id,
+      );
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i + 1 FROM n WHERE i < 501)
+        INSERT INTO project_navigation_states (project_id, state_id, data)
+        SELECT ${projectId}, '!' || i, json_set(${JSON.stringify(state)}, '$.id', '!' || i, '$.path', '/filler/' || i) FROM n`;
+      yield* sql`INSERT INTO project_navigation_observations
+        (observation_id, project_id, thread_id, run_id, tab_id, state_id, step_index, observed_at)
+        SELECT state_id, project_id, 'filler', 'filler', 'filler', state_id, 0, 'now'
+        FROM project_navigation_states WHERE state_id LIKE '!%'`;
       assert.strictEqual((yield* capture.recognize(scope))?.id, state.id);
+      url = "https://shop.test/profile?tab=1#details";
+      assert.strictEqual((yield* capture.recognize(scope))?.id, state.id);
+      url = "https://shop.test/profile";
+      yield* Navigation.forgetNavigationRun(sql, "filler");
       assert.strictEqual((yield* memory.snapshot(projectId)).states.length, 1);
       const renamed = yield* capture.observe(scope, {
         ...input,

@@ -91,6 +91,11 @@ export function isExactNavigationDestination(state: NavigationState, query: stri
   return [state.id, state.name, ...state.aliases].some((name) => name.toLowerCase() === normalized);
 }
 
+export const navigationDestinationWords = (text: string) =>
+  [...new Set(text.toLowerCase().split(/[^\p{L}\p{N}]+/u))].filter(
+    (word) => (word.length >= 3 || /\p{N}/u.test(word)) && !fillerWords.has(word),
+  );
+
 export function navigationDestinations(
   states: ReadonlyArray<NavigationState>,
   query: string,
@@ -99,14 +104,10 @@ export function navigationDestinations(
   const exact = states.filter((state) => isExactNavigationDestination(state, normalized));
   if (exact.length > 0) return exact;
   // Requests name features loosely ("my personal details editor"); the closest remembered names win.
-  const tokens = (text: string) =>
-    [...new Set(text.toLowerCase().split(/[^\p{L}\p{N}]+/u))].filter(
-      (word) => (word.length >= 3 || /\p{N}/u.test(word)) && !fillerWords.has(word),
-    );
-  const words = tokens(normalized);
+  const words = navigationDestinationWords(normalized);
   const numbers = words.filter((word) => /\p{N}/u.test(word));
   const scored = states.flatMap((s) => {
-    const names = tokens(`${s.name} ${s.aliases.join(" ")}`);
+    const names = navigationDestinationWords(`${s.name} ${s.aliases.join(" ")}`);
     if (names.some((name) => /\p{N}/u.test(name)) && !numbers.every((word) => names.includes(word)))
       return [];
     return [

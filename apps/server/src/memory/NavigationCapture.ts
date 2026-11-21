@@ -21,8 +21,6 @@ import { assertionFor, checkFor } from "../qa/qaReplay.ts";
 import { redactText } from "../qa/qaEvidence.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ProjectNavigationMemory from "./ProjectNavigationMemory.ts";
-import { navigationRoute } from "./ProjectNavigationMemory.ts";
-import { navigationDestinations } from "./navigation.ts";
 import { hideProvidedSecrets, threadProvidedSecrets } from "./providedSecrets.ts";
 
 type Scope = McpInvocationContext.McpThreadInvocationScope;
@@ -115,8 +113,8 @@ const make = Effect.gen(function* () {
     new Set(origins.length > 0 ? origins : site === null ? [] : [new URL(site).origin]);
 
   // An unknown start still lets a single remembered destination be opened by its address.
-  const unrecognized = (states: ReadonlyArray<NavigationState>, destination: string) => {
-    const [target, ...others] = navigationDestinations(states, destination);
+  const unrecognized = (states: ReadonlyArray<NavigationState>) => {
+    const [target, ...others] = states;
     return {
       status: "unrecognized" as const,
       candidates: [],
@@ -154,8 +152,6 @@ const make = Effect.gen(function* () {
     );
     return verified.flat().toSorted((a, b) => b.checks.length - a.checks.length);
   });
-  const atAddress = (states: ReadonlyArray<NavigationState>, url: URL) =>
-    states.filter((state) => state.environment === url.origin && state.path === url.pathname);
 
   return NavigationCapture.of({
     recognize: Effect.fn("NavigationCapture.recognizeCurrent")(function* (scope, tabId) {
@@ -169,7 +165,7 @@ const make = Effect.gen(function* () {
       const [state] = yield* recognize(
         scope,
         current.tabId,
-        atAddress((yield* memory.snapshot(projectId)).states, current.url),
+        yield* memory.statesAtAddress(projectId, current.url.origin, current.url.pathname),
       );
       if (state === undefined)
         return yield* new ProjectMemoryError({
@@ -236,11 +232,7 @@ const make = Effect.gen(function* () {
       const [known] = yield* recognize(
         scope,
         current.tabId,
-        atAddress((yield* memory.snapshot(projectId)).states, current.url).filter((state) =>
-          Object.entries(context).every(
-            ([key, value]) => state.context[key] === undefined || state.context[key] === value,
-          ),
-        ),
+        yield* memory.statesAtAddress(projectId, current.url.origin, current.url.pathname, context),
       );
       return yield* memory.observe(projectId, {
         state:
@@ -269,21 +261,26 @@ const make = Effect.gen(function* () {
     route: Effect.fn("NavigationCapture.route")(function* (scope, input) {
       const { projectId } = yield* access(scope);
       const current = yield* page(scope, input.tabId);
-      const snapshot = yield* memory.snapshot(projectId);
-      const states = snapshot.states.filter((state) => state.environment === current.url.origin);
-      const here = atAddress(states, current.url);
+      const here = yield* memory.statesAtAddress(
+        projectId,
+        current.url.origin,
+        current.url.pathname,
+      );
       const starts = (yield* recognize(scope, current.tabId, here)).toSorted(
         (a, b) => Number(b.id === input.fromStateId) - Number(a.id === input.fromStateId),
       );
       // Every screen the live page satisfies is a valid start; the first with a path wins.
-      const routes = starts.map((start) =>
-        navigationRoute({ ...snapshot, states }, start.id, input.destination),
+      const routes = yield* Effect.forEach(starts, (start) =>
+        memory.navigationRoute(projectId, start.id, input.destination),
       );
-      return (
+      const route =
         routes.find((route) => route.status === "found" || route.status === "already-there") ??
-        routes[0] ??
-        unrecognized(states, input.destination)
-      );
+        routes[0];
+      if (route !== undefined) return route;
+      const matches = yield* memory.destinations(projectId, current.url.origin, input.destination);
+      return matches.truncated
+        ? { status: "budget-exhausted" as const, candidates: [], steps: [] }
+        : unrecognized(matches.states);
     }, Effect.mapError(failure)),
     feedback: Effect.fn("NavigationCapture.feedback")(function* (scope, input) {
       const { projectId } = yield* access(scope);

@@ -143,7 +143,7 @@ describe("runMigrations", () => {
         (yield* sql`SELECT status FROM orchestration_v2_projection_runs`)[0]?.status,
         "completed",
       );
-      yield* sql`INSERT INTO project_navigation_states VALUES ('project', 'new-state', '{}')`;
+      yield* sql`INSERT INTO project_navigation_states VALUES ('project', 'new-state', ${JSON.stringify({ id: "new-state", name: "Home", environment: "https://shop.test", path: "/", aliases: [], context: {}, checks: [{ kind: "textVisible", text: "Home" }] })})`;
       yield* sql`INSERT INTO project_memory_facts
         (fact_id, project_id, environment, route, kind, fact_key, value, evidence_json, author, status, observed_at)
         VALUES ('legacy', 'project', 'https://shop.test', '/', 'page', 'purpose', 'Home', '[]', 'agent', 'current', 'now')`;

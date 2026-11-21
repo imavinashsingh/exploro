@@ -99,6 +99,13 @@ const RPC_AGGREGATES = {
   [WS_METHODS.serverReportClientActivity]: "server",
   [WS_METHODS.scheduledTasksSubscribe]: "scheduledTasks",
   [WS_METHODS.projectNavigationDelete]: "projectMemory",
+  [WS_METHODS.projectNavigationOverview]: "projectMemory",
+  [WS_METHODS.projectNavigationChildren]: "projectMemory",
+  [WS_METHODS.projectNavigationNeighborhood]: "projectMemory",
+  [WS_METHODS.projectNavigationSearch]: "projectMemory",
+  [WS_METHODS.projectNavigationDetails]: "projectMemory",
+  [WS_METHODS.projectNavigationRoutePreview]: "projectMemory",
+
   [WS_METHODS.projectMemoryMap]: "projectMemory",
   [WS_METHODS.projectMemorySnapshot]: "projectMemory",
   [WS_METHODS.projectMemoryDeleteFact]: "projectMemory",

@@ -52,7 +52,14 @@ export const NavigationRouteInput = Schema.Struct({
   tabId: Schema.optional(PreviewTabId),
 });
 export const NavigationRouteResult = Schema.Struct({
-  status: Schema.Literals(["found", "already-there", "no-route", "ambiguous", "unrecognized"]),
+  status: Schema.Literals([
+    "found",
+    "already-there",
+    "no-route",
+    "ambiguous",
+    "unrecognized",
+    "budget-exhausted",
+  ]),
   candidates: Schema.Array(NavigationState),
   directUrl: Schema.optional(Schema.String),
   steps: Schema.Array(
@@ -64,4 +71,102 @@ export const NavigationDeleteInput = Schema.Struct({ projectId: ProjectId, id: S
 export const NavigationFeedbackInput = Schema.Struct({
   transitionId: Schema.String,
   outcome: Schema.Literals(["mismatch", "tool-error"]),
+});
+
+const Count = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
+const PageLimit = (max: number) => Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: max }));
+const Cursor = Schema.optional(Text(4096));
+export const NavigationSummary = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  environment: Schema.String,
+  path: Schema.String,
+  incomingCount: Count,
+  outgoingCount: Count,
+});
+export type NavigationSummary = typeof NavigationSummary.Type;
+export const NavigationOverviewInput = Schema.Struct({ projectId: ProjectId });
+export const NavigationOverview = Schema.Struct({
+  clusters: Schema.Array(
+    Schema.Struct({
+      environment: Schema.String,
+      pathGroup: Schema.String,
+      stateCount: Count,
+      incomingCount: Count,
+      outgoingCount: Count,
+    }),
+  ),
+  connections: Schema.Array(
+    Schema.Struct({
+      fromEnvironment: Schema.String,
+      fromPathGroup: Schema.String,
+      toEnvironment: Schema.String,
+      toPathGroup: Schema.String,
+      count: Count,
+    }),
+  ),
+  limit: Count,
+  truncated: Schema.Boolean,
+});
+export const NavigationChildrenInput = Schema.Struct({
+  projectId: ProjectId,
+  environment: Schema.String,
+  pathGroup: Schema.String,
+  cursor: Cursor,
+  limit: PageLimit(200),
+});
+export const NavigationStatePage = Schema.Struct({
+  states: Schema.Array(NavigationSummary),
+  nextCursor: Schema.NullOr(Schema.String),
+  limit: Count,
+  truncated: Schema.Boolean,
+});
+export const NavigationNeighborhoodInput = Schema.Struct({
+  projectId: ProjectId,
+  stateId: Schema.String,
+  limit: PageLimit(200),
+  filter: Schema.optional(Schema.Literals(["available", "needs-recheck", "all"])),
+});
+const Neighbor = Schema.Struct({ transition: NavigationTransition, state: NavigationSummary });
+export const NavigationNeighborhood = Schema.Struct({
+  state: Schema.NullOr(NavigationSummary),
+  incoming: Schema.Array(Neighbor),
+  outgoing: Schema.Array(Neighbor),
+  incomingTruncated: Schema.Boolean,
+  outgoingTruncated: Schema.Boolean,
+  limit: Count,
+  truncated: Schema.Boolean,
+});
+export const NavigationSearchInput = Schema.Struct({
+  projectId: ProjectId,
+  query: Text(160),
+  cursor: Cursor,
+  limit: PageLimit(50),
+});
+export const NavigationDetailsInput = Schema.Struct({
+  projectId: ProjectId,
+  stateId: Schema.String,
+});
+export const NavigationDetails = Schema.Struct({
+  state: Schema.NullOr(NavigationState),
+  incomingCount: Count,
+  outgoingCount: Count,
+  runs: Schema.Array(
+    Schema.Struct({ runId: Schema.String, threadId: Schema.String, observedAt: Schema.String }),
+  ),
+  limit: Count,
+  truncated: Schema.Boolean,
+});
+export const NavigationRoutePreviewInput = Schema.Struct({
+  projectId: ProjectId,
+  fromStateId: Schema.String,
+  toStateId: Schema.String,
+});
+export const NavigationRoutePreview = Schema.Struct({
+  status: Schema.Literals(["found", "already-there", "no-route", "budget-exhausted"]),
+  steps: Schema.Array(
+    Schema.Struct({ transition: NavigationTransition, destination: NavigationSummary }),
+  ),
+  limit: Count,
+  truncated: Schema.Boolean,
 });

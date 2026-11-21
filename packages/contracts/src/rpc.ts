@@ -1,4 +1,17 @@
-import { NavigationDeleteInput } from "./projectNavigation.ts";
+import {
+  NavigationDeleteInput,
+  NavigationOverviewInput,
+  NavigationOverview,
+  NavigationChildrenInput,
+  NavigationStatePage,
+  NavigationNeighborhoodInput,
+  NavigationNeighborhood,
+  NavigationSearchInput,
+  NavigationDetailsInput,
+  NavigationDetails,
+  NavigationRoutePreviewInput,
+  NavigationRoutePreview,
+} from "./projectNavigation.ts";
 import {
   ProjectMemoryError,
   ProjectMemoryFactDeleteInput,
@@ -617,6 +630,13 @@ export const WS_METHODS = {
   scheduledTasksSubscribe: "scheduledTasks.subscribe",
   projectMemoryMap: "projectMemory.map",
   projectNavigationDelete: "projectNavigation.delete",
+  projectNavigationOverview: "projectNavigation.overview",
+  projectNavigationChildren: "projectNavigation.children",
+  projectNavigationNeighborhood: "projectNavigation.neighborhood",
+  projectNavigationSearch: "projectNavigation.search",
+  projectNavigationDetails: "projectNavigation.details",
+  projectNavigationRoutePreview: "projectNavigation.routePreview",
+
   projectMemorySnapshot: "projectMemory.snapshot",
   projectMemorySaveThread: "projectMemory.saveThread",
   projectMemorySetAppVersion: "projectMemory.setAppVersion",
@@ -2223,6 +2243,36 @@ const WsProjectMemoryMapRpc = Rpc.make(WS_METHODS.projectMemoryMap, {
 });
 
 const memoryError = Schema.Union([ProjectMemoryError, EnvironmentAuthorizationError]);
+const WsProjectNavigationOverviewRpc = Rpc.make(WS_METHODS.projectNavigationOverview, {
+  payload: NavigationOverviewInput,
+  success: NavigationOverview,
+  error: memoryError,
+});
+const WsProjectNavigationChildrenRpc = Rpc.make(WS_METHODS.projectNavigationChildren, {
+  payload: NavigationChildrenInput,
+  success: NavigationStatePage,
+  error: memoryError,
+});
+const WsProjectNavigationNeighborhoodRpc = Rpc.make(WS_METHODS.projectNavigationNeighborhood, {
+  payload: NavigationNeighborhoodInput,
+  success: NavigationNeighborhood,
+  error: memoryError,
+});
+const WsProjectNavigationSearchRpc = Rpc.make(WS_METHODS.projectNavigationSearch, {
+  payload: NavigationSearchInput,
+  success: NavigationStatePage,
+  error: memoryError,
+});
+const WsProjectNavigationDetailsRpc = Rpc.make(WS_METHODS.projectNavigationDetails, {
+  payload: NavigationDetailsInput,
+  success: NavigationDetails,
+  error: memoryError,
+});
+const WsProjectNavigationRoutePreviewRpc = Rpc.make(WS_METHODS.projectNavigationRoutePreview, {
+  payload: NavigationRoutePreviewInput,
+  success: NavigationRoutePreview,
+  error: memoryError,
+});
 const WsProjectNavigationDeleteRpc = Rpc.make(WS_METHODS.projectNavigationDelete, {
   payload: NavigationDeleteInput,
   error: memoryError,
@@ -2490,6 +2540,13 @@ export const WsRpcGroup = RpcGroup.make(
   WsScheduledTasksSubscribeRpc,
   WsProjectMemoryMapRpc,
   WsProjectNavigationDeleteRpc,
+  WsProjectNavigationOverviewRpc,
+  WsProjectNavigationChildrenRpc,
+  WsProjectNavigationNeighborhoodRpc,
+  WsProjectNavigationSearchRpc,
+  WsProjectNavigationDetailsRpc,
+  WsProjectNavigationRoutePreviewRpc,
+
   WsProjectMemorySnapshotRpc,
   WsProjectMemorySaveThreadRpc,
   WsProjectMemorySetAppVersionRpc,

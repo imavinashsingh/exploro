@@ -43,6 +43,7 @@ const withMemory = <A, E>(
     E,
     | QaRuns.QaRuns
     | ProjectMemory.ProjectMemory
+    | ProjectNavigationMemory.ProjectNavigationMemory
     | ProjectUnderstanding.ProjectUnderstanding
     | FileSystem.FileSystem
     | SqlClient.SqlClient
@@ -70,7 +71,7 @@ const withMemory = <A, E>(
             "/other",
           ]) {
             const stateId = environment + path;
-            yield* sql`INSERT INTO project_navigation_states VALUES (${project}, ${stateId}, ${JSON.stringify({ id: stateId, name: path, environment, path, aliases: [], context: {}, checks: [{ kind: "textVisible", text: path }] })})`;
+            yield* sql`INSERT INTO project_navigation_states (project_id, state_id, data) VALUES (${project}, ${stateId}, ${JSON.stringify({ id: stateId, name: path, environment, path, aliases: [], context: {}, checks: [{ kind: "textVisible", text: path }] })})`;
           }
         }
       }
@@ -316,7 +317,7 @@ it.layer(NodeServices.layer)("ProjectMemory", (it) => {
         );
         const sql = yield* SqlClient.SqlClient;
         const otherId = "login-error";
-        yield* sql`INSERT INTO project_navigation_states SELECT project_id, ${otherId},
+        yield* sql`INSERT INTO project_navigation_states (project_id, state_id, data) SELECT project_id, ${otherId},
           json_set(data, '$.id', ${otherId}, '$.name', 'Login error') FROM project_navigation_states
           WHERE project_id = ${shop} AND state_id = 'https://shop.test/login'`;
         const other = yield* memory.putFact(
@@ -705,10 +706,40 @@ it.layer(NodeServices.layer)("ProjectMemory", (it) => {
         yield* memory.putFact(blog, fact());
         yield* memory.deleteFact(shop, saved!.factId);
         yield* memory.putFact(shop, fact({ key: "empty password" }));
+        const navigation = yield* ProjectNavigationMemory.ProjectNavigationMemory;
+        for (const [stepIndex, name] of ["Start", "Target"].entries())
+          yield* navigation.observe(shop, {
+            state: {
+              name,
+              environment: "https://shop.test",
+              path: `/${name}`,
+              context: {},
+              aliases: [],
+              checks: [{ kind: "textVisible", text: name }],
+            },
+            threadId: "thread",
+            runId: "navigation",
+            tabId: "tab",
+            stepIndex,
+            ...(stepIndex === 0 ? {} : { action: "Open target" }),
+          });
         yield* memory.forgetProject(shop);
+        assert.deepStrictEqual(
+          (yield* navigation.navigationOverview({ projectId: shop })).connections,
+          [],
+        );
+        assert.deepStrictEqual(
+          (yield* navigation.navigationOverview({ projectId: shop })).clusters,
+          [],
+        );
+        assert.deepStrictEqual(
+          (yield* navigation.navigationSearch({ projectId: shop, query: "Target", limit: 50 }))
+            .states,
+          [],
+        );
         assert.deepStrictEqual(yield* memory.listFacts(shop, 10), []);
         const sql = yield* SqlClient.SqlClient;
-        yield* sql`INSERT INTO project_navigation_states SELECT ${shop}, state_id, data FROM project_navigation_states WHERE project_id = ${blog}`;
+        yield* sql`INSERT INTO project_navigation_states (project_id, state_id, data) SELECT ${shop}, state_id, data FROM project_navigation_states WHERE project_id = ${blog}`;
         assert.notStrictEqual(yield* memory.putFact(shop, fact()), null);
         assert.strictEqual((yield* memory.listFacts(blog, 10)).length, 1);
       }),

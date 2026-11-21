@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 
 import { findNavigationPath, navigationDestinations, navigationStateKey } from "./navigation.ts";
+import { navigationPathGroup } from "./navigationStorage.ts";
 import { navigationRoute } from "./ProjectNavigationMemory.ts";
 
 const state = (id: string, context: Record<string, string> = {}) => ({
@@ -25,6 +26,20 @@ const edge = (id: string, from: string, to: string, conditions: Record<string, s
 });
 
 describe("navigation routing", () => {
+  it("groups URL paths without changing screen identities", () => {
+    for (const [path, expected] of [
+      ["/", "/"],
+      ["", "/"],
+      ["///", "/"],
+      ["/pim/viewEmployee/1", "/pim"],
+      ["/pim/", "/pim"],
+      ["/pim?tab=1", "/pim"],
+      ["/pim#details", "/pim"],
+      ["/?query=1#top", "/"],
+      ["/pim%2Fview/1", "/pim%2Fview"],
+    ])
+      expect(navigationPathGroup(path!)).toBe(expected);
+  });
   it("matches loosely worded destinations to the closest remembered names", () => {
     const states = [
       ...["Personal Details", "Contact Details", "Candidates", "Add Candidate"].map((name) => ({

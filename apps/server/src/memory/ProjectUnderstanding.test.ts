@@ -105,7 +105,7 @@ const withUnderstanding = <A, E>(
             "/help",
           ]) {
             const id = environment + path;
-            yield* sql`INSERT INTO project_navigation_states VALUES (${project}, ${id}, ${JSON.stringify({ id, name: path, environment, path, aliases: [], context: {}, checks: [] })})`;
+            yield* sql`INSERT INTO project_navigation_states (project_id, state_id, data) VALUES (${project}, ${id}, ${JSON.stringify({ id, name: path, environment, path, aliases: [], context: {}, checks: [] })})`;
           }
         }
       }
