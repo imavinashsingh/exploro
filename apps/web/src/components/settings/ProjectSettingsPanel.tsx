@@ -1,3 +1,4 @@
+import { EXPLORO_SHOW_DEVELOPER_SETTINGS } from "../../exploroFeatures";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { useComposerMenuState } from "../chat/useComposerMenuState";
 import { m as resolveMessage } from "../../i18n/messages";
@@ -701,7 +702,8 @@ function ProjectDetail({
             />
           </>
         )}
-        <ProjectActionsSettings />
+        {/* Exploro: QA projects do not offer development scripts. */}
+        {EXPLORO_SHOW_DEVELOPER_SETTINGS ? <ProjectActionsSettings /> : null}
         {checkoutChoices}
         <SettingsSection title={gt("Danger")}>
           <SettingsRow

@@ -1,3 +1,4 @@
+import { EXPLORO_HIDDEN_COMPOSER_ITEMS } from "./exploroFeatures";
 import type { ClientSettings } from "@t3tools/contracts/settings";
 import type {
   AssistantCitation,
@@ -43,6 +44,7 @@ export function isPathSuggestionCurrent(
   cwd: string | null,
 ) {
   return (
+    !EXPLORO_HIDDEN_COMPOSER_ITEMS.has("path") &&
     trigger?.kind === "path" &&
     searchTarget.environmentId === environmentId &&
     searchTarget.cwd === cwd &&
@@ -273,7 +275,9 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
     };
   }
   const pullRequestTrigger = detectComposerPullRequestTrigger(token, cursor);
-  if (pullRequestTrigger) return pullRequestTrigger;
+  // Exploro: issue numbers remain ordinary text rather than PR completion.
+  if (pullRequestTrigger && !EXPLORO_HIDDEN_COMPOSER_ITEMS.has("pull-request"))
+    return pullRequestTrigger;
   const skillPrefix = /^\p{Sc}/u.exec(token);
   if (skillPrefix) {
     if (isCurrencyAmountQuery(token.slice(skillPrefix[0].length))) return null;

@@ -1,3 +1,4 @@
+import { EXPLORO_HIDDEN_COMPOSER_ITEMS } from "../../exploroFeatures";
 import { T, useGT, useMessages, Var } from "gt-react";
 import { threadErrorText } from "@t3tools/client-runtime/state/threads";
 import { threadEnvironment } from "../../state/threads";
@@ -1714,6 +1715,8 @@ function WorktreeSetupTimelineRow({
   row: Extract<TimelineRow, { kind: "worktree-setup" }>;
 }) {
   const ctx = use(TimelineRowCtx);
+  // Exploro: QA threads show no worktree setup.
+  if (EXPLORO_HIDDEN_COMPOSER_ITEMS.has("worktree")) return null;
   const terminalId = row.snapshot.setupScript?.terminalId ?? null;
   const openTerminal = ctx.onOpenWorktreeSetupTerminal;
   const onOpenTerminal = openTerminal && terminalId ? () => openTerminal(terminalId) : null;

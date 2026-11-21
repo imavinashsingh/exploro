@@ -1,3 +1,4 @@
+import { EXPLORO_SHOW_DEVELOPER_SETTINGS } from "../../exploroFeatures";
 import { errorDisplayMessage, thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { m as resolveMessage } from "~/i18n/messages";
 import { managedCapabilityDenial } from "@t3tools/client-runtime/contract-labels";
@@ -1837,7 +1838,10 @@ function ConnectionsSettingsContent({
         />
       ))}
       <LoadBalancingSettings environments={loadBalancingEnvironments} />
-      <PullRequestRoutingSettings environments={loadBalancingEnvironments} />
+      {/* Exploro: QA agents get no pull request tools to share. */}
+      {EXPLORO_SHOW_DEVELOPER_SETTINGS ? (
+        <PullRequestRoutingSettings environments={loadBalancingEnvironments} />
+      ) : null}
     </SettingsPageContainer>
   );
 }

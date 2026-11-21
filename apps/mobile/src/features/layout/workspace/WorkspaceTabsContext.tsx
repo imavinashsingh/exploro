@@ -5,7 +5,6 @@ import { createContext, use, useState, type Dispatch, type ReactNode } from "rea
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../../state/preferences";
 import {
   isSharedSlotTab,
-  sharedSlotAbsentee,
   navigationCustomizationAvailable,
   resolveHiddenNavigationTabs,
   resolveSelectedNavigationTab,
@@ -49,7 +48,8 @@ function resolveWorkspaceTabsSelection(
     ...(navigationCustomizationAvailable()
       ? resolveHiddenNavigationTabs(saved?.hiddenNavigationTabs)
       : []),
-    sharedSlotAbsentee(state.selectedTab, saved?.sharedSlotTab),
+    // Exploro: Pull requests is never a tab, so Issues always holds the shared slot.
+    "pullRequests" as const,
   ];
   const selected = resolveSelectedNavigationTab(order, hidden, state.selectedTab);
   return selected && selected !== state.selectedTab

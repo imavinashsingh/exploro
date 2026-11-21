@@ -1,3 +1,4 @@
+import { isExploroPanelSurfaceVisible } from "../../exploroFeatures";
 import {
   PanelBottomIcon,
   PanelRightIcon,
@@ -94,7 +95,8 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
       data-panel-layout-controls
     >
       {showThreadPanelControl ? threadPanelControl : null}
-      {showTerminalControl ? (
+      {/* Exploro: the terminal toggle follows the hidden panel kinds. */}
+      {showTerminalControl && isExploroPanelSurfaceVisible({ kind: "terminal" }) ? (
         <Tooltip>
           <TooltipTrigger render={<span className="flex shrink-0" />}>
             <Toggle

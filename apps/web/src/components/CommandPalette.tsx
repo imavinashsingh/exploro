@@ -293,7 +293,11 @@ const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
 const ADD_PROJECT_ENTRY_GROUP = "add-project";
 const NEW_THREAD_IN_GROUP = "projects";
 
+// Exploro: developer actions stay upstream but are absent from the QA palette.
 const EXPLORO_HIDDEN_ACTIONS: ReadonlySet<string> = new Set([
+  "action:open-file-picker",
+  "action:search-project-contents",
+  "action:add-project:wsl-folder",
   "action:link-pull-request",
   "action:open-thread-pull-requests",
   "action:pull-requests",

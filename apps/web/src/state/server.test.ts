@@ -12,7 +12,7 @@ const A = EnvironmentId.make("a");
 const B = EnvironmentId.make("b");
 
 // The reporter's swap: Cmd+N opens a local thread instead of a regular one.
-const SWAPPED: KeybindingRule[] = [{ key: "mod+n", command: "chat.newLocal" }];
+const SWAPPED: KeybindingRule[] = [{ key: "mod+n", command: "thread.pin" }];
 const STALE: KeybindingRule[] = [{ key: "mod+n", command: "chat.newWithoutProject" }];
 
 function config(rules: readonly KeybindingRule[]) {
@@ -77,15 +77,15 @@ describe("createShortcutKeybindingsAtom", () => {
 
     // One mounted consumer follows config loading, edits, disconnects and reconnects.
     for (const [a, b, command] of [
-      [environment("offline", aConfig), environment("connected", bConfig), "chat.newLocal"],
-      [environment("connected", null), environment("connected", bConfig), "chat.newLocal"],
+      [environment("offline", aConfig), environment("connected", bConfig), "thread.pin"],
+      [environment("connected", null), environment("connected", bConfig), "thread.pin"],
       [
         environment("connected", aConfig),
         environment("connected", bConfig),
         "chat.newWithoutProject",
       ],
       [environment("connected", edited), environment("connected", bConfig), "sidebar.toggle"],
-      [environment("offline", edited), environment("connected", bConfig), "chat.newLocal"],
+      [environment("offline", edited), environment("connected", bConfig), "thread.pin"],
       [environment("offline", edited), environment("offline", bConfig), "chat.new"],
       [environment("reconnecting", edited), environment("offline", bConfig), "chat.new"],
       [
@@ -109,7 +109,7 @@ describe("createShortcutKeybindingsAtom", () => {
     const harness = makeHarness({
       environments: [[B, environment("connected", config(SWAPPED))]],
     });
-    expect(harness.cmdN()).toBe("chat.newLocal");
+    expect(harness.cmdN()).toBe("thread.pin");
 
     harness.registry.set(harness.primaryEnvironmentIdAtom, PRIMARY);
     expect(harness.cmdN()).toBe("chat.new");
@@ -121,6 +121,6 @@ describe("createShortcutKeybindingsAtom", () => {
     expect(harness.cmdN()).toBe("chat.new");
 
     harness.registry.set(harness.primaryEnvironmentIdAtom, null);
-    expect(harness.cmdN()).toBe("chat.newLocal");
+    expect(harness.cmdN()).toBe("thread.pin");
   });
 });
