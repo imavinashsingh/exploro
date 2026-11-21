@@ -1,3 +1,4 @@
+import { EXPLORO_HIDDEN_COMPOSER_ITEMS } from "../../exploroFeatures";
 import type { EnvironmentId } from "@t3tools/contracts";
 
 import type { RemoteOpenMode } from "../../remoteOpen";
@@ -9,6 +10,8 @@ export function shouldShowOpenInPicker(input: {
   readonly hostEnvironmentId: string | null;
   readonly remoteOpenMode: RemoteOpenMode;
 }): boolean {
+  // Exploro: editor launchers are outside the QA workflow.
+  if (EXPLORO_HIDDEN_COMPOSER_ITEMS.has("open-in")) return false;
   if (!input.activeProjectName) return false;
   if (
     input.activeThreadEnvironmentId === input.primaryEnvironmentId ||

@@ -1,3 +1,4 @@
+import { EXPLORO_SHOW_DEVELOPER_SETTINGS } from "../../exploroFeatures";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { ChevronDownIcon } from "lucide-react";
 import { useAtomValue } from "@effect/atom-react";
@@ -582,8 +583,11 @@ export function SourceControlSettingsPanel() {
 
   return (
     <SettingsPageContainer>
-      <ProjectDefaultsSettings category="source-control" />
-      {environmentId === null ? (
+      {/* Exploro: only issue tracker setup applies to QA; git and pull request setup stay hidden. */}
+      {EXPLORO_SHOW_DEVELOPER_SETTINGS ? (
+        <ProjectDefaultsSettings category="source-control" />
+      ) : null}
+      {!EXPLORO_SHOW_DEVELOPER_SETTINGS ? null : environmentId === null ? (
         <SettingsSection
           id={searchableSetting("source-control").id}
           title={gt("Server environment")}
@@ -659,7 +663,7 @@ export function SourceControlSettingsPanel() {
         <IssueTrackerSettings key={environmentId} environmentId={environmentId} />
       )}
 
-      <SourceControlWritingSettingsSection />
+      {EXPLORO_SHOW_DEVELOPER_SETTINGS ? <SourceControlWritingSettingsSection /> : null}
     </SettingsPageContainer>
   );
 }

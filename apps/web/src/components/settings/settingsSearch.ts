@@ -1,3 +1,4 @@
+import { isExploroCommandVisible } from "../../keybindings";
 import { HOSTED_APP_CHANNEL } from "~/branding";
 import { isElectron, isSecretsFeatureEnabled } from "~/env";
 import { isMacPlatform, isWindowsPlatform, normalizeSearchText } from "~/lib/utils";
@@ -129,7 +130,7 @@ export const SETTINGS_NAV_LABELS: Readonly<Record<SettingsPath, string>> = {
 };
 
 /** Sidebar order. A group with a hidden heading is set apart on screen by space alone. */
-export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
+const ALL_SETTINGS_NAV_GROUPS: ReadonlyArray<{
   readonly heading: string;
   readonly headingHidden?: true;
   readonly paths: ReadonlyArray<SettingsPath>;
@@ -175,6 +176,30 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
     paths: ["/settings/maintenance", "/settings/labs", "/settings/about", "/settings/archived"],
   },
 ];
+
+// Exploro: developer settings stay upstream but have no QA navigation or search entries.
+const EXPLORO_HIDDEN_SETTINGS_PATHS: ReadonlySet<string> = new Set([
+  "/settings/diffs",
+  "/settings/worktrees",
+]);
+const EXPLORO_HIDDEN_SETTINGS_ITEMS: ReadonlySet<string> = new Set([
+  "project-actions",
+  "worktree-fast-checkout",
+]);
+export const SETTINGS_NAV_GROUPS = ALL_SETTINGS_NAV_GROUPS.map((group) => ({
+  ...group,
+  paths: group.paths.filter((path) => !EXPLORO_HIDDEN_SETTINGS_PATHS.has(path)),
+}));
+
+function isExploroSettingVisible(item: SettingsSearchItem) {
+  return (
+    !EXPLORO_HIDDEN_SETTINGS_PATHS.has(item.to) &&
+    !EXPLORO_HIDDEN_SETTINGS_ITEMS.has(item.id) &&
+    (item.to !== "/settings/source-control" || item.id === "issue-trackers") &&
+    (!item.id.startsWith("keybinding-") ||
+      isExploroCommandVisible(item.id.slice("keybinding-".length)))
+  );
+}
 
 export function keybindingSearchAnchorId<Command extends KeybindingCommand>(command: Command) {
   return `keybinding-${command}` as const;
@@ -239,7 +264,7 @@ const SOURCE_CONTROL_HOST_TERMS = sourceControlClients.definitions
   .flatMap((definition) => [definition.label, ...(definition.searchKeywords ?? [])])
   .join(" ");
 
-export const SETTINGS_SEARCH_ITEMS = [
+const ALL_SETTINGS_SEARCH_ITEMS = [
   {
     id: "storage-worktree-keep-when",
     targetId: "storage-worktrees",
@@ -1463,9 +1488,13 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
 ] as const satisfies ReadonlyArray<SettingsSearchItem>;
 
+export const SETTINGS_SEARCH_ITEMS = ALL_SETTINGS_SEARCH_ITEMS.filter(isExploroSettingVisible);
+
 export type SettingsSearchItemId = (typeof SETTINGS_SEARCH_ITEMS)[number]["id"];
 
-const SEARCH_ITEMS_BY_ID = new Map(SETTINGS_SEARCH_ITEMS.map((item) => [item.id, item] as const));
+const SEARCH_ITEMS_BY_ID = new Map(
+  ALL_SETTINGS_SEARCH_ITEMS.map((item) => [item.id, item] as const),
+);
 
 const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScope | null>> = {
   "/settings/diagnostics": "environment",
@@ -1515,7 +1544,7 @@ const MOVED_SECTION_ANCHORS: Readonly<Record<string, SettingsPath>> = {
 /** Where an old settings link now lives. Its anchor finds the page its row moved to. */
 export function movedSettingsPath(pathname: string, hash: string): SettingsPath | null {
   if (!SPLIT_SETTINGS_PATHS.has(pathname)) return null;
-  const items: readonly SettingsSearchItem[] = SETTINGS_SEARCH_ITEMS;
+  const items: readonly SettingsSearchItem[] = ALL_SETTINGS_SEARCH_ITEMS;
   const anchored = hash
     ? (items.find((item) => item.id === hash) ?? items.find((item) => item.targetId === hash))
     : undefined;

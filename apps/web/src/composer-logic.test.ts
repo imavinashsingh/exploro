@@ -56,7 +56,7 @@ describe("isPathSuggestionCurrent", () => {
     query: "alpha",
   };
 
-  it("allows a file suggestion matching the live search", () => {
+  it("hides workspace file suggestions even when they match the live search", () => {
     expect(
       isPathSuggestionCurrent(
         searchedTarget,
@@ -64,7 +64,7 @@ describe("isPathSuggestionCurrent", () => {
         searchedTarget.environmentId,
         searchedTarget.cwd,
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it.each([
@@ -312,15 +312,10 @@ describe("detectComposerTrigger", () => {
     expect(detectComposerTrigger(text, text.length)).toBeNull();
   });
 
-  it("detects a pull request number at a token boundary", () => {
+  it("keeps issue numbers out of pull request completion", () => {
     const text = "Compare this with #8737";
 
-    expect(detectComposerTrigger(text, text.length)).toEqual({
-      kind: "pull-request",
-      query: "8737",
-      rangeStart: "Compare this with ".length,
-      rangeEnd: text.length,
-    });
+    expect(detectComposerTrigger(text, text.length)).toBeNull();
   });
 
   it("does not keep pull request completion active for headings or embedded hashes", () => {

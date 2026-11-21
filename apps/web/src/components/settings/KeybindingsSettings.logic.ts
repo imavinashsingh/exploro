@@ -1,3 +1,4 @@
+import { isExploroCommandVisible } from "../../keybindings";
 import {
   STATIC_KEYBINDING_COMMANDS,
   type KeybindingCommand,
@@ -333,8 +334,9 @@ export function filterKeybindingRows(
   resolve: MessageResolver = m,
 ): ReadonlyArray<KeybindingRow> {
   const normalizedQuery = query.trim().toLowerCase();
-  if (normalizedQuery.length === 0) return rows;
   return rows.filter((row) => {
+    // Exploro: hidden commands cannot reappear through keybinding settings search.
+    if (!isExploroCommandVisible(row.command)) return false;
     return (
       row.command.toLowerCase().includes(normalizedQuery) ||
       commandLabel(row.command, resolve).toLowerCase().includes(normalizedQuery) ||
@@ -399,9 +401,11 @@ export function buildKeybindingCommandOptions(
   for (const binding of keybindings) {
     commands.add(binding.command);
   }
-  return [...commands].toSorted((left, right) =>
-    compareCommands(left, right, (command) => commandLabel(command, resolve)),
-  );
+  return [...commands]
+    .filter(isExploroCommandVisible)
+    .toSorted((left, right) =>
+      compareCommands(left, right, (command) => commandLabel(command, resolve)),
+    );
 }
 
 const COMMAND_LABELS: Partial<Record<KeybindingCommand, string>> = {

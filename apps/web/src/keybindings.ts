@@ -382,20 +382,32 @@ export function isDiffToggleShortcut(
 // Exploro is a QA tool, so chords for its hidden developer features (Open in, scripts, branch,
 // worktree) are dropped before anything can match them.
 const EXPLORO_HIDDEN_COMMANDS: ReadonlySet<string> = new Set([
+  "terminal.toggle",
+  "terminal.new",
+  "terminal.split",
+  "terminal.splitVertical",
+  "terminal.close",
+  "diff.toggle",
+  "filePicker.toggle",
+  "projectSearch.toggle",
+  "pullRequest.copyNumber",
+  "chat.newLocal",
+  "composer.host",
   "editor.openFavorite",
   "composer.workspace",
   "composer.branch",
   "composer.previousWorktree",
 ]);
 
+// Exploro: settings and shortcut dispatch share the same command visibility.
+export function isExploroCommandVisible(command: string) {
+  return !EXPLORO_HIDDEN_COMMANDS.has(command) && projectScriptIdFromCommand(command) === null;
+}
+
 export function withoutExploroHiddenCommands(
   keybindings: ResolvedKeybindingsConfig,
 ): ResolvedKeybindingsConfig {
-  return keybindings.filter(
-    (rule) =>
-      !EXPLORO_HIDDEN_COMMANDS.has(rule.command) &&
-      projectScriptIdFromCommand(rule.command) === null,
-  );
+  return keybindings.filter((rule) => isExploroCommandVisible(rule.command));
 }
 
 export function isOpenFavoriteEditorShortcut(

@@ -1,5 +1,5 @@
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 import { type PullRequestListSort } from "../components/pullRequest/pullRequestListPreferences";
 import { SORT_OPTIONS } from "../components/pullRequest/pullRequestListOptions";
@@ -28,6 +28,10 @@ function pullRequestSearchLabels(raw: unknown): PullRequestsSearch["labels"] {
 }
 
 export const Route = createFileRoute("/_chat/pull-requests")({
+  // Exploro: old bookmarks and deep links return to the QA home.
+  beforeLoad: () => {
+    throw redirect({ to: "/", replace: true });
+  },
   validateSearch: (raw: Record<string, unknown>): PullRequestsSearch => ({
     ...(typeof raw.selectedUrl === "string" ? { selectedUrl: raw.selectedUrl.slice(0, 4096) } : {}),
     involvement:

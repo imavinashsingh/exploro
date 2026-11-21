@@ -1,3 +1,4 @@
+import { EXPLORO_HIDDEN_COMPOSER_ITEMS } from "../exploroFeatures";
 import ChatMarkdown from "./ChatMarkdown";
 import { isSvgAttachment } from "@t3tools/shared/image";
 import { ReadOnlySourcePreview } from "./files/AttachmentFilePreview";
@@ -581,8 +582,10 @@ export function ComposerContextReferenceChip(props: {
   kind: string;
   contextId: string;
   label: string;
-}): ReactElement {
+}): ReactElement | null {
   const records = use(ComposerContextRecordsContext);
+  // Exploro: persisted terminal context has no QA chip.
+  if (EXPLORO_HIDDEN_COMPOSER_ITEMS.has(props.kind)) return null;
   return composerContextPresentationRegistry.render(props.kind, records.get(props.contextId), {
     label: props.label,
   });
