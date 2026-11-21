@@ -40,17 +40,25 @@ describe("Exploro migration id upgrade", () => {
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* seedOldExploro;
-      assert.deepStrictEqual(yield* runMigrations(), [
+      assert.deepStrictEqual(yield* runMigrations({ toMigrationInclusive: 101 }), [
         [96, "RepairStaleTitleRegeneration"],
         [97, "IssueTrackerBindings"],
         [98, "ActiveShellIndexIndexes"],
         [101, "MemoryBriefUsage"],
       ]);
-      assert.deepStrictEqual(yield* history, migrationManifest);
+      assert.deepStrictEqual(
+        yield* history,
+        migrationManifest.filter(([id]) => id <= 101),
+      );
       assert.deepStrictEqual(
         yield* sql`SELECT item_id, version FROM project_memory_understanding`,
         [{ item_id: "item-1", version: 1 }],
       );
+      assert.deepStrictEqual(
+        (yield* runMigrations()).map(([id]) => id),
+        migrationManifest.filter(([id]) => id > 101).map(([id]) => id),
+      );
+      assert.deepStrictEqual(yield* history, migrationManifest);
       assert.deepStrictEqual(yield* runMigrations(), []);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
@@ -76,7 +84,7 @@ describe("Exploro migration id upgrade", () => {
     ]);
     assert.deepStrictEqual(
       upgraded?.map(({ id, name }) => [id, name] as const),
-      migrationManifest,
+      migrationManifest.filter(([id]) => id <= 101),
     );
     assert.strictEqual(
       reconciledExploroHistory([...base, { id: 96, name: "ProjectMemory" }, { id: 97, name: "X" }]),
