@@ -1957,30 +1957,33 @@ export function ThreadsSettingsPanel() {
             />
           }
         />
-        <SettingsRow
-          serverScoped
-          settingKeys={["ghqCloneLayout"]}
-          {...setting("ghq-clone-layout")}
-          description={gt("Clones go to github.com/owner/repo under the folder above, like ghq.")}
-          resetAction={
-            settings.ghqCloneLayout !== DEFAULT_UNIFIED_SETTINGS.ghqCloneLayout ? (
-              <SettingResetButton
-                ariaLabel={gt("Reset clone into host folders to default")}
-                onClick={() =>
-                  updateSettings({ ghqCloneLayout: DEFAULT_UNIFIED_SETTINGS.ghqCloneLayout })
-                }
+        {/* Exploro: QA projects are never cloned. */}
+        {EXPLORO_SHOW_DEVELOPER_SETTINGS ? (
+          <SettingsRow
+            serverScoped
+            settingKeys={["ghqCloneLayout"]}
+            {...setting("ghq-clone-layout")}
+            description={gt("Clones go to github.com/owner/repo under the folder above, like ghq.")}
+            resetAction={
+              settings.ghqCloneLayout !== DEFAULT_UNIFIED_SETTINGS.ghqCloneLayout ? (
+                <SettingResetButton
+                  ariaLabel={gt("Reset clone into host folders to default")}
+                  onClick={() =>
+                    updateSettings({ ghqCloneLayout: DEFAULT_UNIFIED_SETTINGS.ghqCloneLayout })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <ScopedSwitch
+                settingKeys={["ghqCloneLayout"]}
+                checked={settings.ghqCloneLayout}
+                onCheckedChange={(checked) => updateSettings({ ghqCloneLayout: Boolean(checked) })}
+                aria-label={gt("Clone into host folders")}
               />
-            ) : null
-          }
-          control={
-            <ScopedSwitch
-              settingKeys={["ghqCloneLayout"]}
-              checked={settings.ghqCloneLayout}
-              onCheckedChange={(checked) => updateSettings({ ghqCloneLayout: Boolean(checked) })}
-              aria-label={gt("Clone into host folders")}
-            />
-          }
-        />
+            }
+          />
+        ) : null}
       </SettingsSection>
 
       <ProjectDefaultsSettings category="general" />

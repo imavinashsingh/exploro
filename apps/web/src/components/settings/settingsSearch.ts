@@ -188,6 +188,8 @@ const EXPLORO_HIDDEN_SETTINGS_ITEMS: ReadonlySet<string> = new Set([
   "auto-settle-merged-threads",
   "keep-threads-with-pull-requests",
   "pull-request-routing",
+  "ghq-clone-layout",
+  "new-threads",
 ]);
 export const SETTINGS_NAV_GROUPS = ALL_SETTINGS_NAV_GROUPS.map((group) => ({
   ...group,

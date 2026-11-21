@@ -78,6 +78,8 @@ describe("searchSettings", () => {
       "auto-settle-merged-threads",
       "keep-threads-with-pull-requests",
       "pull-request-routing",
+      "ghq-clone-layout",
+      "new-threads",
     ]) {
       expect(SETTINGS_SEARCH_ITEMS.some((item) => item.id === id)).toBe(false);
     }
