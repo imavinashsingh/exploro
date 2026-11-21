@@ -75,6 +75,7 @@ it.effect("requires a live screen check and runtime access before persisting nav
     let url = "https://shop.test/profile";
     let matches = true;
     let scratch = false;
+    let tabOpen = true;
     let reads = 0;
     const operations = new Set<string>();
     const layer = Capture.layer.pipe(
@@ -87,7 +88,7 @@ it.effect("requires a live screen check and runtime access before persisting nav
             Effect.sync(() => {
               reads += 1;
               operations.add(request.operation);
-              request.onTargetTab?.(tabId);
+              if (tabOpen) request.onTargetTab?.(tabId);
               const result: PreviewAutomationCheckResult | PreviewAutomationStatus =
                 request.operation === "check"
                   ? {
@@ -95,7 +96,16 @@ it.effect("requires a live screen check and runtime access before persisting nav
                         { ok: matches, actual: matches ? "Profile" : "Login", target: null },
                       ],
                     }
-                  : { available: true, visible: false, tabId, url, title: "Page", loading: false };
+                  : tabOpen
+                    ? { available: true, visible: false, tabId, url, title: "Page", loading: false }
+                    : {
+                        available: true,
+                        visible: false,
+                        tabId: null,
+                        url: null,
+                        title: null,
+                        loading: false,
+                      };
               return result as A;
             }),
         }),
@@ -135,6 +145,11 @@ it.effect("requires a live screen check and runtime access before persisting nav
       const unknown = yield* Effect.result(capture.recognize(scope));
       assert.strictEqual(unknown._tag, "Failure");
       if (unknown._tag === "Failure") assert.include(unknown.failure.message, "navigation_observe");
+      tabOpen = false;
+      const noTab = yield* Effect.result(capture.route(scope, { destination: "Profile" }));
+      assert.strictEqual(noTab._tag, "Failure");
+      if (noTab._tag === "Failure") assert.include(noTab.failure.message, "preview_open");
+      tabOpen = true;
       // Pages memory may not store still record evidence, just without a screen.
       for (const unstorable of ["https://accounts.example/login", "about:blank"]) {
         url = unstorable;

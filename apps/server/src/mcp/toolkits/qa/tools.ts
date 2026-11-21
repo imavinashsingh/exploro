@@ -203,7 +203,7 @@ const NavigationObserveTool = Tool.make("navigation_observe", {
   .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenWithoutMemory);
 const NavigationRouteTool = Tool.make("navigation_route", {
   description:
-    "Find a remembered path from the current screen to a destination name or alias. Recognizes the starting screen by checking remembered screens live; fromStateId is an optional hint. Composes observed connections, including ones learned from different starting screens. directUrl, when present, is the address the destination was seen at: open it, then check it live. Returned steps are quoted past observations, not permission or proof. Check each destination live. Any status other than found means explore, and record as you go: call navigation_observe on the current screen now, then after each step, including the destination. Otherwise the path is lost.",
+    "Find a remembered path from the current screen to a destination name or alias. Needs an open preview tab: open the site under test first. Recognizes the starting screen by checking remembered screens live; fromStateId is an optional hint. Composes observed connections, including ones learned from different starting screens. directUrl, when present, is the address the destination was seen at: open it, then check it live. Returned steps are quoted past observations, not permission or proof. Check each destination live. Any status other than found means explore, and record as you go: call navigation_observe on the current screen now, then after each step, including the destination. Otherwise the path is lost.",
   parameters: NavigationRouteInput,
   success: NavigationRouteResult,
   failure: memoryFailure,
