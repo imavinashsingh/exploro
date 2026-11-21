@@ -1,4 +1,9 @@
-import type { ProjectMemoryFact, ProjectMemoryMapPage } from "@t3tools/contracts";
+import type {
+  ProjectMemoryFact,
+  ProjectMemoryMapPage,
+  ProjectUnderstandingItem,
+  QaSavedSecret,
+} from "@t3tools/contracts";
 
 import type { RecalledUnderstanding } from "./ProjectUnderstanding.ts";
 import { memoryEnvironment, memoryRoute } from "./projectMemoryFacts.ts";
@@ -111,4 +116,40 @@ export function formatMemoryBrief(input: MemoryBriefInput, maxChars = 6000): str
     ),
   ].filter((part) => part !== "");
   return parts.length === 0 ? "" : [BRIEF_HEADER, ...parts].join("\n\n");
+}
+
+export interface ProjectContextInput {
+  readonly sites: ReadonlyArray<string>;
+  readonly savedPasswords: ReadonlyArray<Pick<QaSavedSecret, "secretId" | "label" | "site">>;
+  /** Accounts and standing instructions, newest first. */
+  readonly items: ReadonlyArray<ProjectUnderstandingItem>;
+}
+
+const CONTEXT_HEADER =
+  "## This project\n\nWhat the user set up or told earlier threads. Use it instead of asking again; when this thread says otherwise, follow this thread.";
+
+/** Every thread's project context, whatever the goal names, or "" when there is none. */
+export function formatProjectContext(input: ProjectContextInput, maxChars = 1200): string {
+  const budget = Math.floor((maxChars - CONTEXT_HEADER.length - 150) / 3);
+  const parts = [
+    section(
+      "### Sites under test",
+      input.sites.map((site) => `- ${cut(site, 200)}`),
+      budget,
+    ),
+    section(
+      "### Saved passwords (type one with preview_act savedSecretId; you never see it)",
+      input.savedPasswords.map(
+        (saved) =>
+          `- ${quote(cut(saved.label, 80))}${saved.site === null ? "" : ` for ${cut(saved.site, 120)}`}: ${saved.secretId}`,
+      ),
+      budget,
+    ),
+    section(
+      "### Accounts and instructions",
+      input.items.map((item) => `- [${item.kind}] ${quote(cut(item.statement, 300))}`),
+      budget,
+    ),
+  ].filter((part) => part !== "");
+  return parts.length === 0 ? "" : [CONTEXT_HEADER, ...parts].join("\n\n");
 }

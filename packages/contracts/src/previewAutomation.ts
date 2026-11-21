@@ -1,6 +1,12 @@
 import { Schema } from "effect";
 
-import { EnvironmentId, SecretRef, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import {
+  EnvironmentId,
+  QaSavedSecretId,
+  SecretRef,
+  ThreadId,
+  TrimmedNonEmptyString,
+} from "./baseSchemas.ts";
 import {
   PREVIEW_VIEWPORT_MAX_AREA,
   PreviewRenderedViewportSize,
@@ -462,6 +468,7 @@ export const PreviewAutomationActInput = Schema.Struct({
   clickCount: Schema.optional(Schema.Int),
   text: Schema.optional(Schema.String),
   secretRef: Schema.optional(SecretRef),
+  savedSecretId: Schema.optional(QaSavedSecretId),
   clear: Schema.optional(Schema.Boolean),
   values: Schema.optional(Schema.Array(Schema.String)),
   source: Schema.optional(Locator),

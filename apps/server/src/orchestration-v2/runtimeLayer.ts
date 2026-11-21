@@ -24,6 +24,7 @@ import * as ProjectMemoryAccess from "../memory/ProjectMemoryAccess.ts";
 import * as ProjectUnderstanding from "../memory/ProjectUnderstanding.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ScratchThreadPromotion from "../project/ScratchThreadPromotion.ts";
+import * as QaSavedSecrets from "../qa/QaSavedSecrets.ts";
 import * as CheckpointCaptureService from "./CheckpointCaptureService.ts";
 import * as CheckpointService from "./CheckpointService.ts";
 import * as CheckpointRollbackService from "./CheckpointRollbackService.ts";
@@ -128,6 +129,7 @@ const layerManagedProjectFoldersProvided = ManagedProjectFolders.layer.pipe(
 export const layerProjectMemoryAccess = ProjectMemoryAccess.layer.pipe(
   Layer.provide(layerManagedProjectFoldersProvided),
   Layer.provide(layerProjectMemoryProvided),
+  Layer.provide(QaSavedSecrets.layer),
 );
 
 const layerProviderEventIngestorProvided = ProviderEventIngestor.layer.pipe(

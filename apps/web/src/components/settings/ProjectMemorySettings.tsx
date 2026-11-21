@@ -73,6 +73,8 @@ const KIND_LABEL = {
   "test-strategy": msg("Test strategies"),
   lesson: msg("Lessons"),
   "open-question": msg("Open questions"),
+  account: msg("Test accounts"),
+  instruction: msg("Your instructions"),
 } as const satisfies Record<(typeof PROJECT_UNDERSTANDING_KINDS)[number], string>;
 
 function reportFailure(title: string, result: AtomCommandResult<unknown, unknown>) {
