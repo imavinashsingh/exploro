@@ -63,7 +63,8 @@ remove sites there at any time; Exploro never replaces sites you set yourself.
 
 Each finished test in a project leaves memory behind for the next one. Memory stores:
 
-- **Facts**: what a run saw on a page, such as a validation message or where a link goes. Each
+- **Navigation**: observed screens and the connections between them, checked against the live site.
+- **Facts**: what a run saw on a remembered screen, such as a validation message, a cart update, or an access rule. Each
   fact points at the run's screenshot.
 - **Understanding**: how the app works, such as "the dashboard needs a signed-in session",
   written from the runs and from what you told the agent.
@@ -74,11 +75,11 @@ offline and sends nothing anywhere.
 Exploro hides passwords you type in chat before it saves anything. Threads with **No project** have
 no memory.
 
-**Settings → Projects → Memory** lists both, and its **Map** shows the app's pages by site with
-which are tested, failing, or seen but not tested yet. Pick a page to see its facts. Delete a fact or item you don't want kept; a deleted
+**Settings → Projects → Memory** lists these, and its **Map** shows the app's screens by site with
+which are tested, failing, or seen but not tested yet. Pick a screen to see its facts. Delete a fact or item you don't want kept; a deleted
 one is not saved again. Edit or **Confirm** an item to mark it as right; agents never change an
 item you confirmed. To stop a project remembering, turn **Project memory** off. What is already
-saved stays until you delete it. On mobile, memory is shown read-only.
+saved stays until you delete it. Deleting a screen also deletes its facts. The same switch is available on mobile; edit or delete saved memory on web or desktop.
 
 To remember an interrupted test, stop it and choose **Save test to memory** in its test-run panel.
 For a test with **No project**, choose **Create project and save to memory** first. Learning runs in

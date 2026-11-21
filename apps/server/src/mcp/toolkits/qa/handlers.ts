@@ -1,3 +1,6 @@
+import * as ServerSettings from "../../../serverSettings.ts";
+import { memoryEnabled } from "../../../memory/ProjectMemoryAccess.ts";
+import * as NavigationCapture from "../../../memory/NavigationCapture.ts";
 import { ProjectMemoryError } from "@t3tools/contracts";
 import * as ProjectMemory from "../../../memory/ProjectMemory.ts";
 import { formatProjectMap } from "../../../memory/projectMap.ts";
@@ -38,10 +41,45 @@ const memoryScope = Effect.gen(function* () {
     );
   if (thread === null)
     return yield* new ProjectMemoryError({ message: "This thread has no project memory." });
+  const settings = yield* ServerSettings.ServerSettingsService;
+  if (
+    !memoryEnabled(
+      yield* settings.getSettings.pipe(
+        Effect.mapError(
+          (cause) => new ProjectMemoryError({ message: "Could not read memory settings.", cause }),
+        ),
+      ),
+      thread.projectId,
+    )
+  )
+    return yield* new ProjectMemoryError({ message: "Fact memory is off for this project." });
   return { threadId: scope.thread.threadId, projectId: thread.projectId };
 });
 
+const EXPLORATION_NEXT =
+  "When a step reaches the destination screen, call navigation_observe there with that action before testing it. That call saves the path for later runs.";
+
 export const layer = McpToolAccess.toLayer(QaToolkit, {
+  navigation_observe: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.requireThreadMcpCapability("memory");
+      const state = yield* (yield* NavigationCapture.NavigationCapture).observe(scope, input);
+      // Models skip the arrival observation once testing starts; remind them while it is still ahead.
+      return input.action === undefined ? { ...state, next: EXPLORATION_NEXT } : state;
+    }),
+  ),
+  navigation_route: McpToolAccess.readsAsCaller((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.requireThreadMcpCapability("memory");
+      return yield* (yield* NavigationCapture.NavigationCapture).route(scope, input);
+    }),
+  ),
+  navigation_feedback: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.requireThreadMcpCapability("memory");
+      return yield* (yield* NavigationCapture.NavigationCapture).feedback(scope, input);
+    }),
+  ),
   memory_map: McpToolAccess.readsAsCaller(() =>
     Effect.gen(function* () {
       const { projectId } = yield* memoryScope;
@@ -133,7 +171,20 @@ export const layer = McpToolAccess.toLayer(QaToolkit, {
             });
         });
       }
-      const page = yield* capturePage(broker, scope, tabId);
+      const state = scope.capabilities.has("memory")
+        ? yield* (yield* NavigationCapture.NavigationCapture).recognize(scope, tabId)
+        : null;
+      const captured = yield* capturePage(broker, scope, tabId);
+      if (
+        state !== null &&
+        captured.url !== null &&
+        (new URL(captured.url).origin !== state.environment ||
+          new URL(captured.url).pathname !== state.path)
+      )
+        return yield* new ProjectMemoryError({
+          message: "The page changed. Call navigation_observe before recording evidence.",
+        });
+      const page = { ...captured, ...(state === null ? {} : { stateId: state.id }) };
       const scenario = yield* qaRuns.recordEvidence(scope.thread.threadId, input, page, kept);
       return { ...scenario, droppedChecks };
     }),

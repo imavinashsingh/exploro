@@ -118,15 +118,45 @@ has the `memory_*` tools. A thread without a project has neither; test as usual.
 
 - Memory is a lead, not evidence. Check what you rely on against the live page, and never give a
   PASS or FAIL from memory alone.
-- `memory_facts_lookup` finds exact facts about a page, `memory_recall` finds how the app works (for
+- `memory_facts_lookup` finds exact facts by screen `stateId`, `memory_recall` finds how the app works (for
   example what the dashboard needs first), and `memory_map` shows pages seen but not tested.
 - When you observe something worth knowing next time (what a page is for, a validation message,
-  where a link goes, test data that works), record its evidence with `qa_evidence_record`, then save
-  it with `memory_fact_put`.
+  application behavior, test data that works), first identify any unknown screen with
+  `navigation_observe` (no action needed), record its evidence with `qa_evidence_record`, then
+  save it with `memory_fact_put`.
+- Navigation memory owns how to reach a feature. Do not save click paths, menu sequences, or
+  screen recognition details as facts. Keep behavioral rules and tested findings, including redirects, denied
+  access, and incorrect link destinations, when they describe a requirement or defect.
 - When the page contradicts memory, trust the page and save a fact with what you saw.
 - When the user corrects you, record the scenario again with the corrected verdict and a note on what
   changed, and save the correction as a fact.
 - If a memory tool fails, carry on testing without it.
+
+## Navigation memory
+
+When project memory is enabled, use navigation memory to reach the feature under
+test. It stores observed navigation, not expected product behavior or permission to act.
+
+- Ask `navigation_route` for the destination feature first. It recognizes the current screen by
+  checking remembered screens live and composes observed connections, including ones learned from
+  different starting screens.
+- When the result has `directUrl`, open it with `preview_navigate` instead of clicking through,
+  then check the destination live. If it does not match, follow the steps or explore.
+- Follow a found route one action at a time and check each screen live. A route you followed
+  unchanged, or a `directUrl` that matched, is already remembered: do not observe it again.
+- Record only what is new. When the start is unrecognized, no route exists, or a step mismatched,
+  call `navigation_observe` on the current screen without an action, giving a concise name,
+  useful aliases, known context, and visible distinguishing checks. Then observe after each
+  explored action, with the action you performed, including the step that reaches the destination.
+  Do this on every task, not only when asked to remember the way: the last observation with an
+  action is what saves the connection for later routes.
+  A URL alone does not identify a screen. Use provided credentials only; never put passwords,
+  tokens, or personal form values in state names, actions, context, or checks.
+- Check login, role, and ownership conditions. Unknown conditions need verification. A remembered
+  login procedure is useful only after the live page confirms the appropriate signed-in state.
+- If a route disagrees with the live UI, inspect first, report `navigation_feedback`, and replan or
+  explore. Tool errors are not invalid navigation. Missing memory never blocks testing.
+- Arrival is not PASS: perform the requested QA checks and record fresh evidence.
 
 ## Verdicts
 
@@ -152,7 +182,7 @@ After your last verdict, call `qa_report_finish`. It writes `report.md` and `rep
 run folder, and the QA panel shows the run. Then end with this report in your final message:
 
 ```markdown
-## QA report: <site> — <goal>
+## QA report: <site>: <goal>
 
 **Summary:** <one or two sentences> · PASS n · FAIL n · BLOCKED n · INCONCLUSIVE n · SKIPPED n
 
@@ -165,7 +195,7 @@ run folder, and the QA panel shows the run. Then end with this report in your fi
 - **Expected** (<source>): ...
 - **Steps:** 1. ... 2. ...
 - **Observed:** "<exact text>" at <url>
-- **Verdict:** PASS — <why this evidence proves it>
+- **Verdict:** PASS: <why this evidence proves it>
 
 ### Bugs
 

@@ -5734,9 +5734,9 @@ it.effect("ProviderSessionManagerV2 grants memory tools only to threads of a pro
         enableAgentBrowserAccess: true,
         projectOverride: true,
         ...(projectMemory === undefined ? {} : { projectMemory }),
-      }).pipe(Effect.map((config) => config?.capabilities?.has("memory")));
+      }).pipe(Effect.map((config) => config?.capabilities?.has("memory") === true));
     assert.isTrue(yield* scenario(true));
-    assert.isFalse(yield* scenario(false), "a scratch thread was granted memory");
+    assert.isFalse(yield* scenario(false), "a scratch thread got memory");
     assert.isFalse(yield* scenario(), "a server without memory granted it");
   }),
 );

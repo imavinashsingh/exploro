@@ -55,10 +55,9 @@ export function filterFacts(
   );
 }
 
-const identity = (fact: ProjectMemoryFact) =>
-  JSON.stringify([fact.environment, fact.route, fact.kind, fact.key]);
+const identity = (fact: ProjectMemoryFact) => JSON.stringify([fact.stateId, fact.kind, fact.key]);
 
-/** Every version of the fact's page, kind and key, newest first, including the fact itself. */
+/** Every version of the fact's screen, kind and key, newest first, including the fact itself. */
 export function factVersions(
   facts: ReadonlyArray<ProjectMemoryFact>,
   fact: ProjectMemoryFact,
@@ -122,7 +121,7 @@ export function memoryStatusLine(
 export type MapRow =
   | {
       readonly kind: "node";
-      /** Stable across refreshes: the environment plus the route. */
+      /** Stable across refreshes: the environment plus the screen id, or a route branch. */
       readonly key: string;
       readonly depth: number;
       readonly label: string;
@@ -142,13 +141,18 @@ export function mapRows(
     if (count > 0) rows.push({ kind: "more", key: `${parent}\n+`, depth, count });
   };
   const visit = (environment: string, branch: ProjectMemoryMapBranch, depth: number) => {
-    const key = `${environment}\n${branch.route}`;
+    const key = `${environment}\n${branch.page?.stateId ?? branch.route}`;
     const open = !collapsed.has(key);
     rows.push({
       kind: "node",
       key,
       depth,
-      label: branch.route === "/" ? "/" : `/${branch.name}`,
+      label:
+        branch.page === null
+          ? branch.route === "/"
+            ? "/"
+            : `/${branch.name}`
+          : `${branch.page.stateName} · ${branch.page.route}`,
       page: branch.page,
       expandable: branch.children.length > 0,
       open,

@@ -18,6 +18,7 @@ import * as AgentSessionScanner from "../project/AgentSessionScanner.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
 import * as MiniLmEmbedder from "../memory/MiniLmEmbedder.ts";
+import * as ProjectNavigationMemory from "../memory/ProjectNavigationMemory.ts";
 import * as ProjectMemory from "../memory/ProjectMemory.ts";
 import * as ProjectMemoryAccess from "../memory/ProjectMemoryAccess.ts";
 import * as ProjectUnderstanding from "../memory/ProjectUnderstanding.ts";
@@ -99,6 +100,7 @@ const layerLegacyV1ThreadImporterProvided = LegacyV1ThreadImporter.layer.pipe(
 );
 
 const layerProjectMemoryProvided = ProjectMemory.layer.pipe(
+  Layer.provideMerge(ProjectNavigationMemory.layer),
   Layer.provideMerge(ProjectUnderstanding.layer),
   Layer.provide(MiniLmEmbedder.layer),
 );

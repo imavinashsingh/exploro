@@ -8,6 +8,7 @@ import {
   PROJECT_UNDERSTANDING_KINDS,
   type EnvironmentId,
   type ProjectId,
+  type ThreadId,
   type ProjectMemoryFact,
   type ProjectMemoryFactKind,
   type ProjectMemoryFactStatus,
@@ -44,6 +45,7 @@ import {
   type FactFilter,
   type UnderstandingBadge,
 } from "@t3tools/client-runtime/state/projectMemory";
+import { ProjectNavigationDialog } from "../projectMemory/navigation/ProjectNavigationDialog";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 
@@ -140,7 +142,7 @@ function FactRow(props: {
           </div>
           <div className="flex flex-wrap items-center gap-x-2 text-2xs text-muted-foreground">
             <span className="truncate">
-              {fact.environment}
+              {fact.stateName} · {fact.environment}
               {fact.route}
             </span>
             <span>{fact.kind}</span>
@@ -218,6 +220,12 @@ function FactsTab(props: {
   const [filter, setFilter] = useState<FactFilter>(EMPTY_FACT_FILTER);
   const options = factFilterOptions(props.facts, filter);
   const shown = filterFacts(props.facts, filter);
+  const screens = new Map<string, ProjectMemoryFact[]>();
+  for (const fact of shown) {
+    const facts = screens.get(fact.stateId) ?? [];
+    facts.push(fact);
+    screens.set(fact.stateId, facts);
+  }
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap gap-2">
@@ -259,18 +267,27 @@ function FactsTab(props: {
             : gt("No facts match these filters.")}
         </p>
       ) : (
-        <ul className="flex flex-col">
-          {shown.map((fact) => (
-            <FactRow
-              key={fact.factId}
-              fact={fact}
-              versions={factVersions(props.facts, fact)}
-              canEdit={props.canEdit}
-              onDelete={props.onDelete}
-              onOpenEvidence={props.onOpenEvidence}
-            />
+        <div className="flex flex-col gap-3">
+          {[...screens].map(([stateId, facts]) => (
+            <section key={stateId}>
+              <h4 className="text-sm font-medium">
+                {facts[0]?.stateName} · {facts[0]?.route}
+              </h4>
+              <ul className="flex flex-col">
+                {facts.map((fact) => (
+                  <FactRow
+                    key={fact.factId}
+                    fact={fact}
+                    versions={factVersions(props.facts, fact)}
+                    canEdit={props.canEdit}
+                    onDelete={props.onDelete}
+                    onOpenEvidence={props.onOpenEvidence}
+                  />
+                ))}
+              </ul>
+            </section>
           ))}
-        </ul>
+        </div>
       )}
       {props.truncated ? (
         <p className="text-2xs text-muted-foreground">
@@ -387,37 +404,26 @@ function MapTab(props: {
       {page === null ? null : (
         <div className="flex flex-col gap-1 border-t border-border/60 pt-2">
           <p className="break-all text-xs font-medium">
-            {page.environment}
+            {page.stateName} · {page.environment}
             {page.route}
           </p>
-          {page.navigation.length > 0 ? (
-            <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">
-              {page.navigation.map((link) => (
-                <li key={link.factId} className="break-all">
-                  → {link.environment === page.environment ? "" : link.environment}
-                  {link.route} ({link.label})
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          {page.facts.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              <T>Reached by a link from another page. Nothing recorded here yet.</T>
+          {page.reachedBy.map((step) => (
+            <p key={step} className="text-xs text-muted-foreground">
+              {step}
             </p>
-          ) : (
-            <ul className="flex flex-col">
-              {page.facts.map((fact) => (
-                <FactRow
-                  key={fact.factId}
-                  fact={fact}
-                  versions={factVersions(props.facts, fact)}
-                  canEdit={props.canEdit}
-                  onDelete={props.onDelete}
-                  onOpenEvidence={props.onOpenEvidence}
-                />
-              ))}
-            </ul>
-          )}
+          ))}
+          <ul className="flex flex-col">
+            {page.facts.map((fact) => (
+              <FactRow
+                key={fact.factId}
+                fact={fact}
+                versions={factVersions(props.facts, fact)}
+                canEdit={props.canEdit}
+                onDelete={props.onDelete}
+                onOpenEvidence={props.onOpenEvidence}
+              />
+            ))}
+          </ul>
         </div>
       )}
       {map.data.workflows.length > 0 ? (
@@ -430,7 +436,7 @@ function MapTab(props: {
               <li key={workflow.itemId}>
                 {workflow.statement}
                 <span className="block break-all text-muted-foreground">
-                  {workflow.pages.map((step) => step.route).join(" → ")}
+                  {workflow.pages.map((page) => page.route).join(", ")}
                 </span>
               </li>
             ))}
@@ -584,7 +590,7 @@ function UnderstandingRow(props: {
                   <li key={item.citedFactIds[index]} className="text-muted-foreground">
                     {fact === null
                       ? gt("A fact that was deleted")
-                      : `${fact.route} · ${fact.key}: ${fact.value}${fact.status === "current" ? "" : ` (${fact.status})`}`}
+                      : `${fact.stateName} · ${fact.route} · ${fact.key}: ${fact.value}${fact.status === "current" ? "" : ` (${fact.status})`}`}
                   </li>
                 ))}
               </ul>
@@ -667,8 +673,17 @@ export function ProjectMemorySettings(props: {
     label: "retry memory extraction",
   });
 
+  const deleteNavigation = useAtomCommand(serverEnvironment.deleteNavigationRecord, {
+    label: "delete navigation memory",
+  });
+  const canDeleteNavigation = useAtomValue(
+    serverEnvironment.deleteNavigationRecord.permissionAtom(environmentId),
+  );
   const data = snapshot.data;
   const status = memoryStatusLine(data?.status ?? null, enabled, messages);
+  const navigationStates = new Map(
+    (data?.navigation?.states ?? []).map((state) => [state.id, state]),
+  );
   const facts = new Map((data?.facts ?? []).map((fact) => [fact.factId, fact]));
   const items = new Map((data?.understanding ?? []).map((item) => [item.itemId, item]));
 
@@ -714,6 +729,98 @@ export function ProjectMemorySettings(props: {
           />
         }
       />
+      {data?.navigation ? (
+        <SettingsRow
+          title={gt("Observed navigation")}
+          control={
+            <ProjectNavigationDialog
+              key={`${environmentId}:${projectId}`}
+              environmentId={environmentId}
+              projectId={projectId}
+            />
+          }
+        >
+          <div className="flex flex-col gap-3 pb-2">
+            {data.navigation.transitions.slice(0, 50).map((edge) => {
+              return (
+                <div key={edge.id} className="flex items-center justify-between gap-3">
+                  <div className="min-w-0 text-sm">
+                    <p>
+                      {navigationStates.get(edge.from)?.name ?? "?"} →{" "}
+                      {navigationStates.get(edge.to)?.name ?? "?"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {edge.action} · {edge.observedAt.slice(0, 10)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {Object.entries(edge.conditions)
+                        .map(([key, value]) => `${key}: ${value}`)
+                        .join(", ")}
+                    </p>
+                    {!edge.available ? <p className="text-xs">{gt("Needs rechecking")}</p> : null}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      onClick={() =>
+                        void navigate({
+                          to: "/$environmentId/$threadId",
+                          params: { environmentId, threadId: edge.threadId as ThreadId },
+                        })
+                      }
+                    >
+                      {gt("Open source run")}
+                    </Button>
+                    <Button
+                      size="icon-xs"
+                      variant="ghost-muted"
+                      aria-label={gt("Delete navigation connection")}
+                      disabled={!canDeleteNavigation}
+                      onClick={() =>
+                        void deleteNavigation({
+                          environmentId,
+                          input: { projectId, id: edge.id },
+                        }).then(after(gt("Could not delete navigation memory")))
+                      }
+                    >
+                      <Trash2Icon />
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+            {data.navigation.truncated || data.navigation.transitions.length > 50 ? (
+              <p className="text-xs">{gt("Some navigation records are not shown.")}</p>
+            ) : null}
+            {data.navigation.states.map((state) => (
+              <div key={state.id} className="flex items-center justify-between gap-3">
+                <span className="text-sm">
+                  {state.name} · {state.path}
+                </span>
+                <Button
+                  size="xs"
+                  variant="ghost-muted"
+                  disabled={!canDeleteNavigation}
+                  onClick={() =>
+                    void deleteNavigation({
+                      environmentId,
+                      input: { projectId, id: state.id },
+                    }).then(after(gt("Could not delete navigation memory")))
+                  }
+                >
+                  {gt("Delete screen and its facts")}
+                </Button>
+              </div>
+            ))}
+            {data.navigation.states.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                {gt("No navigation learned yet. Explore a feature in a project thread.")}
+              </p>
+            ) : null}
+          </div>
+        </SettingsRow>
+      ) : null}
       <SettingsRow
         title={gt("Status")}
         description={

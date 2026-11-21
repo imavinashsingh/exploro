@@ -1,3 +1,4 @@
+import { NavigationSnapshot } from "./projectNavigation.ts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
@@ -8,7 +9,6 @@ const PROJECT_MEMORY_FACT_KINDS = [
   "page",
   "control",
   "validation",
-  "navigation",
   "api",
   "result",
   "rule",
@@ -42,10 +42,7 @@ export type ProjectMemoryEvidenceRef = typeof ProjectMemoryEvidenceRef.Type;
 const MemoryText = (max: number) => TrimmedNonEmptyString.check(Schema.isMaxLength(max));
 
 export const ProjectMemoryFactInput = Schema.Struct({
-  /** A URL or origin; stored as its origin. */
-  environment: MemoryText(2048),
-  /** A URL or path; stored as its path with ids and the query removed. */
-  route: MemoryText(2048),
+  stateId: MemoryText(200),
   kind: ProjectMemoryFactKind,
   key: MemoryText(200),
   value: MemoryText(500),
@@ -60,6 +57,8 @@ export type ProjectMemoryFactInput = typeof ProjectMemoryFactInput.Type;
 export const ProjectMemoryFact = Schema.Struct({
   factId: Schema.String,
   projectId: ProjectId,
+  stateId: Schema.String,
+  stateName: Schema.String,
   environment: Schema.String,
   route: Schema.String,
   kind: ProjectMemoryFactKind,
@@ -80,6 +79,7 @@ export type ProjectMemoryFact = typeof ProjectMemoryFact.Type;
 
 /** Exact-match filters; every field left out matches anything. */
 export const ProjectMemoryFactLookup = Schema.Struct({
+  stateId: Schema.optional(MemoryText(200)),
   environment: Schema.optional(MemoryText(2048)),
   route: Schema.optional(MemoryText(2048)),
   kind: Schema.optional(ProjectMemoryFactKind),
@@ -164,6 +164,9 @@ export const ProjectUnderstandingItem = Schema.Struct({
 export type ProjectUnderstandingItem = typeof ProjectUnderstandingItem.Type;
 
 export const ProjectMemoryMapPage = Schema.Struct({
+  stateId: Schema.String,
+  stateName: Schema.String,
+  reachedBy: Schema.Array(Schema.String),
   environment: Schema.String,
   route: Schema.String,
   coverage: Schema.Literals(["failing", "tested", "seen"]),
@@ -171,14 +174,6 @@ export const ProjectMemoryMapPage = Schema.Struct({
   failCount: NonNegativeInt,
   facts: Schema.Array(ProjectMemoryFact),
   details: Schema.Array(ProjectMemoryFact),
-  navigation: Schema.Array(
-    Schema.Struct({
-      environment: Schema.String,
-      route: Schema.String,
-      factId: Schema.String,
-      label: Schema.String,
-    }),
-  ),
   needs: Schema.Array(Schema.String),
 });
 export type ProjectMemoryMapPage = typeof ProjectMemoryMapPage.Type;
@@ -247,6 +242,7 @@ export type ProjectMemoryStatus = typeof ProjectMemoryStatus.Type;
 
 /** Everything the Memory screen shows: every version of every fact, newest first. */
 export const ProjectMemorySnapshot = Schema.Struct({
+  navigation: Schema.optional(NavigationSnapshot),
   facts: Schema.Array(ProjectMemoryFact),
   /** More facts exist than were sent. */
   factsTruncated: Schema.Boolean,

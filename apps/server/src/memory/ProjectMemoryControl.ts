@@ -1,3 +1,5 @@
+import * as ProjectNavigationMemory from "./ProjectNavigationMemory.ts";
+import * as Option from "effect/Option";
 import {
   ProjectMemoryError,
   type ProjectId,
@@ -16,6 +18,7 @@ import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as QaRuns from "../qa/QaRuns.ts";
 import { memoryEnabled } from "./ProjectMemoryAccess.ts";
+import { memoryEnvironment } from "./projectMemoryFacts.ts";
 import { providedSecrets } from "./providedSecrets.ts";
 import * as ProjectMemory from "./ProjectMemory.ts";
 import * as ProjectUnderstanding from "./ProjectUnderstanding.ts";
@@ -64,6 +67,7 @@ export class ProjectMemoryControl extends Context.Service<
 
 const make = Effect.gen(function* () {
   const memory = yield* ProjectMemory.ProjectMemory;
+  const navigation = yield* Effect.serviceOption(ProjectNavigationMemory.ProjectNavigationMemory);
   const understanding = yield* ProjectUnderstanding.ProjectUnderstanding;
   const extraction = yield* UnderstandingExtraction.UnderstandingExtraction;
 
@@ -136,9 +140,13 @@ const make = Effect.gen(function* () {
       }
     }),
     setAppVersion: Effect.fn("ProjectMemoryControl.setAppVersion")(function* (input) {
+      const site = memoryEnvironment(input.environment);
+      if (site === null)
+        return yield* new ProjectMemoryError({
+          message: "Choose a website to set its app version.",
+        });
       const saved = yield* memory.putFact(input.projectId, {
-        environment: input.environment,
-        route: "/",
+        stateId: site,
         kind: "data",
         key: "Tested app version",
         value: input.appVersion,
@@ -154,6 +162,9 @@ const make = Effect.gen(function* () {
     snapshot: Effect.fn("ProjectMemoryControl.snapshot")(function* (projectId) {
       const facts = yield* memory.listFacts(projectId, SNAPSHOT_FACT_LIMIT + 1);
       return {
+        ...(Option.isSome(navigation)
+          ? { navigation: yield* navigation.value.snapshot(projectId) }
+          : {}),
         facts: facts.slice(0, SNAPSHOT_FACT_LIMIT),
         factsTruncated: facts.length > SNAPSHOT_FACT_LIMIT,
         understanding: yield* understanding.getItems(projectId),

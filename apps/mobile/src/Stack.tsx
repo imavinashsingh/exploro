@@ -1,4 +1,5 @@
 import { withoutExploroHiddenScreens } from "./exploroFeatures";
+import { ProjectNavigationScreen } from "./features/settings/ProjectNavigationScreen";
 import { isDraftThreadRoute } from "./features/threads/thread-route-state";
 import { ComponentCatalogScreen } from "./features/development/ComponentCatalogScreen";
 import { PullRequestGuideStopScreen } from "./features/pull-requests/guide/PullRequestGuideScreen";
@@ -337,6 +338,10 @@ const SETTINGS_SCREENS = {
     screen: SettingsLanguageRouteScreen,
     linking: "settings/language",
     options: settingsPage(),
+  }),
+  ProjectNavigation: createNativeStackScreen({
+    screen: ProjectNavigationScreen,
+    options: pageRoute(),
   }),
   SettingsProjectOverview: createNativeStackScreen({
     screen: SettingsProjectOverviewRouteScreen,

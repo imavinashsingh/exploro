@@ -1,5 +1,6 @@
 import {
   ProjectId,
+  NavigationState,
   type ProjectMemoryFact,
   type ProjectUnderstandingItem,
   type ProjectMemoryMapBranch,
@@ -14,6 +15,8 @@ const fact = (
   overrides: Partial<ProjectMemoryFact> = {},
 ): ProjectMemoryFact => ({
   factId,
+  stateId: route,
+  stateName: route,
   route,
   projectId: ProjectId.make("shop"),
   environment: "https://shop.test",
@@ -90,46 +93,79 @@ describe("project map", () => {
     expect(pages(tree)[1]?.details).toContainEqual(control);
     expect(seenNotTestedPages(map).map((page) => page.route)).toEqual(["/orders/:id", "/login"]);
     expect(buildProjectMap([]).environments).toEqual([]);
+    const screen = (id: string, name: string) =>
+      NavigationState.make({
+        id,
+        name,
+        path: "/login",
+        environment: "https://shop.test",
+        aliases: [],
+        context: {},
+        checks: [{ kind: "textVisible", text: name }],
+      });
+    const screens = buildProjectMap(
+      [
+        fact("login-pass", "/login", {
+          stateId: "login",
+          stateName: "Login",
+          kind: "result",
+          value: "PASS",
+        }),
+        fact("error-fail", "/login", {
+          stateId: "error",
+          stateName: "Login error",
+          kind: "result",
+          value: "FAIL",
+        }),
+      ],
+      [],
+      {
+        states: [
+          screen("login", "Login"),
+          screen("error", "Login error"),
+          screen("new", "Recover account"),
+        ],
+        transitions: [
+          {
+            id: "edge",
+            from: "login",
+            to: "error",
+            action: "Submit invalid credentials",
+            conditions: {},
+            runId: "run",
+            threadId: "thread",
+            observedAt: "now",
+            available: true,
+          },
+        ],
+        truncated: false,
+      },
+    );
+    const mapped = pages(screens.environments[0]!.tree);
+    expect(mapped.map((page) => [page.stateId, page.coverage])).toEqual([
+      ["login", "tested"],
+      ["error", "failing"],
+      ["new", "seen"],
+    ]);
+    expect(mapped.find((page) => page.stateId === "error")?.reachedBy).toEqual([
+      "Login: Submit invalid credentials",
+    ]);
+    expect(seenNotTestedPages(screens).map((page) => page.stateName)).toEqual(["Recover account"]);
+    expect(formatProjectMap(screens)).toContain("Login error [error] /login [failing]");
+    expect(formatProjectMap(screens)).toContain("reached from: Login: Submit invalid credentials");
   });
 
-  it("makes navigation-only pages and keeps looping links out of the route tree", () => {
+  it("keeps tested redirects as facts without inventing destination pages", () => {
     const map = buildProjectMap([
-      fact("a", "/dashboard", { kind: "navigation", value: "/settings" }),
-      fact("b", "/settings", { kind: "navigation", value: "/dashboard" }),
-      fact("c", "/dashboard", { kind: "navigation", value: "/orders/123?sort=x" }),
-      fact("d", "/dashboard", { kind: "navigation", value: "https://other.test/login" }),
-      fact("e", "/settings", { kind: "result", value: "INCONCLUSIVE" }),
-    ]);
-    expect(seenNotTestedPages(map).map((page) => page.route)).toEqual([
-      "/login",
-      "/dashboard",
-      "/orders/:id",
-    ]);
-    expect(pages(map.environments[1]!.tree)).toHaveLength(3);
-    expect(formatProjectMap(map)).toContain("→ /dashboard");
-    const arrow = buildProjectMap([
-      fact("f", "/login", { kind: "navigation", value: "→ /dashboard (valid login)" }),
-    ]);
-    expect(pages(arrow.environments[0]!.tree).map((page) => page.route)).toEqual([
-      "/dashboard",
-      "/login",
-    ]);
-    // Agents also write navigation as a sentence; only a path after "to" or an arrow is a target.
-    const prose = buildProjectMap([
-      fact("g", "/secure", {
-        kind: "navigation",
+      fact("redirect", "/secure", {
+        kind: "rule",
         value: 'Signed out, /secure redirects to /login with flash "Login first!"',
       }),
-      fact("h", "/help", { kind: "navigation", value: "Opens a chat window" }),
+      fact("redirect-result", "/secure", { kind: "result", value: "PASS" }),
     ]);
-    expect(pages(prose.environments[0]!.tree).map((page) => page.route)).toEqual([
-      "/help",
-      "/login",
-      "/secure",
-    ]);
-    expect(pages(prose.environments[0]!.tree)[2]?.navigation.map((link) => link.route)).toEqual([
-      "/login",
-    ]);
+    expect(pages(map.environments[0]!.tree).map((page) => page.route)).toEqual(["/secure"]);
+    expect(pages(map.environments[0]!.tree)[0]?.facts).toHaveLength(2);
+    expect(formatProjectMap(map)).toContain("/secure [tested]");
   });
 
   it("labels dependencies on cited current pages and preserves workflow citation order", () => {

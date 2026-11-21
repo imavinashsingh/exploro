@@ -1578,6 +1578,42 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:scheduled-tasks:live",
       tag: WS_METHODS.scheduledTasksSubscribe,
     }),
+    // Drop inactive navigation requests so closing the explorer or changing search cancels the RPC.
+    navigationLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:server:navigation:live",
+      idleTtlMs: 0,
+      tag: WS_METHODS.projectNavigationSubscribe,
+    }),
+    navigationOverview: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:navigation:overview",
+      idleTtlMs: 0,
+      tag: WS_METHODS.projectNavigationOverview,
+    }),
+    navigationChildren: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:navigation:children",
+      idleTtlMs: 0,
+      tag: WS_METHODS.projectNavigationChildren,
+    }),
+    navigationNeighborhood: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:navigation:neighborhood",
+      idleTtlMs: 0,
+      tag: WS_METHODS.projectNavigationNeighborhood,
+    }),
+    navigationSearch: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:navigation:search",
+      idleTtlMs: 0,
+      tag: WS_METHODS.projectNavigationSearch,
+    }),
+    navigationDetails: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:navigation:details",
+      idleTtlMs: 0,
+      tag: WS_METHODS.projectNavigationDetails,
+    }),
+    navigationRoutePreview: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:navigation:routepreview",
+      idleTtlMs: 0,
+      tag: WS_METHODS.projectNavigationRoutePreview,
+    }),
     // Not polled: a project's facts can be large, so the Memory screen refreshes after each change.
     projectMemorySnapshot: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:project-memory:snapshot",
@@ -1873,6 +1909,10 @@ export function createServerEnvironmentAtoms<R, E>(
       tag: WS_METHODS.scheduledTasksSetEnabled,
       scheduler: configScheduler,
       concurrency: configConcurrency,
+    }),
+    deleteNavigationRecord: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:navigation:delete",
+      tag: WS_METHODS.projectNavigationDelete,
     }),
     deleteMemoryFact: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:project-memory:delete-fact",

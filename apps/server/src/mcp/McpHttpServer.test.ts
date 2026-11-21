@@ -1,3 +1,5 @@
+import { ProjectMemoryError } from "@t3tools/contracts";
+import * as NavigationCapture from "../memory/NavigationCapture.ts";
 import * as ProjectMemory from "../memory/ProjectMemory.ts";
 import * as ProjectUnderstanding from "../memory/ProjectUnderstanding.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
@@ -115,6 +117,15 @@ const layerTest = McpHttpServer.layerPreviewToolkit.pipe(
       Layer.mock(SecretRequests.SecretRequests)({}),
       Layer.mock(QaSavedSecrets.QaSavedSecrets)({}),
       Layer.mock(ProjectMemory.ProjectMemory)({}),
+      Layer.mock(NavigationCapture.NavigationCapture)({
+        recognize: () =>
+          Effect.fail(
+            new ProjectMemoryError({
+              message: "Unknown screen. Call navigation_observe on this screen first.",
+            }),
+          ),
+      }),
+      ServerSettings.layerTest({}),
       Layer.mock(ProjectUnderstanding.ProjectUnderstanding)({}),
       Layer.mock(QaRecorder.QaRecorder)({
         browserOpened: () => Effect.void,
@@ -2140,7 +2151,36 @@ it.effect("hides memory tools from a thread without a project and refuses their 
       Effect.sync(McpInvocationContext.hiddenWithoutMemory).pipe(withCapabilities(capabilities));
     expect(yield* visible(["preview"])).toBe(false);
     expect(yield* visible(["preview", "memory"])).toBe(true);
-    for (const name of memoryTools) {
+    expect(
+      yield* Effect.sync(McpInvocationContext.hiddenWithoutMemory).pipe(
+        withCapabilities(["preview"]),
+      ),
+    ).toBe(false);
+    expect(
+      yield* Effect.sync(McpInvocationContext.hiddenWithoutMemory).pipe(
+        withCapabilities(["preview", "memory"]),
+      ),
+    ).toBe(true);
+    const unknownScreen = yield* server
+      .callTool({
+        name: "qa_evidence_record",
+        arguments: {
+          scenario: "Screen result",
+          verdict: "PASS",
+          note: "Observed",
+        },
+      })
+      .pipe(
+        withCapabilities(["preview", "memory"]),
+        Effect.provideService(McpSchema.McpServerClient, client),
+      );
+    expect(unknownScreen.isError).toBe(true);
+    expect(JSON.stringify(unknownScreen.content)).toContain("navigation_observe");
+    const navigationTools = server.tools
+      .filter(({ tool }) => tool.name.startsWith("navigation_"))
+      .map(({ tool }) => tool.name);
+    expect(navigationTools).toHaveLength(3);
+    for (const name of [...memoryTools, ...navigationTools]) {
       const refused = yield* server
         .callTool({ name, arguments: {} })
         .pipe(

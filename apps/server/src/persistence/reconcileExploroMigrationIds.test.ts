@@ -40,17 +40,22 @@ describe("Exploro migration id upgrade", () => {
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* seedOldExploro;
-      assert.deepStrictEqual(yield* runMigrations(), [
+      assert.deepStrictEqual(yield* runMigrations({ toMigrationInclusive: 101 }), [
         [96, "RepairStaleTitleRegeneration"],
         [97, "IssueTrackerBindings"],
         [98, "ActiveShellIndexIndexes"],
         [101, "MemoryBriefUsage"],
       ]);
-      assert.deepStrictEqual(yield* history, migrationManifest);
       assert.deepStrictEqual(
         yield* sql`SELECT item_id, version FROM project_memory_understanding`,
         [{ item_id: "item-1", version: 1 }],
       );
+      // 103 resets pre-release memory on purpose, so the data check stops before it.
+      assert.deepStrictEqual(
+        yield* runMigrations(),
+        migrationManifest.filter(([id]) => id > 101),
+      );
+      assert.deepStrictEqual(yield* history, migrationManifest);
       assert.deepStrictEqual(yield* runMigrations(), []);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
@@ -74,9 +79,10 @@ describe("Exploro migration id upgrade", () => {
       { id: 97, name: "ProjectUnderstanding" },
       { id: 98, name: "MemoryBriefUsage" },
     ]);
+    // Startup reconciles up to Exploro's moved ids; later migrations then run normally.
     assert.deepStrictEqual(
       upgraded?.map(({ id, name }) => [id, name] as const),
-      migrationManifest,
+      migrationManifest.filter(([id]) => id <= 101),
     );
     assert.strictEqual(
       reconciledExploroHistory([...base, { id: 96, name: "ProjectMemory" }, { id: 97, name: "X" }]),

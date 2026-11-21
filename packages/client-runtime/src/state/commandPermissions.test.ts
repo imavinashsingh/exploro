@@ -225,6 +225,7 @@ describe("command permissions", () => {
     WS_METHODS.scheduledTasksDelete,
     ORCHESTRATION_V2_WS_METHODS.stopWorkflow,
     WS_METHODS.projectMemorySaveThread,
+    WS_METHODS.projectNavigationDelete,
     WS_METHODS.projectMemorySetAppVersion,
   ])("uses the target grant for both availability and execution of %s", (method) =>
     Effect.gen(function* () {

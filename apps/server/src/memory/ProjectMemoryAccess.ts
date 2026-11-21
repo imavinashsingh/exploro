@@ -48,6 +48,8 @@ const make = Effect.gen(function* () {
     firstTurnBrief: Effect.fn("ProjectMemoryAccess.firstTurnBrief")(
       function* (projectId, goal, threadId) {
         if (!(yield* hasMemory(projectId))) return "";
+        const navigationNote =
+          "Project Navigation Memory is enabled. Ask navigation_route for the requested feature first; open its directUrl or follow its steps, verifying live. If it returns anything other than found, call navigation_observe on the current screen, then after each step you explore, including the destination.";
         return yield* Effect.gen(function* () {
           const known = yield* memory.lookupFacts(projectId, { limit: 500 });
           const target = memoryTarget(goal, known);
@@ -80,11 +82,11 @@ const make = Effect.gen(function* () {
           if (threadId !== undefined) {
             yield* memory.recordBriefUsage(threadId, brief).pipe(Effect.ignore);
           }
-          return brief;
+          return [navigationNote, brief].filter(Boolean).join("\n\n");
         }).pipe(
           Effect.catchCause((cause) =>
             Effect.logWarning("Project memory brief was not built", { projectId, cause }).pipe(
-              Effect.as(""),
+              Effect.as(navigationNote),
             ),
           ),
         );

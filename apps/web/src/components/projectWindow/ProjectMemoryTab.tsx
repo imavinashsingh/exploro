@@ -16,6 +16,8 @@ import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { msg, T, useGT, useMessages } from "gt-react";
 import { useState } from "react";
 
+import { ProjectNavigationSummary } from "../projectMemory/navigation/ProjectNavigationSummary";
+
 import { cn } from "../../lib/utils";
 import { useProject, useServerConfigs } from "../../state/entities";
 import { useEnvironmentQuery } from "../../state/query";
@@ -49,11 +51,16 @@ const TONE_CLASS = {
 function factsByPage(facts: ReadonlyArray<ProjectMemoryFact>) {
   const pages = new Map<
     string,
-    { route: string; environment: string; facts: ProjectMemoryFact[] }
+    { route: string; stateName: string; environment: string; facts: ProjectMemoryFact[] }
   >();
   for (const fact of facts) {
-    const key = `${fact.environment}\n${fact.route}`;
-    const page = pages.get(key) ?? { route: fact.route, environment: fact.environment, facts: [] };
+    const key = fact.stateId;
+    const page = pages.get(key) ?? {
+      route: fact.route,
+      stateName: fact.stateName,
+      environment: fact.environment,
+      facts: [],
+    };
     page.facts.push(fact);
     pages.set(key, page);
   }
@@ -69,7 +76,7 @@ export function ProjectMemoryTab(props: {
 }) {
   const gt = useGT();
   const messages = useMessages();
-  const [view, setView] = useState<"understanding" | "facts">("understanding");
+  const [view, setView] = useState<"understanding" | "facts" | "navigation">("understanding");
   const project = useProject(
     props.projectId === null ? null : scopeProjectRef(props.environmentId, props.projectId),
   );
@@ -86,6 +93,15 @@ export function ProjectMemoryTab(props: {
     props.projectId === null || scratch
       ? null
       : serverEnvironment.projectMemorySnapshot({
+          environmentId: props.environmentId,
+          input: { projectId: props.projectId },
+        }),
+  );
+
+  const navigation = useEnvironmentQuery(
+    props.projectId === null || scratch
+      ? null
+      : serverEnvironment.navigationOverview({
           environmentId: props.environmentId,
           input: { projectId: props.projectId },
         }),
@@ -123,15 +139,23 @@ export function ProjectMemoryTab(props: {
         className="w-full *:flex-1"
         value={[view]}
         onValueChange={(next) => {
-          if (next[0] === "understanding" || next[0] === "facts") setView(next[0]);
+          if (next[0] === "understanding" || next[0] === "facts" || next[0] === "navigation")
+            setView(next[0]);
         }}
       >
         <Toggle value="understanding">
           {gt("What we learned · {count}", { count: data?.understanding.length ?? 0 })}
         </Toggle>
         <Toggle value="facts">{gt("Page facts · {count}", { count: currentFacts.length })}</Toggle>
+        <Toggle value="navigation">
+          {gt("Navigation · {count}", {
+            count: `${navigation.data?.clusters.reduce((sum, cluster) => sum + cluster.stateCount, 0) ?? 0}${navigation.data?.truncated ? "+" : ""}`,
+          })}
+        </Toggle>
       </ToggleGroup>
-      {snapshot.error !== null ? (
+      {view === "navigation" ? (
+        <ProjectNavigationSummary environmentId={props.environmentId} projectId={props.projectId} />
+      ) : snapshot.error !== null ? (
         <p className="m-0 text-xs text-destructive">{snapshot.error}</p>
       ) : empty ? (
         <p className="m-0 px-3 py-4 text-center text-xs text-muted-foreground">
@@ -189,7 +213,9 @@ export function ProjectMemoryTab(props: {
             className="flex flex-col overflow-hidden rounded-lg border border-border/65"
           >
             <header className="flex items-baseline justify-between gap-2 bg-muted/40 px-3 py-1.5">
-              <h4 className="m-0 truncate font-mono text-xs font-medium">{page.route}</h4>
+              <h4 className="m-0 truncate font-mono text-xs font-medium">
+                {page.stateName} · {page.route}
+              </h4>
               <span className="truncate text-2xs text-muted-foreground">{page.environment}</span>
             </header>
             <dl className="m-0 flex flex-col">
