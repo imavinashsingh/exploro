@@ -33,6 +33,15 @@ describe("navigation layout", () => {
     ]);
     expect(route.positions.b).toEqual({ x: 0, y: 0 });
     expect(route.positions.a).toEqual({ x: 460, y: 0 });
+    const next = navigationLayout(
+      "route",
+      [
+        { id: "b", name: "B" },
+        { id: "c", name: "C" },
+      ],
+      route.positions,
+    );
+    expect(next.positions.c).toEqual({ x: 460, y: 0 });
     const items = Array.from({ length: 14 }, (_, i) => ({
       id: String(i),
       name: String(i).padStart(2, "0"),

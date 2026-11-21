@@ -10,11 +10,13 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProjectId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Stream from "effect/Stream";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Navigation from "../src/memory/ProjectNavigationMemory.ts";
 import { navigationDestinationWords } from "../src/memory/navigation.ts";
+import { navigationPathGroup } from "../src/memory/navigationStorage.ts";
 import { runMigrations } from "../src/persistence/Migrations.ts";
 import * as Sqlite from "../src/persistence/Sqlite.ts";
 
@@ -28,8 +30,9 @@ const { values } = NodeUtil.parseArgs({
   },
 });
 const count = Number(values.states);
-if (!Number.isSafeInteger(count) || count < 10000)
-  throw new Error("--states must be at least 10000");
+if (!Number.isSafeInteger(count) || count < 100) throw new Error("--states must be at least 100");
+// The legacy backfill fixture is 100k states; it only means something next to a large run.
+const skipBackfill = values["skip-backfill"] || count < 10000;
 if (!values.db) throw new Error("Pass --db <fresh path inside .exploro/bench>");
 const bench = NodePath.resolve(import.meta.dirname, "../../../.exploro/bench");
 NodeFS.mkdirSync(bench, { recursive: true });
@@ -73,30 +76,66 @@ const words = [
 ];
 const id = (i: number) => `state-${String(i).padStart(9, "0")}`;
 const edgeId = (i: number) => `edge-${String(i).padStart(10, "0")}`;
+const groupCount = (n: number) => Math.max(4, Math.min(40, Math.floor(n / 50)));
+// One dominant entity, so even a 200-state run has subgroups two levels deep.
+const entityWeights = [10, 1, 1];
+const tabs = ["personal", "contact", "job", "salary"];
 const groupsFor = (n: number) => {
-  const weights = Array.from({ length: 40 }, (_, g) => 1 / (g + 1) ** 1.5);
+  const size = groupCount(n);
+  const weights = Array.from({ length: size }, (_, g) => 1 / (g + 1) ** 1.5);
   const sum = weights.reduce((a, b) => a + b, 0);
-  const groups: Array<{ start: number; end: number; environment: string; pathGroup: string }> = [];
+  const groups: Array<{
+    start: number;
+    end: number;
+    environment: string;
+    base: string;
+    module: string;
+    nested: boolean;
+    pathGroup: string;
+  }> = [];
   let start = 0;
   for (let env = 0; env < 2; env++)
-    for (let g = 0; g < 40; g++) {
-      const end = env === 1 && g === 39 ? n : start + Math.floor(((n / 2) * weights[g]!) / sum);
+    for (let g = 0; g < size; g++) {
+      const end =
+        env === 1 && g === size - 1 ? n : start + Math.floor(((n / 2) * weights[g]!) / sum);
+      const module = g === 0 ? "pim" : `module${g}`;
+      // Half the environments sit behind a front controller, like PHP apps.
+      const base = env === 1 ? "/web/index.php" : "";
       groups.push({
         start,
         end,
         environment: `https://hr-${env}.example.test`,
-        pathGroup: g === 0 ? "/pim" : `/module${g}`,
+        base,
+        module,
+        nested: g < 3,
+        pathGroup: navigationPathGroup(`${base}/${module}/x`),
       });
       start = end;
     }
   return groups;
+};
+const entityPath = (group: ReturnType<typeof groupsFor>[number], entity: number) =>
+  `${group.base}/${group.module}/entity${entity}`;
+// Nested groups take contiguous state-id blocks per entity and tab so neighbours stay connected.
+const pathFor = (i: number, group: ReturnType<typeof groupsFor>[number]) => {
+  if (!group.nested) return `${group.base}/${group.module}/viewEmployee/${i}`;
+  const size = group.end - group.start;
+  const offset = (i - group.start) / size;
+  const total = entityWeights.reduce((a, b) => a + b, 0);
+  let edge = 0;
+  let entity = 0;
+  while (entity < entityWeights.length - 1 && offset >= (edge + entityWeights[entity]!) / total)
+    edge += entityWeights[entity++]!;
+  const within = (offset - edge / total) / (entityWeights[entity]! / total);
+  const tab = tabs[Math.min(tabs.length - 1, Math.floor(within * tabs.length))]!;
+  return `${entityPath(group, entity)}/${tab}/id/${i}`;
 };
 const stateFor = (i: number, group: ReturnType<typeof groupsFor>[number]) => ({
   id: id(i),
   name: `${i === 777 ? "zygomorphic " : ""}${words[i % words.length]} employee ${i}`,
   aliases: [`staff profile ${i}`],
   environment: group.environment,
-  path: `${group.pathGroup}/viewEmployee/${i}`,
+  path: pathFor(i, group),
   context: { authenticated: "true" },
   checks: [{ kind: "textVisible" as const, text: `Employee ${i}` }],
 });
@@ -254,9 +293,11 @@ function load(path: string, n: number, legacy: boolean) {
         );
     }
   for (let h = 0; h < 20; h++) {
-    const group = groups[h % 2 === 0 ? 0 : 40]!;
-    const degree = Math.min(Math.floor(n * (0.01 + (h * 0.04) / 19)), group.end - group.start - 2);
-    for (let j = 0; j < degree; j++) insert(group.start + h, group.start + 30 + j);
+    const group = groups[h % 2 === 0 ? 0 : groupCount(n)]!;
+    const size = group.end - group.start;
+    if (h >= size) continue;
+    const degree = Math.min(Math.floor(n * (0.01 + (h * 0.04) / 19)), size - 2);
+    for (let j = 0; j < degree; j++) insert(group.start + h, group.start + ((h + 1 + j) % size));
   }
   db.exec("COMMIT");
   if (!legacy) {
@@ -322,6 +363,7 @@ const runtime = ManagedRuntime.make(
   ),
 );
 const memory = await runtime.runPromise(Navigation.ProjectNavigationMemory);
+let publishPath: { events: number; msAfterLastWrite: number; bytes: number } | null = null;
 const rows: Array<{
   query: string;
   iterations: number;
@@ -381,7 +423,10 @@ async function measure<A, E>(
 try {
   const groups = groupsFor(count);
   const group = groups[0]!;
+  const hubGroup = groups[groupCount(count)]!;
+  const hub = id(hubGroup.start + Math.min(19, hubGroup.end - hubGroup.start - 1));
   const base = { projectId: project, limit: 50 };
+  const sample = Math.min(1000, group.start + Math.floor((group.end - group.start) / 2) - 2);
   await measure("overview", memory.navigationOverview({ projectId: project }));
   await measure("overview/isolation", memory.navigationOverview({ projectId: other }));
   await measure(
@@ -405,9 +450,37 @@ try {
       ).toString("base64url"),
     }),
   );
+  for (const [label, prefix] of [
+    ["depth1", undefined],
+    ["depth2", entityPath(group, 0)],
+  ] as const) {
+    const input = {
+      ...base,
+      environment: group.environment,
+      pathGroup: group.pathGroup,
+      ...(prefix === undefined ? {} : { prefix }),
+    };
+    await measure(`children/subgroups/${label}`, memory.navigationChildren(input));
+    const result = await runtime.runPromise(memory.navigationChildren(input));
+    if (result.kind !== "subgroups")
+      throw new Error(`children/subgroups/${label} returned ${result.kind}`);
+  }
+  {
+    const input = {
+      projectId: project,
+      limit: 200,
+      environment: group.environment,
+      pathGroup: group.pathGroup,
+      prefix: `${entityPath(group, 0)}/${tabs[0]}`,
+    };
+    await measure("children/states-page", memory.navigationChildren(input));
+    const result = await runtime.runPromise(memory.navigationChildren(input));
+    if (result.kind !== "states" || result.connections.length === 0)
+      throw new Error("children/states-page returned no page connections");
+  }
   for (const [label, stateId] of [
-    ["normal", id(1000)],
-    ["hub", id(groups[40]!.start + 19)],
+    ["normal", id(sample)],
+    ["hub", hub],
   ] as const)
     for (const filter of ["all", "available", "needs-recheck"] as const)
       await measure(
@@ -416,14 +489,11 @@ try {
       );
   for (const query of ["em", "employee", "zygomorphic", "nosuchwordxqz"])
     await measure(`search/${query}`, memory.navigationSearch({ ...base, query }));
-  await measure(
-    "details/hub",
-    memory.navigationDetails({ projectId: project, stateId: id(groups[40]!.start + 19) }),
-  );
+  await measure("details/hub", memory.navigationDetails({ projectId: project, stateId: hub }));
   for (const [label, from, to] of [
-    ["short", 1001, 1002],
-    ["cross-group", 1000, groups[1]!.start + 1],
-    ["unreachable", 1000, count - 1],
+    ["short", sample + 1, sample + 2],
+    ["cross-group", sample, groups[1]!.start + 1],
+    ["unreachable", sample, count - 1],
   ] as const)
     await measure(
       `route-preview/${label}`,
@@ -435,20 +505,20 @@ try {
     );
   await measure(
     "recognize/address",
-    memory.statesAtAddress(project, group.environment, stateFor(1000, group).path),
+    memory.statesAtAddress(project, group.environment, stateFor(sample, group).path),
   );
   await measure(
     "destination/exact",
-    memory.destinations(project, group.environment, stateFor(1000, group).name),
+    memory.destinations(project, group.environment, stateFor(sample, group).name),
   );
   await measure("destination/loose", memory.destinations(project, group.environment, "employees"));
   await measure(
     "agent/route",
-    memory.navigationRoute(project, id(1001), stateFor(1002, group).name),
+    memory.navigationRoute(project, id(sample + 1), stateFor(sample + 2, group).name),
   );
   const writeSource = await runtime.runPromise(
     memory.observe(project, {
-      state: stateFor(1000, group),
+      state: stateFor(sample, group),
       runId: "benchmark-write",
       threadId: "benchmark",
       tabId: "tab",
@@ -474,12 +544,38 @@ try {
     memory.feedback(project, "benchmark-feedback", edgeId(10), "mismatch"),
     true,
   );
-  await measure("deleteRecord/hub", memory.deleteRecord(project, id(groups[40]!.start + 19)), true);
+  // Real time is intended: this is the debounce a browser waits on, not a test clock.
+  const publish = await runtime.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const pull = yield* Stream.toPull(memory.subscribe(project));
+        yield* pull;
+        for (let k = 0; k < 20; k++)
+          yield* memory.observe(project, {
+            state: { ...stateFor(count + 10 + k, group), name: `Publish probe ${k}` },
+            runId: "benchmark-publish",
+            threadId: "benchmark",
+            tabId: "tab",
+            stepIndex: k,
+          });
+        const lastWrite = performance.now();
+        const events = yield* pull;
+        return {
+          events: events.length,
+          msAfterLastWrite: performance.now() - lastWrite,
+          bytes: Buffer.byteLength(JSON.stringify(events)),
+        };
+      }),
+    ),
+  );
+  publishPath = publish;
+  console.error(`subscribe/publish: ${JSON.stringify(publish)}`);
+  await measure("deleteRecord/hub", memory.deleteRecord(project, hub), true);
 } finally {
   await runtime.dispose();
 }
 let backfillMs: number | null = null;
-if (!values["skip-backfill"]) {
+if (!skipBackfill) {
   const legacy = `${filename}.${values.reuse ? "after" : "before"}.pre105`;
   if (NodeFS.existsSync(legacy)) throw new Error(`Legacy fixture already exists: ${legacy}`);
   await migrate(legacy, 104);
@@ -589,6 +685,7 @@ const results = {
   fixture,
   reusedFixture: values.reuse,
   rows,
+  publishPath,
   backfillMs,
   groupByBaseline,
   databaseBytes: NodeFS.statSync(filename).size,
