@@ -137,9 +137,10 @@ has the `memory_*` tools. A thread without a project has neither; test as usual.
 When project memory is enabled, use navigation memory to reach the feature under
 test. It stores observed navigation, not expected product behavior or permission to act.
 
-- Ask `navigation_route` for the destination feature first. It recognizes the current screen by
-  checking remembered screens live and composes observed connections, including ones learned from
-  different starting screens.
+- Open the site under test first, then ask `navigation_route` for the destination feature before
+  clicking through. It recognizes the current screen by checking remembered screens live, so it
+  needs an open tab, and composes observed connections, including ones learned from different
+  starting screens.
 - When the result has `directUrl`, open it with `preview_navigate` instead of clicking through,
   then check the destination live. If it does not match, follow the steps or explore.
 - Follow a found route one action at a time and check each screen live. A route you followed

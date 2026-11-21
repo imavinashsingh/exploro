@@ -93,7 +93,8 @@ const make = Effect.gen(function* () {
     actualTab ??= status.tabId ?? undefined;
     if (actualTab === undefined)
       return yield* new ProjectMemoryError({
-        message: "The browser did not identify its current tab.",
+        message:
+          "No browser tab is open yet. Open the site under test with preview_open, then call this tool again.",
       });
     const parsed = URL.canParse(status.url ?? "") ? new URL(status.url ?? "") : null;
     const url = parsed !== null && ["https:", "http:"].includes(parsed.protocol) ? parsed : null;
