@@ -149,7 +149,7 @@ it.effect("only request_secret and send_to_user ask Claude Code to load them up 
   }).pipe(Effect.provide(layerAdvertisedTools)),
 );
 
-it.effect("QA agents get issue tools but no worktree, pull request or clone tools", () =>
+it.effect("QA agents get issue tools but no theme, worktree, pull request or clone tools", () =>
   Effect.gen(function* () {
     const names = (yield* McpServer.McpServer).tools.map(({ tool }) => tool.name);
     expect(names).toEqual(expect.arrayContaining(["create_issue", "t3_project_create"]));
@@ -157,6 +157,7 @@ it.effect("QA agents get issue tools but no worktree, pull request or clone tool
       names.filter(
         (name) =>
           name.startsWith("t3_worktree_") ||
+          name.startsWith("t3_theme_") ||
           name.includes("pull_request") ||
           name === "t3_project_clone",
       ),
