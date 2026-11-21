@@ -37,7 +37,7 @@ import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as OrchestrationMcp from "../../OrchestratorMcpService.ts";
 import { newCommandId, readCaller, resolveProjectId, unavailable } from "../../threadAccess.ts";
-import { ProjectToolkit } from "./tools.ts";
+import { ExploroProjectToolkit, ProjectToolkit } from "./tools.ts";
 
 const isAboveCeilingError = Schema.is(OrchestratorRuntimeModeAboveCeilingError);
 
@@ -165,7 +165,7 @@ const access = Effect.gen(function* () {
   yield* readCaller();
   return yield* Project.ProjectService;
 });
-export const layer = McpToolAccess.toLayer(ProjectToolkit, {
+const handlers = {
   t3_thread_launch: McpToolAccess.startsThreads(
     (input) => input,
     (input, { runtimeMode, interactionMode, linkOrigin }) =>
@@ -516,4 +516,9 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
     // An existing destination is never adopted.
     { linkedCallers: "allowed" },
   ),
-});
+} satisfies McpToolAccess.Handlers<typeof ProjectToolkit.tools>;
+
+export const layer = McpToolAccess.toLayer(ProjectToolkit, handlers);
+
+/** Exploro registers this one: the same handlers without `t3_project_clone`. */
+export const exploroLayer = McpToolAccess.toLayer(ExploroProjectToolkit, handlers);

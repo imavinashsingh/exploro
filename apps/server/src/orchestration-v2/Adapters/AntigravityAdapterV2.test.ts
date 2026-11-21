@@ -1264,13 +1264,9 @@ describe("AntigravityAdapterV2 session system prompt", () => {
         const append = JSON.stringify(sessionNew?.params?._meta ?? null);
         // Identity stays per turn either way.
         assert.include(sent, "through the Antigravity harness, as gemini-test-low");
-        if (agentVersion === "1.4.5") {
-          assert.include(append, "pull_request_linking");
-          assert.notInclude(sent, "<pull_request_linking>");
-        } else {
-          assert.notInclude(append, "systemPrompt");
-          assert.include(sent, "<pull_request_linking>");
-        }
+        // Exploro: no pull request linking on either path.
+        assert.notInclude(append, "pull_request_linking");
+        assert.notInclude(sent, "<pull_request_linking>");
       }).pipe(Effect.provide(layerSession)),
   );
 });
