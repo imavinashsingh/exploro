@@ -75,6 +75,9 @@ describe("searchSettings", () => {
       "keybinding-terminal.toggle",
       "keybinding-filePicker.toggle",
       "keybinding-composer.host",
+      "auto-settle-merged-threads",
+      "keep-threads-with-pull-requests",
+      "pull-request-routing",
     ]) {
       expect(SETTINGS_SEARCH_ITEMS.some((item) => item.id === id)).toBe(false);
     }
@@ -319,11 +322,10 @@ describe("auto-settlement search availability", () => {
       isWslSettingsRowVisible: false,
       hasThreadAutoSettlement: availability.eligibleEnvironmentIds.length > 0,
     });
+    // Exploro: the pull request auto-settle rows are hidden.
     expect(searchSettings("auto-settle", items).map((item) => item.id)).toEqual([
       "auto-settle-inactive-threads",
-      "auto-settle-merged-threads",
       "days-before-auto-settle",
-      "keep-threads-with-pull-requests",
     ]);
   });
 

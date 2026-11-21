@@ -185,6 +185,9 @@ const EXPLORO_HIDDEN_SETTINGS_PATHS: ReadonlySet<string> = new Set([
 const EXPLORO_HIDDEN_SETTINGS_ITEMS: ReadonlySet<string> = new Set([
   "project-actions",
   "worktree-fast-checkout",
+  "auto-settle-merged-threads",
+  "keep-threads-with-pull-requests",
+  "pull-request-routing",
 ]);
 export const SETTINGS_NAV_GROUPS = ALL_SETTINGS_NAV_GROUPS.map((group) => ({
   ...group,

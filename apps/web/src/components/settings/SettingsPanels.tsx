@@ -1,3 +1,4 @@
+import { EXPLORO_SHOW_DEVELOPER_SETTINGS } from "../../exploroFeatures";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { m as resolveMessage } from "~/i18n/messages";
 import { useAtomValue } from "@effect/atom-react";
@@ -2031,37 +2032,40 @@ export function ThreadsSettingsPanel() {
 
       {hasServerTargets ? (
         <SettingsSection id="auto-settle" title={gt("Auto-settle")}>
-          <SettingsRow
-            serverScoped
-            settingKeys={["sidebarAutoSettleOnMerge"]}
-            {...setting("auto-settle-merged-threads")}
-            description={gt(
-              "Settle a thread when its pull request merges. Closed pull requests still settle automatically.",
-            )}
-            resetAction={
-              settings.sidebarAutoSettleOnMerge !==
-              DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge ? (
-                <SettingResetButton
-                  ariaLabel={gt("Reset auto-settle on merge to default")}
-                  onClick={() =>
-                    updateSettings({
-                      sidebarAutoSettleOnMerge: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge,
-                    })
+          {/* Exploro: QA threads never link a pull request, so merge settling never applies. */}
+          {EXPLORO_SHOW_DEVELOPER_SETTINGS ? (
+            <SettingsRow
+              serverScoped
+              settingKeys={["sidebarAutoSettleOnMerge"]}
+              {...setting("auto-settle-merged-threads")}
+              description={gt(
+                "Settle a thread when its pull request merges. Closed pull requests still settle automatically.",
+              )}
+              resetAction={
+                settings.sidebarAutoSettleOnMerge !==
+                DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge ? (
+                  <SettingResetButton
+                    ariaLabel={gt("Reset auto-settle on merge to default")}
+                    onClick={() =>
+                      updateSettings({
+                        sidebarAutoSettleOnMerge: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <ScopedSwitch
+                  settingKeys={["sidebarAutoSettleOnMerge"]}
+                  checked={settings.sidebarAutoSettleOnMerge}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ sidebarAutoSettleOnMerge: Boolean(checked) })
                   }
+                  aria-label={gt("Auto-settle merged threads")}
                 />
-              ) : null
-            }
-            control={
-              <ScopedSwitch
-                settingKeys={["sidebarAutoSettleOnMerge"]}
-                checked={settings.sidebarAutoSettleOnMerge}
-                onCheckedChange={(checked) =>
-                  updateSettings({ sidebarAutoSettleOnMerge: Boolean(checked) })
-                }
-                aria-label={gt("Auto-settle merged threads")}
-              />
-            }
-          />
+              }
+            />
+          ) : null}
 
           <SettingsRow
             serverScoped
@@ -2111,7 +2115,9 @@ export function ThreadsSettingsPanel() {
               }
             />
           ) : null}
-          {settings.sidebarAutoSettleAfterDays !== null && supportsAutoSettlementScope ? (
+          {EXPLORO_SHOW_DEVELOPER_SETTINGS &&
+          settings.sidebarAutoSettleAfterDays !== null &&
+          supportsAutoSettlementScope ? (
             <SettingsRow
               serverScoped
               settingKeys={["sidebarAutoSettleKeepPullRequests"]}
