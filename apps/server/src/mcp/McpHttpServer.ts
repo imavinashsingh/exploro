@@ -1283,8 +1283,7 @@ const layerEnvironmentToolkit = toolkitRegistration(
   EnvironmentHandlers.layer,
 ).pipe(Layer.provide(ThreadCommandExecutor.layer));
 
-/** @public Exploro does not register it; kept so upstream merges stay easy. */
-export const layerThemeToolkit = toolkitRegistration(ThemeToolkit, ThemeHandlers.layer).pipe(
+const layerThemeToolkit = toolkitRegistration(ThemeToolkit, ThemeHandlers.layer).pipe(
   Layer.provide(ThreadCommandExecutor.layer),
 );
 
@@ -1358,8 +1357,9 @@ export const layerTools = Layer.mergeAll(
   layerAttachmentToolkit,
   layerProjectRegistration,
   layerEnvironmentToolkit,
+  layerThemeToolkit,
   layerPreviewControlsRegistration,
-  // Exploro: QA agents get no theme, worktree or pull request tools. Issues stay for filing bugs.
+  // Exploro: QA agents get no worktree or pull request tools. Issues stay for filing bugs.
   layerIssuesToolkit,
   layerDeviceToolkit,
   layerHtmlToolkit,
