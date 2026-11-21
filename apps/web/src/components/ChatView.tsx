@@ -1,3 +1,4 @@
+import { isExploroPanelSurfaceVisible } from "../exploroFeatures";
 import { m } from "../i18n/messages";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { useGT, useMessages } from "gt-react";
@@ -1107,12 +1108,18 @@ export default function ChatView(props: ChatViewProps) {
   );
   const canReuseTerminal = activeThreadKnownSessionsRaw !== null;
   const previewPanelOpen = activeRightPanelKind === "preview" && browserAvailable;
+  // Exploro: filter persisted and reopened tabs at the shared panel presentation boundary.
+  const qaPanelSurfaces = rightPanelState.surfaces.filter(isExploroPanelSurfaceVisible);
+  const qaActivePanelSurface =
+    qaPanelSurfaces.find((surface) => surface.id === activeRightPanelSurface?.id) ??
+    qaPanelSurfaces[0] ??
+    null;
   const rightPanelOpen = rightPanelState.isOpen;
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
   const rightPanelPresenceValue = {
-    activeSurface: activeRightPanelSurface,
-    surfaces: rightPanelState.surfaces,
+    activeSurface: qaActivePanelSurface,
+    surfaces: qaPanelSurfaces,
   };
   const rightPanelPresence = usePanelPresence(
     rightPanelOpen && activeThreadRef !== null,
@@ -4015,7 +4022,8 @@ export default function ChatView(props: ChatViewProps) {
           </ThreadFindCanvas>
         </div>
 
-        {embedded ? null : (
+        {/* Exploro: persisted terminal drawers stay hidden with terminal tabs. */}
+        {embedded || !isExploroPanelSurfaceVisible({ kind: "terminal" }) ? null : (
           <ChatTerminalDrawers
             activeThreadKey={activeThreadKey}
             activeTerminalOpen={Boolean(terminalUiState.terminalOpen)}

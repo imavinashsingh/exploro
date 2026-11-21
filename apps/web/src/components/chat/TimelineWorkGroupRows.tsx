@@ -1,3 +1,4 @@
+import { EXPLORO_HIDDEN_COMPOSER_ITEMS } from "../../exploroFeatures";
 import { TimelinePendingApprovalRow } from "./TimelinePendingApprovalRow";
 import { WorkLogButton, WorkLogList, WorkLogRow } from "./WorkLog";
 import type { WorktreeSetupSnapshot } from "@t3tools/contracts";
@@ -374,7 +375,8 @@ export function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: 
           {label}
           {shimmer ? <ActivityShimmerOverlay>{label}</ActivityShimmerOverlay> : null}
         </span>
-        {backgroundWorktreeSetup ? (
+        {/* Exploro: QA threads show no worktree setup. */}
+        {backgroundWorktreeSetup && !EXPLORO_HIDDEN_COMPOSER_ITEMS.has("worktree") ? (
           <BackgroundWorktreeSetupChip snapshot={backgroundWorktreeSetup} />
         ) : null}
       </div>

@@ -1,3 +1,4 @@
+import { isExploroPanelSurfaceVisible } from "../../exploroFeatures";
 import { useGT } from "gt-react";
 import type {
   EditorId,
@@ -87,7 +88,8 @@ export function RightPanelSurfaceContent(props: {
 }) {
   const { surface, threadRef, visible, onCloseSurface } = props;
   const gt = useGT();
-  if (surface === null) return null;
+  // Exploro: stale or reopened developer surfaces cannot render.
+  if (surface === null || !isExploroPanelSurfaceVisible(surface)) return null;
   switch (surface.kind) {
     case "preview":
       return (

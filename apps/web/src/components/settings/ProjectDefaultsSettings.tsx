@@ -1,3 +1,4 @@
+import { EXPLORO_SHOW_DEVELOPER_SETTINGS } from "../../exploroFeatures";
 import { managedRuntimeModeDenial } from "@t3tools/client-runtime/contract-labels";
 import {
   DEFAULT_SERVER_SETTINGS,
@@ -221,6 +222,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
       }
     />
   );
+  // Exploro: QA threads always start in the project folder, never a worktree.
   const workspaceRow = (
     <SettingsRow
       serverScoped
@@ -359,7 +361,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
         <>
           {modelRow}
           {fallbackRow}
-          {workspaceRow}
+          {EXPLORO_SHOW_DEVELOPER_SETTINGS ? workspaceRow : null}
         </>
       ) : category === "general" ? (
         <>
@@ -437,7 +439,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
               </Select>
             }
           />
-          {workspaceRow}
+          {EXPLORO_SHOW_DEVELOPER_SETTINGS ? workspaceRow : null}
         </>
       ) : (
         <>

@@ -551,27 +551,20 @@ it.effect("launches in a linked environment with the caller's modes, retry-safe"
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
 
-it.effect("brings a repository to a linked environment, only through full access", () =>
+it.effect("registers a project in a linked environment, only through full access", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const seen = yield* Ref.make<Seen>(nothingSeen);
       const b = yield* serveBox(seen, yield* Ref.make(""));
       const a = yield* makeLaptop;
-      const clone = { repository: "pingdotgg/t3code", destinationPath: "/home/box/t3code" };
       const register = { title: "t3code", workspaceRoot: "/home/box/t3code" };
 
       yield* linkTo(a.links, b, "full-access");
-      const cloned = yield* a.call("thread:laptop-full", "t3_project_clone", {
-        environmentId: box.environmentId,
-        ...clone,
-      });
-      expect(cloned.structuredContent).toMatchObject({ cwd: clone.destinationPath });
       const created = yield* a.call("thread:laptop-full", "t3_project_create", {
         environmentId: box.environmentId,
         ...register,
       });
       expect(created.structuredContent).toMatchObject(register);
-      expect((yield* Ref.get(seen)).clones).toEqual([clone]);
       expect((yield* Ref.get(seen)).projects).toMatchObject([register]);
 
       // A plan-mode agent here may not, and nothing leaves.
@@ -585,17 +578,11 @@ it.effect("brings a repository to a linked environment, only through full access
 
       // Nor may a full-access agent through a link with less: the box holds it.
       yield* linkTo(a.links, b, "auto");
-      for (const [name, args] of [
-        ["t3_project_clone", clone],
-        ["t3_project_create", register],
-      ] as const) {
-        const refused = yield* a.call("thread:laptop-full", name, {
-          environmentId: box.environmentId,
-          ...args,
-        });
-        expect(failureOf(refused), name).toMatchObject({ code: "capability_denied" });
-      }
-      expect((yield* Ref.get(seen)).clones).toHaveLength(1);
+      const refused = yield* a.call("thread:laptop-full", "t3_project_create", {
+        environmentId: box.environmentId,
+        ...register,
+      });
+      expect(failureOf(refused)).toMatchObject({ code: "capability_denied" });
       expect((yield* Ref.get(seen)).projects).toHaveLength(1);
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),

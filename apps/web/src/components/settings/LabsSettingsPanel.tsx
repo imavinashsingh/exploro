@@ -1,3 +1,4 @@
+import { EXPLORO_SHOW_DEVELOPER_SETTINGS } from "../../exploroFeatures";
 import { managedCapabilityDenial } from "@t3tools/client-runtime/contract-labels";
 import { useAuth } from "@clerk/react";
 import { Link } from "@tanstack/react-router";
@@ -26,7 +27,8 @@ export function LabsSettingsPanel() {
         <LinkedEnvironmentsRow />
         <PromptSuggestionsRow />
         <SimlockHostsRow />
-        <FastWorktreeCheckoutRow />
+        {/* Exploro: worktree checkout is a hidden developer setting. */}
+        {EXPLORO_SHOW_DEVELOPER_SETTINGS ? <FastWorktreeCheckoutRow /> : null}
       </SettingsSection>
     </SettingsPageContainer>
   );

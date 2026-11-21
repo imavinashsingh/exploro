@@ -1,3 +1,4 @@
+import { EXPLORO_HIDDEN_COMPOSER_ITEMS } from "../../exploroFeatures";
 import { useGT } from "gt-react";
 import { TerminalIcon } from "lucide-react";
 
@@ -17,6 +18,9 @@ interface TerminalContextInlineChipProps {
 export function TerminalContextInlineChip(props: TerminalContextInlineChipProps) {
   const { label, terminalLabel, lineStart, lineEnd, text, detailsMode, expired = false } = props;
   const gt = useGT();
+
+  // Exploro: coding context stays hidden, including persisted history.
+  if (EXPLORO_HIDDEN_COMPOSER_ITEMS.has("terminal")) return null;
 
   if (!expired && text.length > 0 && detailsMode === "popover") {
     return (

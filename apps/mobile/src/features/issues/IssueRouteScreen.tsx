@@ -1,3 +1,4 @@
+import { isExploroDestinationVisible } from "../../exploroFeatures";
 import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { issueEventSentence } from "@t3tools/client-runtime/issue-presentation";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
@@ -246,6 +247,8 @@ function LinkedPullRequests(props: {
   const navigation = useNavigation();
   // Only a git host's tracker shares its host with the change request it links.
   const sameHost = sourceControlClients.find(props.params.tracker) !== undefined;
+  // Exploro: issue details keep their QA content without links to PR screens.
+  if (!isExploroDestinationVisible("PullRequest")) return null;
   return (
     <View className="gap-2">
       <PullRequestSectionHeading>

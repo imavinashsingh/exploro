@@ -1,3 +1,4 @@
+import { isExploroPanelSurfaceVisible } from "../../exploroFeatures";
 import { ArrowLeftIcon, ArrowRightIcon, ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { T, useGT } from "gt-react";
@@ -278,7 +279,8 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
             label={gt("Settings")}
             onClick={handleSettingsClick}
           />
-          {pullRequestsSupported ? (
+          {/* Exploro: Issues stays available while pull request navigation is hidden. */}
+          {pullRequestsSupported && isExploroPanelSurfaceVisible({ kind: "pull-request" }) ? (
             <SidebarUtilityItem
               icon={<PullRequestGlyph.pullRequest />}
               label={gt("Pull requests")}

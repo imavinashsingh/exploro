@@ -59,6 +59,38 @@ const ITEMS: ReadonlyArray<SettingsSearchItem> = [
 ];
 
 describe("searchSettings", () => {
+  it("hides developer settings and shortcuts while retaining issue tracker setup", () => {
+    const paths = SETTINGS_NAV_GROUPS.flatMap((group) => group.paths);
+    expect(paths).not.toContain("/settings/diffs");
+    expect(paths).not.toContain("/settings/worktrees");
+    expect(paths).toContain("/settings/source-control");
+    expect(
+      SETTINGS_SEARCH_ITEMS.filter((item) => item.to === "/settings/source-control").map(
+        (item) => item.id,
+      ),
+    ).toEqual(["issue-trackers"]);
+    for (const id of [
+      "project-actions",
+      "worktree-fast-checkout",
+      "keybinding-terminal.toggle",
+      "keybinding-filePicker.toggle",
+      "keybinding-composer.host",
+      "auto-settle-merged-threads",
+      "keep-threads-with-pull-requests",
+      "pull-request-routing",
+      "ghq-clone-layout",
+      "new-threads",
+      "git-fetch-interval",
+    ]) {
+      expect(SETTINGS_SEARCH_ITEMS.some((item) => item.id === id)).toBe(false);
+    }
+    expect(
+      SETTINGS_SEARCH_ITEMS.some(
+        (item) => item.to === "/settings/diffs" || item.to === "/settings/worktrees",
+      ),
+    ).toBe(false);
+  });
+
   it("matches titles, sections, and remembered setting details", () => {
     expect(searchSettings("word", ITEMS).map((item) => item.id)).toEqual(["word-wrap"]);
     expect(searchSettings("network", ITEMS).map((item) => item.id)).toEqual(["network-access"]);
@@ -95,7 +127,8 @@ describe("searchSettings", () => {
     expect(searchSettings("thè\u{1ab0}mes")[0]?.id).toBe("theme");
     const localeLowerCase = vi.spyOn(String.prototype, "toLocaleLowerCase").mockReturnValue("gıt");
     try {
-      expect(searchSettings("GIT")[0]?.id).toBe("git-fetch-interval");
+      // Exploro: Git fetch interval is hidden, so a visible title with an "I" stands in.
+      expect(searchSettings("THREAD DETAILS")[0]?.id).toBe("thread-details-items");
       expect(localeLowerCase).not.toHaveBeenCalled();
     } finally {
       localeLowerCase.mockRestore();
@@ -217,8 +250,6 @@ describe("searchSettings", () => {
 
   it("finds rows by the titles shown on their pages", () => {
     for (const [title, id] of [
-      ["Automatic worktree cleanup", "storage-worktrees"],
-      ["Delete settled worktrees", "storage-worktrees"],
       ["Delete old browser artifacts", "storage-artifacts"],
       ["Delete old rotated logs", "storage-artifacts"],
       ["Custom search URL", "browser-search-engine"],
@@ -295,11 +326,10 @@ describe("auto-settlement search availability", () => {
       isWslSettingsRowVisible: false,
       hasThreadAutoSettlement: availability.eligibleEnvironmentIds.length > 0,
     });
+    // Exploro: the pull request auto-settle rows are hidden.
     expect(searchSettings("auto-settle", items).map((item) => item.id)).toEqual([
       "auto-settle-inactive-threads",
-      "auto-settle-merged-threads",
       "days-before-auto-settle",
-      "keep-threads-with-pull-requests",
     ]);
   });
 
@@ -361,11 +391,9 @@ describe("source control host search items", () => {
     expect(searchSettings("ex switch accounts", items)).toHaveLength(1);
   });
 
-  it("finds the built-in hosts by their own words", () => {
-    expect(searchSettings("codeberg").map((item) => item.id)).toContain("source-control");
-    expect(searchSettings("ghes").map((item) => item.id)).toContain(
-      sourceControlHostSettingsSearchId("github"),
-    );
+  it("keeps hidden git hosts out of QA settings search", () => {
+    expect(searchSettings("codeberg")).toEqual([]);
+    expect(searchSettings("ghes")).toEqual([]);
   });
 });
 

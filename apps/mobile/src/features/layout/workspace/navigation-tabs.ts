@@ -7,13 +7,11 @@ import {
   navigationCustomizationAvailable,
   resolveHiddenNavigationTabs,
   enabledNavigationTabs,
-  sharedSlotAbsentee,
   type NavigationTab,
 } from "./navigation-tab-order";
 import type { AppSymbolName } from "../../../components/ui/AppSymbol";
 import { mobilePreferencesAtom } from "../../../state/preferences";
 import { PullRequestGlyph } from "../../pull-requests/pullRequestGlyphs";
-import { useWorkspaceTabs } from "./WorkspaceTabsContext";
 import { resolveWorkspaceTabOrder } from "./workspace-tabs-state";
 
 export const WORKSPACE_TAB_LABELS = {
@@ -43,13 +41,13 @@ export function useNavigationTabOrder() {
 
 export function useHiddenNavigationTabs() {
   const preferences = useAtomValue(mobilePreferencesAtom);
-  const selected = useWorkspaceTabs()?.state.selectedTab ?? "threads";
   const saved = AsyncResult.isSuccess(preferences) ? preferences.value : undefined;
   return [
     ...(navigationCustomizationAvailable()
       ? resolveHiddenNavigationTabs(saved?.hiddenNavigationTabs)
       : []),
-    sharedSlotAbsentee(selected, saved?.sharedSlotTab),
+    // Exploro: Pull requests is never a tab, so Issues always holds the shared slot.
+    "pullRequests" as const,
   ];
 }
 

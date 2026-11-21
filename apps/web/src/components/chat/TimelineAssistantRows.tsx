@@ -1,3 +1,4 @@
+import { EXPLORO_HIDDEN_COMPOSER_ITEMS } from "../../exploroFeatures";
 import { shouldPreserveAssistantLineBreaks } from "@t3tools/shared/markdownPipeline";
 import { MessageId, type RunId, type TurnItemId } from "@t3tools/contracts";
 import { canForkProjectedAssistantItem } from "@t3tools/client-runtime/state/thread-workflows";
@@ -437,6 +438,9 @@ const AssistantChangedFilesSection = memo(function AssistantChangedFilesSection(
   displayThreadKey?: string;
   onOpenTurnDiff: (runId: RunId, filePath?: string) => void;
 }) {
+  // Exploro: coding context stays hidden, including persisted history.
+  if (EXPLORO_HIDDEN_COMPOSER_ITEMS.has("changes")) return null;
+
   if (!turnSummary) return null;
   const checkpointFiles = turnSummary.files;
   if (checkpointFiles.length === 0) return null;

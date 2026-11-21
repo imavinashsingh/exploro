@@ -434,7 +434,22 @@ describe("chat/editor shortcuts", () => {
       ),
     );
     const commands = new Set(bindings.map((rule) => rule.command));
-    for (const hidden of ["editor.openFavorite", "composer.branch", "script.test.run"]) {
+    for (const hidden of [
+      "editor.openFavorite",
+      "composer.branch",
+      "script.test.run",
+      "terminal.toggle",
+      "terminal.new",
+      "terminal.split",
+      "terminal.splitVertical",
+      "terminal.close",
+      "diff.toggle",
+      "filePicker.toggle",
+      "projectSearch.toggle",
+      "pullRequest.copyNumber",
+      "chat.newLocal",
+      "composer.host",
+    ]) {
       assert.isFalse(commands.has(hidden as KeybindingCommand), hidden);
     }
     assert.isTrue(commands.has("threadPanel.toggle"));

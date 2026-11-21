@@ -55,7 +55,7 @@ import { EnvironmentToolkit } from "./toolkits/environment/tools.ts";
 import * as EnvironmentHandlers from "./toolkits/environment/handlers.ts";
 import { ThemeToolkit } from "./toolkits/theme/tools.ts";
 import * as ThemeHandlers from "./toolkits/theme/handlers.ts";
-import { ProjectToolkit } from "./toolkits/project/tools.ts";
+import { ExploroProjectToolkit } from "./toolkits/project/tools.ts";
 import * as ProjectHandlers from "./toolkits/project/handlers.ts";
 import { AttachmentToolkit } from "./toolkits/attachment/tools.ts";
 import * as AttachmentHandlers from "./toolkits/attachment/handlers.ts";
@@ -1267,7 +1267,8 @@ export const layerThreadToolkit = toolkitRegistration(ThreadToolkit, ThreadHandl
 
 const layerMessageToolkit = toolkitRegistration(MessageToolkit, MessageHandlers.layer);
 
-const layerWorktreeToolkitRegistration = toolkitRegistration(
+/** @public Exploro does not register it; kept so upstream merges stay easy. */
+export const layerWorktreeToolkitRegistration = toolkitRegistration(
   WorktreeToolkit,
   WorktreeHandlers.layer,
 ).pipe(Layer.provide(WorktreeMcpService.layer));
@@ -1286,7 +1287,10 @@ const layerThemeToolkit = toolkitRegistration(ThemeToolkit, ThemeHandlers.layer)
   Layer.provide(ThreadCommandExecutor.layer),
 );
 
-export const layerProjectRegistration = toolkitRegistration(ProjectToolkit, ProjectHandlers.layer);
+export const layerProjectRegistration = toolkitRegistration(
+  ExploroProjectToolkit,
+  ProjectHandlers.exploroLayer,
+);
 
 export const layerAttachmentToolkit = toolkitRegistration(
   AttachmentToolkit,
@@ -1355,8 +1359,7 @@ export const layerTools = Layer.mergeAll(
   layerEnvironmentToolkit,
   layerThemeToolkit,
   layerPreviewControlsRegistration,
-  layerWorktreeToolkitRegistration,
-  layerPullRequestsToolkit,
+  // Exploro: QA agents get no worktree or pull request tools. Issues stay for filing bugs.
   layerIssuesToolkit,
   layerDeviceToolkit,
   layerHtmlToolkit,

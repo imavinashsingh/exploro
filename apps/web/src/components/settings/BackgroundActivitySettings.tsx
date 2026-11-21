@@ -1,3 +1,4 @@
+import { EXPLORO_SHOW_DEVELOPER_SETTINGS } from "../../exploroFeatures";
 import { useScopedSettingsWriteAllowed } from "./useScopedSettings";
 import { SettingsIcon } from "lucide-react";
 import { msg, T, useGT, useMessages } from "gt-react";
@@ -176,41 +177,44 @@ function BackgroundActivityAdvancedDialog({
               </Select>
             </div>
 
-            <div className="flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0 space-y-1">
-                <div className="text-sm font-medium">
-                  {searchableSetting("git-fetch-interval").title}
+            {/* Exploro: QA projects have no branches to fetch. */}
+            {EXPLORO_SHOW_DEVELOPER_SETTINGS ? (
+              <div className="flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0 space-y-1">
+                  <div className="text-sm font-medium">
+                    {searchableSetting("git-fetch-interval").title}
+                  </div>
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    <T>Refresh remote branch status in the background.</T>
+                  </p>
                 </div>
-                <p className="text-xs leading-relaxed text-muted-foreground">
-                  <T>Refresh remote branch status in the background.</T>
-                </p>
+                <div className="flex shrink-0 items-center gap-2">
+                  <IntervalSecondsField
+                    labels={{
+                      decrease: gt("Decrease Git fetch interval"),
+                      input: gt("Git fetch interval in seconds"),
+                      increase: gt("Increase Git fetch interval"),
+                    }}
+                    value={automaticGitFetchIntervalSeconds}
+                    min={0}
+                    step={5}
+                    onCommit={(seconds, options) =>
+                      updateSettings(
+                        backgroundActivityOverrideSettings(
+                          settings.backgroundActivity,
+                          resolvedBackgroundActivity,
+                          { automaticGitFetchInterval: Duration.seconds(seconds) },
+                        ),
+                        options,
+                      )
+                    }
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    <T>seconds</T>
+                  </span>
+                </div>
               </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <IntervalSecondsField
-                  labels={{
-                    decrease: gt("Decrease Git fetch interval"),
-                    input: gt("Git fetch interval in seconds"),
-                    increase: gt("Increase Git fetch interval"),
-                  }}
-                  value={automaticGitFetchIntervalSeconds}
-                  min={0}
-                  step={5}
-                  onCommit={(seconds, options) =>
-                    updateSettings(
-                      backgroundActivityOverrideSettings(
-                        settings.backgroundActivity,
-                        resolvedBackgroundActivity,
-                        { automaticGitFetchInterval: Duration.seconds(seconds) },
-                      ),
-                      options,
-                    )
-                  }
-                />
-                <span className="text-xs text-muted-foreground">
-                  <T>seconds</T>
-                </span>
-              </div>
-            </div>
+            ) : null}
 
             <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0 space-y-1">
