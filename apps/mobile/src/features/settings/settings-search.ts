@@ -1,3 +1,4 @@
+import { isExploroDestinationVisible } from "../../exploroFeatures";
 import { foldSearchQuery, rankSearchItems, scoreSearchTerms } from "@t3tools/shared/paletteSearch";
 import { msg } from "gt-react-native";
 
@@ -219,7 +220,10 @@ export function filterSettingsSections<
       )
     : null;
   return sections.flatMap((section) => {
-    const kept = matched ? section.rows.filter((row) => matched.has(row)) : section.rows;
+    // Exploro: settings navigation and search use the same destination filter.
+    const kept = section.rows.filter(
+      (row) => isExploroDestinationVisible(row.id) && (!matched || matched.has(row)),
+    );
     return kept.length ? [{ ...section, rows: kept }] : [];
   });
 }

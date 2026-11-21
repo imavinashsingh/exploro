@@ -1,3 +1,4 @@
+import { isExploroDestinationVisible } from "../../exploroFeatures";
 import * as Dialog from "../../components/ui/Dialog";
 import type { ThreadRowProviderInstance } from "./thread-provider-instance";
 import {
@@ -854,7 +855,9 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         showBadge: providerInstance.showBadge,
       })
     : null;
-  const pr = useThreadPr(thread);
+  const threadPr = useThreadPr(thread);
+  // Exploro: thread badges must not link back into Pull requests.
+  const pr = isExploroDestinationVisible("pullRequests") ? threadPr : null;
   const prBadgeLabel = pr ? resolveThreadPrBadgeAction(pr, m).accessibilityLabel : null;
   const handleOpenPullRequests = useCallback(() => {
     if (pr) onOpenThreadPullRequests(thread, pr);

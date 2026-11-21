@@ -1,3 +1,4 @@
+import { withoutExploroHiddenScreens } from "./exploroFeatures";
 import { isDraftThreadRoute } from "./features/threads/thread-route-state";
 import { ComponentCatalogScreen } from "./features/development/ComponentCatalogScreen";
 import { PullRequestGuideStopScreen } from "./features/pull-requests/guide/PullRequestGuideScreen";
@@ -554,7 +555,8 @@ const RootStackConfig = createWorkspaceStackNavigator({
   // React Navigation calls layouts inline; compiled components would share the navigator's memo cache.
   layout: (props) => <RootStackLayout {...props} />,
   screenOptions: { headerShown: false },
-  screens: {
+  // Exploro: filter registered routes too, so saved links cannot reopen developer screens.
+  screens: withoutExploroHiddenScreens({
     ...(__DEV__
       ? {
           ComponentCatalog: createNativeStackScreen({
@@ -831,7 +833,7 @@ const RootStackConfig = createWorkspaceStackNavigator({
       screen: NotFoundScreen,
       linking: "*",
     }),
-  },
+  }),
 });
 
 function GuardedScreenLayout(props: {
