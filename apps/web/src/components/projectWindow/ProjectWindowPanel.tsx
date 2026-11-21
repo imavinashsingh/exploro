@@ -3,19 +3,17 @@ import { useGT } from "gt-react";
 import { FolderKanbanIcon } from "lucide-react";
 import { useState } from "react";
 
-import { useRunRegressionSuites } from "../chat/ThreadDetailsRegression";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { ProjectMemoryTab } from "./ProjectMemoryTab";
 import { ProjectPasswordsTab } from "./ProjectPasswordsTab";
 import { ProjectRunsTab } from "./ProjectRunsTab";
-import { ProjectSiteMap } from "./ProjectSiteMap";
 import { ProjectSuitesTab } from "./ProjectSuitesTab";
 import { useProjectQa, useProjectRuns } from "./useProjectQa";
 
-const TABS = ["suites", "map", "runs", "passwords", "memory"] as const;
+const TABS = ["suites", "runs", "passwords", "memory"] as const;
 type ProjectWindowTab = (typeof TABS)[number];
 
-/** Project-level QA tools beside the chat: suites, tested pages, runs, passwords and memory. */
+/** Project-level QA tools beside the chat: suites, runs, passwords and memory. */
 export default function ProjectWindowPanel(props: {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
@@ -26,7 +24,6 @@ export default function ProjectWindowPanel(props: {
   const [tab, setTab] = useState<ProjectWindowTab>("suites");
   const qa = useProjectQa(props.environmentId, props.projectId, props.threadId);
   const { runs, titles } = useProjectRuns(props.environmentId, props.projectId, props.threadId, qa);
-  const runSuites = useRunRegressionSuites(props.environmentId);
   const countLabel = (label: string, count: number) => (count > 0 ? `${label} ${count}` : label);
 
   return (
@@ -51,7 +48,6 @@ export default function ProjectWindowPanel(props: {
           }}
         >
           <Toggle value="suites">{countLabel(gt("Suites"), qa.suites.length)}</Toggle>
-          <Toggle value="map">{gt("Map", { $context: "a map of tested web pages" })}</Toggle>
           <Toggle value="runs">{gt("Runs", { $context: "test runs" })}</Toggle>
           <Toggle value="passwords">{countLabel(gt("Passwords"), qa.savedSecrets.length)}</Toggle>
           <Toggle value="memory">{gt("Memory", { $context: "what test runs remember" })}</Toggle>
@@ -66,13 +62,6 @@ export default function ProjectWindowPanel(props: {
             projectId={props.projectId}
             qa={qa}
             runs={runs}
-          />
-        ) : tab === "map" ? (
-          <ProjectSiteMap
-            environmentId={props.environmentId}
-            runs={runs}
-            suites={qa.suites}
-            onRunSuite={(suite) => void runSuites([suite])}
           />
         ) : tab === "runs" ? (
           <ProjectRunsTab environmentId={props.environmentId} runs={runs} titles={titles} />
