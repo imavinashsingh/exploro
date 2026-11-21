@@ -29,6 +29,10 @@ type Scope = McpInvocationContext.McpThreadInvocationScope;
 export class NavigationCapture extends Context.Service<
   NavigationCapture,
   {
+    readonly recognize: (
+      scope: Scope,
+      tabId?: PreviewTabId,
+    ) => Effect.Effect<NavigationState | null, ProjectMemoryError>;
     readonly observe: (
       scope: Scope,
       input: NavigationObserveInput,
@@ -66,14 +70,17 @@ const make = Effect.gen(function* () {
     if (thread === null || (yield* folders.isScratchProject(thread.projectId)))
       return yield* new ProjectMemoryError({ message: "Navigation memory needs a project." });
     const current = resolveProjectSettings(yield* settings.getSettings, thread.projectId).settings;
-    if (!current.qaNavigationMemory)
-      return yield* new ProjectMemoryError({ message: "Project Navigation Memory is off." });
+    if (!current.qaMemoryEnabled)
+      return yield* new ProjectMemoryError({ message: "Project memory is off." });
     return {
       projectId: thread.projectId,
       origins: current.qaSiteOrigins,
     };
   });
-  const page = Effect.fn("NavigationCapture.page")(function* (scope: Scope, tabId?: PreviewTabId) {
+  const tabStatus = Effect.fn("NavigationCapture.tabStatus")(function* (
+    scope: Scope,
+    tabId?: PreviewTabId,
+  ) {
     let actualTab = tabId;
     // Status, not a snapshot: a snapshot would revoke the element refs the agent is using.
     const status = yield* broker.invoke<PreviewAutomationStatus>({
@@ -90,18 +97,22 @@ const make = Effect.gen(function* () {
       return yield* new ProjectMemoryError({
         message: "The browser did not identify its current tab.",
       });
-    const url = yield* Effect.try({
-      try: () => new URL(status.url ?? ""),
-      catch: () =>
-        new ProjectMemoryError({ message: "The current page has no valid website URL." }),
-    });
-    if (!["https:", "http:"].includes(url.protocol))
-      return yield* new ProjectMemoryError({
-        message: "Navigation memory supports website pages only.",
-      });
+    const parsed = URL.canParse(status.url ?? "") ? new URL(status.url ?? "") : null;
+    const url = parsed !== null && ["https:", "http:"].includes(parsed.protocol) ? parsed : null;
     const stepIndex = Date.parse(status.lastActionAt ?? "") || 0;
     return { url, tabId: actualTab, stepIndex };
   });
+  const page = Effect.fn("NavigationCapture.page")(function* (scope: Scope, tabId?: PreviewTabId) {
+    const current = yield* tabStatus(scope, tabId);
+    if (current.url === null)
+      return yield* new ProjectMemoryError({
+        message: "Navigation memory supports website pages only.",
+      });
+    return { ...current, url: current.url };
+  });
+  // Only these sites are remembered; with none configured, the run's site (or this first page) is.
+  const allowedOrigins = (origins: ReadonlyArray<string>, site: string | null) =>
+    new Set(origins.length > 0 ? origins : site === null ? [] : [new URL(site).origin]);
 
   // An unknown start still lets a single remembered destination be opened by its address.
   const unrecognized = (states: ReadonlyArray<NavigationState>, destination: string) => {
@@ -122,22 +133,24 @@ const make = Effect.gen(function* () {
     tabId: PreviewTabId,
     candidates: ReadonlyArray<NavigationState>,
   ) {
-    const verified = yield* Effect.forEach(candidates.slice(0, 8), (state) =>
-      broker
-        .invoke<PreviewAutomationCheckResult>({
-          scope,
-          tabId,
-          operation: "check",
-          input: { assertions: state.checks.map(assertionFor), timeoutMs: 1500 },
-        })
-        .pipe(
-          Effect.map((result) =>
-            result.results.length === state.checks.length &&
-            result.results.every((check) => check.ok)
-              ? [state]
-              : [],
+    const verified = yield* Effect.forEach(
+      candidates.toSorted((a, b) => b.checks.length - a.checks.length).slice(0, 8),
+      (state) =>
+        broker
+          .invoke<PreviewAutomationCheckResult>({
+            scope,
+            tabId,
+            operation: "check",
+            input: { assertions: state.checks.map(assertionFor), timeoutMs: 1500 },
+          })
+          .pipe(
+            Effect.map((result) =>
+              result.results.length === state.checks.length &&
+              result.results.every((check) => check.ok)
+                ? [state]
+                : [],
+            ),
           ),
-        ),
     );
     return verified.flat().toSorted((a, b) => b.checks.length - a.checks.length);
   });
@@ -145,14 +158,37 @@ const make = Effect.gen(function* () {
     states.filter((state) => state.environment === url.origin && state.path === url.pathname);
 
   return NavigationCapture.of({
+    recognize: Effect.fn("NavigationCapture.recognizeCurrent")(function* (scope, tabId) {
+      const { projectId, origins } = yield* access(scope);
+      const current = yield* tabStatus(scope, tabId);
+      if (current.url === null) return null;
+      const run = yield* runs.openRun(scope.thread.threadId);
+      // Pages memory may not store, such as an OAuth or payment site, are recorded without a screen.
+      if (!allowedOrigins(origins, run?.site ?? current.url.origin).has(current.url.origin))
+        return null;
+      const [state] = yield* recognize(
+        scope,
+        current.tabId,
+        atAddress((yield* memory.snapshot(projectId)).states, current.url),
+      );
+      if (state === undefined)
+        return yield* new ProjectMemoryError({
+          message:
+            "Unknown screen. Call navigation_observe on this screen first (no action is needed), then record evidence.",
+        });
+      const after = yield* tabStatus(scope, current.tabId);
+      if (after.url?.href !== current.url.href)
+        return yield* new ProjectMemoryError({
+          message:
+            "The page changed while recognizing its screen. Observe it again before recording evidence.",
+        });
+      return state;
+    }, Effect.mapError(failure)),
     observe: Effect.fn("NavigationCapture.observe")(function* (scope, input) {
       const { projectId, origins } = yield* access(scope);
       const current = yield* page(scope, input.tabId);
       const run = yield* runs.ensureRun(scope.thread.threadId, { site: current.url.origin });
-      const allowed = new Set(
-        origins.length > 0 ? origins : run.site === null ? [] : [new URL(run.site).origin],
-      );
-      if (!allowed.has(current.url.origin))
+      if (!allowedOrigins(origins, run.site).has(current.url.origin))
         return yield* new ProjectMemoryError({
           message: "This page is outside the project's tested sites.",
         });

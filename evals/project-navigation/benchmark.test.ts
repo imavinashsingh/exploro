@@ -81,7 +81,7 @@ describe("navigation benchmark", () => {
       unknownUsage: 1,
       medianSuccessfulTokens: 120,
     });
-    expect(modeSettings("graph")).toEqual({ qaMemoryEnabled: false, qaNavigationMemory: true });
+    expect(modeSettings("graph")).toEqual({ qaMemoryEnabled: true });
   });
 
   it("produces a reproducible balanced 195 trial screening schedule", () => {

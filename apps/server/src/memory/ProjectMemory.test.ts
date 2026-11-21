@@ -1,5 +1,6 @@
 import * as ProjectUnderstanding from "./ProjectUnderstanding.ts";
 import * as MemoryEmbedder from "./MemoryEmbedder.ts";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProjectId, ThreadId, type ProjectMemoryFactInput } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
@@ -16,6 +17,7 @@ import * as ServerConfig from "../config.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as QaRuns from "../qa/QaRuns.ts";
 import * as ProjectMemory from "./ProjectMemory.ts";
+import * as ProjectNavigationMemory from "./ProjectNavigationMemory.ts";
 import { memoryRoute } from "./projectMemoryFacts.ts";
 
 const shop = ProjectId.make("shop");
@@ -23,6 +25,9 @@ const blog = ProjectId.make("blog");
 const threadId = ThreadId.make("thread-memory-1");
 
 const page = (url: string): QaRuns.QaPageCapture => ({
+  ...(new URL(url).origin === "https://evil.test"
+    ? {}
+    : { stateId: new URL(url).origin + memoryRoute(url) }),
   url,
   title: "Page",
   png: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
@@ -47,11 +52,37 @@ const withMemory = <A, E>(
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "exploro-memory-" });
-    return yield* body.pipe(
+    return yield* Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      for (const project of [shop, blog]) {
+        for (const environment of [
+          "https://shop.test",
+          "https://staging.shop.test",
+          "https://admin.shop.test",
+        ]) {
+          for (const path of [
+            "/",
+            "/login",
+            "/private",
+            "/orders/:id",
+            "/dashboard",
+            "/cart",
+            "/other",
+          ]) {
+            const stateId = environment + path;
+            yield* sql`INSERT INTO project_navigation_states VALUES (${project}, ${stateId}, ${JSON.stringify({ id: stateId, name: path, environment, path, aliases: [], context: {}, checks: [{ kind: "textVisible", text: path }] })})`;
+          }
+        }
+      }
+      return yield* body;
+    }).pipe(
       Effect.provide(
         QaRuns.layer.pipe(
           Layer.provideMerge(
             ProjectMemory.layer.pipe(
+              Layer.provideMerge(
+                ProjectNavigationMemory.layer.pipe(Layer.provide(NodeCrypto.layer)),
+              ),
               Layer.provideMerge(
                 ProjectUnderstanding.layer.pipe(Layer.provide(MemoryEmbedder.layerUnavailable)),
               ),
@@ -99,8 +130,7 @@ const finishedRun = (
   });
 
 const fact = (overrides: Partial<ProjectMemoryFactInput> = {}): ProjectMemoryFactInput => ({
-  environment: "https://shop.test",
-  route: "/login",
+  stateId: "https://shop.test/login",
   kind: "validation",
   key: "empty email",
   value: "Email is required",
@@ -115,10 +145,10 @@ it.layer(NodeServices.layer)("ProjectMemory", (it) => {
       Effect.gen(function* () {
         const memory = yield* ProjectMemory.ProjectMemory;
         assert.deepStrictEqual((yield* memory.map(shop)).environments, []);
-        yield* memory.putFact(blog, fact({ route: "/private" }));
+        yield* memory.putFact(blog, fact({ stateId: "https://shop.test/private" }));
         const saved = yield* memory.putFact(shop, fact());
         assert.strictEqual(
-          (yield* memory.map(shop)).environments[0]?.tree.children[0]?.page?.coverage,
+          (yield* memory.map(shop)).environments[0]?.tree.children[0]?.children[0]?.page?.coverage,
           "seen",
         );
         const understanding = yield* ProjectUnderstanding.ProjectUnderstanding;
@@ -138,7 +168,7 @@ it.layer(NodeServices.layer)("ProjectMemory", (it) => {
           { environment: "https://shop.test" },
         );
         assert.deepStrictEqual(
-          (yield* memory.map(shop)).environments[0]?.tree.children[0]?.page?.needs,
+          (yield* memory.map(shop)).environments[0]?.tree.children[0]?.children[0]?.page?.needs,
           ["signed-in session"],
         );
         yield* finishedRun(shop, [
@@ -146,25 +176,35 @@ it.layer(NodeServices.layer)("ProjectMemory", (it) => {
         ]);
         const mapped = yield* memory.map(shop);
         assert.strictEqual(mapped.environments[0]?.tree.children.length, 1);
-        assert.strictEqual(mapped.environments[0]?.tree.children[0]?.page?.coverage, "tested");
-        assert.strictEqual(mapped.environments[0]?.tree.children[0]?.page?.passCount, 1);
+        assert.strictEqual(
+          mapped.environments[0]?.tree.children[0]?.children[0]?.page?.coverage,
+          "tested",
+        );
+        assert.strictEqual(
+          mapped.environments[0]?.tree.children[0]?.children[0]?.page?.passCount,
+          1,
+        );
         yield* memory.deleteFact(shop, saved!.factId);
         assert.strictEqual(
-          (yield* memory.map(shop)).environments[0]?.tree.children[0]?.page?.details.length,
+          (yield* memory.map(shop)).environments[0]?.tree.children[0]?.children[0]?.page?.details
+            .length,
           0,
         );
         assert.strictEqual(
           (yield* memory.map(blog)).environments[0]?.tree.children[0]?.route,
           "/private",
         );
+        yield* memory.deleteNavigationRecord(blog, "https://shop.test/private");
+        assert.deepStrictEqual((yield* memory.map(blog)).environments, []);
+        assert.lengthOf(yield* memory.lookupFacts(shop, { kind: "result" }), 1);
         const sql = yield* SqlClient.SqlClient;
         yield* sql`WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 501)
-          INSERT INTO project_memory_facts (fact_id, project_id, environment, route, kind, fact_key,
+          INSERT INTO project_memory_facts (fact_id, project_id, state_id, environment, route, kind, fact_key,
             value, detail, page_url, evidence_json, app_version, author, status, observed_at, superseded_by)
-          SELECT 'bulk-' || n, ${shop}, 'https://shop.test', '/login', 'result', 'bulk-' || n,
+          SELECT 'bulk-' || n, ${shop}, 'https://shop.test/login', 'https://shop.test', '/login', 'result', 'bulk-' || n,
             'PASS', NULL, NULL, '[]', NULL, 'server', 'current', '2026-01-01T00:00:00Z', NULL FROM seq`;
         assert.strictEqual(
-          (yield* memory.map(shop)).environments[0]?.tree.children[0]?.page?.passCount,
+          (yield* memory.map(shop)).environments[0]?.tree.children[0]?.children[0]?.page?.passCount,
           502,
         );
       }),
@@ -177,7 +217,7 @@ it.layer(NodeServices.layer)("ProjectMemory", (it) => {
         const run = yield* finishedRun(shop, [
           { scenario: "Login works", verdict: "PASS", url: "https://shop.test/login?next=/" },
           { scenario: "Order opens", verdict: "FAIL", url: "https://shop.test/orders/4812" },
-          // Opening a guarded page redirects; the result belongs to the page that was opened.
+          // A guarded page redirects; the result belongs to the screen that appeared.
           {
             scenario: "Account needs a session",
             verdict: "PASS",
@@ -226,8 +266,8 @@ it.layer(NodeServices.layer)("ProjectMemory", (it) => {
         assert.deepStrictEqual(
           facts.map((row) => [row.route, row.key, row.value, row.author]).toSorted(),
           [
-            ["/account", "Account needs a session", "PASS", "server"],
             ["/dashboard", "Sign in lands on the dashboard", "PASS", "server"],
+            ["/login", "Account needs a session", "PASS", "server"],
             ["/login", "Login works", "PASS", "server"],
             ["/orders/:id", "Order opens", "FAIL major", "server"],
           ],
@@ -269,18 +309,59 @@ it.layer(NodeServices.layer)("ProjectMemory", (it) => {
       Effect.gen(function* () {
         const memory = yield* ProjectMemory.ProjectMemory;
         const first = yield* memory.putFact(shop, fact());
-        const second = yield* memory.putFact(
-          shop,
-          fact({ route: "https://shop.test/login?step=2", value: "Enter your email" }),
-        );
+        const second = yield* memory.putFact(shop, fact({ value: "Enter your email" }));
         assert.deepStrictEqual(
           (yield* memory.lookupFacts(shop, { route: "/login" })).map((row) => row.value),
           ["Enter your email"],
         );
-        const history = yield* memory.lookupFacts(shop, { status: "superseded" });
+        const sql = yield* SqlClient.SqlClient;
+        const otherId = "login-error";
+        yield* sql`INSERT INTO project_navigation_states SELECT project_id, ${otherId},
+          json_set(data, '$.id', ${otherId}, '$.name', 'Login error') FROM project_navigation_states
+          WHERE project_id = ${shop} AND state_id = 'https://shop.test/login'`;
+        const other = yield* memory.putFact(
+          shop,
+          fact({ stateId: otherId, value: "Other screen" }),
+        );
+        assert.strictEqual(
+          (yield* memory.lookupFacts(shop, { stateId: otherId }))[0]?.factId,
+          other!.factId,
+        );
+        assert.strictEqual(
+          (yield* memory.lookupFacts(shop, { stateId: "https://shop.test/login" })).length,
+          1,
+        );
+        assert.strictEqual(
+          yield* memory.supersedeFacts(shop, [{ factId: second!.factId, byFactId: other!.factId }]),
+          0,
+        );
+        const differentKind = yield* memory.putFact(shop, fact({ kind: "control", key: "email" }));
+        assert.strictEqual(
+          yield* memory.supersedeFacts(shop, [
+            { factId: second!.factId, byFactId: differentKind!.factId },
+          ]),
+          0,
+        );
+        const restated = yield* memory.putFact(
+          shop,
+          fact({ key: "email required", value: "Enter your email" }),
+        );
+        assert.strictEqual(
+          yield* memory.supersedeFacts(shop, [
+            { factId: second!.factId, byFactId: restated!.factId },
+          ]),
+          1,
+        );
+        const history = yield* memory.lookupFacts(shop, {
+          status: "superseded",
+          key: "empty email",
+        });
         assert.deepStrictEqual(
           history.map((row) => [row.factId, row.supersededBy]),
-          [[first!.factId, second!.factId]],
+          [
+            [second!.factId, restated!.factId],
+            [first!.factId, second!.factId],
+          ],
         );
       }),
     ),
@@ -291,7 +372,7 @@ it.layer(NodeServices.layer)("ProjectMemory", (it) => {
       Effect.gen(function* () {
         const memory = yield* ProjectMemory.ProjectMemory;
         yield* memory.putFact(shop, fact({ appVersion: "1.2" }));
-        yield* memory.putFact(shop, fact({ environment: "https://staging.shop.test/login" }));
+        yield* memory.putFact(shop, fact({ stateId: "https://staging.shop.test/login" }));
         yield* memory.putFact(shop, fact({ kind: "control", key: "submit", value: "Sign in" }));
 
         const keys = (
@@ -377,7 +458,7 @@ it.layer(NodeServices.layer)("ProjectMemory", (it) => {
           shop,
           fact({
             kind: "data",
-            route: "/",
+            stateId: "https://shop.test",
             key: "Tested app version",
             value: "1",
             appVersion: "1",
@@ -392,7 +473,7 @@ it.layer(NodeServices.layer)("ProjectMemory", (it) => {
           shop,
           fact({
             kind: "data",
-            route: "/",
+            stateId: "https://shop.test",
             key: "Tested app version",
             value: "2",
             appVersion: "2",
@@ -443,7 +524,7 @@ it.layer(NodeServices.layer)("ProjectMemory", (it) => {
         const unversioned = yield* memory.putFact(shop, fact({ key: "unversioned" }));
         yield* memory.putFact(
           shop,
-          fact({ environment: "https://staging.shop.test", appVersion: "1.2" }),
+          fact({ stateId: "https://staging.shop.test/login", appVersion: "1.2" }),
         );
         yield* memory.putFact(blog, fact({ appVersion: "1.2" }));
         yield* memory.putFact(shop, fact({ key: "app version", appVersion: "1.3", value: "1.3" }));
@@ -462,7 +543,7 @@ it.layer(NodeServices.layer)("ProjectMemory", (it) => {
           shop,
           fact({
             kind: "data",
-            route: "/",
+            stateId: "https://shop.test",
             key: "Tested app version",
             value: "1.3",
             appVersion: "1.3",
@@ -540,10 +621,9 @@ it.layer(NodeServices.layer)("ProjectMemory", (it) => {
           page("https://evil.test/"),
         );
         const run = (yield* qaRuns.openRun(threadId))!;
-        const observe = (pageUrl: string, scenarioIndex = 0) =>
+        const observe = (scenarioIndex = 0) =>
           memory
             .putObservedFact(shop, run, {
-              pageUrl,
               scenarioIndex,
               kind: "validation",
               key: "empty email",
@@ -551,7 +631,7 @@ it.layer(NodeServices.layer)("ProjectMemory", (it) => {
             })
             .pipe(Effect.exit);
 
-        const saved = yield* observe("https://shop.test/login?next=1");
+        const saved = yield* observe();
         assert.isTrue(Exit.isSuccess(saved));
         assert.deepInclude(Exit.isSuccess(saved) ? saved.value : null, {
           environment: "https://shop.test",
@@ -560,15 +640,15 @@ it.layer(NodeServices.layer)("ProjectMemory", (it) => {
           evidence: [{ threadId, runId: run.runId, scenarioIndex: 0, type: "screenshot" }],
         });
         // A page a link led to is not the project's, even with this run's evidence.
-        assert.isTrue(Exit.isFailure(yield* observe("https://evil.test/", 1)));
-        assert.isTrue(Exit.isFailure(yield* observe("https://shop.test/login", 5)));
+        assert.isTrue(Exit.isFailure(yield* observe(1)));
+        assert.isTrue(Exit.isFailure(yield* observe(5)));
         const otherThread = yield* finishedRun(
           shop,
           [{ scenario: "Admin", verdict: "PASS", url: "https://admin.shop.test/" }],
           ThreadId.make("thread-memory-other"),
         );
         // A site the project already has facts for is one of its sites.
-        assert.isTrue(Exit.isSuccess(yield* observe("https://admin.shop.test/users")));
+        assert.isTrue(Exit.isSuccess(yield* observe()));
         assert.equal(otherThread.projectId, shop);
       }),
     ),
@@ -627,6 +707,8 @@ it.layer(NodeServices.layer)("ProjectMemory", (it) => {
         yield* memory.putFact(shop, fact({ key: "empty password" }));
         yield* memory.forgetProject(shop);
         assert.deepStrictEqual(yield* memory.listFacts(shop, 10), []);
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`INSERT INTO project_navigation_states SELECT ${shop}, state_id, data FROM project_navigation_states WHERE project_id = ${blog}`;
         assert.notStrictEqual(yield* memory.putFact(shop, fact()), null);
         assert.strictEqual((yield* memory.listFacts(blog, 10)).length, 1);
       }),
@@ -642,6 +724,7 @@ it.layer(NodeServices.layer)("ProjectMemory", (it) => {
         assert.isNull(yield* memory.putFact(shop, fact()));
         assert.deepStrictEqual(yield* memory.lookupFacts(shop, {}), []);
         assert.isNotNull(yield* memory.putFact(shop, fact({ value: "Please enter an email" })));
+        assert.isNotNull(yield* memory.putFact(shop, fact({ stateId: "https://shop.test/other" })));
       }),
     ),
   );
@@ -679,7 +762,6 @@ it.layer(NodeServices.layer)("ProjectMemory", (it) => {
           shop,
           run,
           {
-            pageUrl: "https://shop.test/login",
             scenarioIndex: 0,
             kind: "rule",
             key: "demo login",

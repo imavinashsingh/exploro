@@ -122,20 +122,31 @@ it.effect("requires a live screen check and runtime access before persisting nav
       Layer.provide(
         Layer.mock(Runs.QaRuns)({
           ensureRun: () => Effect.succeed(run),
+          openRun: () => Effect.succeed(run),
           readSteps: () => Effect.succeed([]),
         }),
       ),
-      Layer.provideMerge(Settings.layerTest({ qaNavigationMemory: true })),
+      Layer.provideMerge(Settings.layerTest({ qaMemoryEnabled: true })),
     );
     yield* Effect.gen(function* () {
       const capture = yield* Capture.NavigationCapture;
       const memory = yield* Navigation.ProjectNavigationMemory;
+      const unknown = yield* Effect.result(capture.recognize(scope));
+      assert.strictEqual(unknown._tag, "Failure");
+      if (unknown._tag === "Failure") assert.include(unknown.failure.message, "navigation_observe");
+      // Pages memory may not store still record evidence, just without a screen.
+      for (const unstorable of ["https://accounts.example/login", "about:blank"]) {
+        url = unstorable;
+        assert.isNull(yield* capture.recognize(scope));
+      }
+      url = "https://shop.test/profile";
       matches = false;
       assert.strictEqual((yield* Effect.result(capture.observe(scope, input)))._tag, "Failure");
       assert.strictEqual((yield* memory.snapshot(projectId)).states.length, 0);
       matches = true;
       const state = yield* capture.observe(scope, input);
       assert.strictEqual(state.path, "/profile");
+      assert.strictEqual((yield* capture.recognize(scope))?.id, state.id);
       assert.strictEqual((yield* memory.snapshot(projectId)).states.length, 1);
       const renamed = yield* capture.observe(scope, {
         ...input,
@@ -189,10 +200,10 @@ it.effect("requires a live screen check and runtime access before persisting nav
         "Failure",
       );
       const before = reads;
-      yield* (yield* Settings.ServerSettingsService).updateSettings({ qaNavigationMemory: false });
+      yield* (yield* Settings.ServerSettingsService).updateSettings({ qaMemoryEnabled: false });
       assert.strictEqual((yield* Effect.result(capture.observe(scope, input)))._tag, "Failure");
       yield* (yield* Settings.ServerSettingsService).updateSettings({
-        qaNavigationMemory: true,
+        qaMemoryEnabled: true,
       });
       scratch = true;
       assert.strictEqual((yield* Effect.result(capture.observe(scope, input)))._tag, "Failure");

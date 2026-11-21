@@ -57,6 +57,7 @@ export interface QaReplayVisual {
 
 /** What the browser showed when the agent recorded a verdict. */
 export interface QaPageCapture {
+  readonly stateId?: string;
   readonly url: string | null;
   readonly title: string | null;
   readonly png: Uint8Array | null;
@@ -395,6 +396,7 @@ const make = Effect.gen(function* () {
       ...(input.actual === undefined ? {} : { actual: input.actual }),
       ...(input.severity === undefined ? {} : { severity: input.severity }),
       steps: [...stepsFor(input, page.actionTimeline, since)],
+      stateId: page.stateId ?? null,
       pageUrl: page.url,
       pageTitle: page.title,
       recordedAt,

@@ -53,7 +53,7 @@ export function formatFactLine(fact: ProjectMemoryFact): string {
     fact.mayBeOutdated ? "may be outdated" : null,
     `${fact.author}, ${fact.observedAt.slice(0, 10)}`,
   ].filter((flag) => flag !== null);
-  return `- ${fact.environment}${fact.route} [${fact.kind}] ${quote(cut(fact.key, 120))}: ${quote(cut(fact.value, 200))} (${flags.join("; ")}; id ${fact.factId})`;
+  return `- ${fact.stateName} [${fact.stateId}] ${fact.environment}${fact.route} [${fact.kind}] ${quote(cut(fact.key, 120))}: ${quote(cut(fact.value, 200))} (${flags.join("; ")}; id ${fact.factId})`;
 }
 
 export function formatUnderstandingLine({ item, via }: RecalledUnderstanding): string {

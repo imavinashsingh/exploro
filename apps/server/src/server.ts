@@ -907,13 +907,13 @@ const layerMakeRoutes = Layer.mergeAll(
           // The Memory screen shares the recorder's extraction queue.
           Layer.provideMerge(NavigationCapture.layer),
           Layer.provideMerge(ProjectMemoryControl.layer),
-          Layer.provideMerge(ProjectNavigationMemory.layer),
           Layer.provideMerge(
             UnderstandingExtraction.layer.pipe(Layer.provideMerge(MiniLmEmbedder.layer)),
           ),
           Layer.provideMerge(QaRuns.layer),
           Layer.provideMerge(
             ProjectMemory.layer.pipe(
+              Layer.provideMerge(ProjectNavigationMemory.layer),
               Layer.provideMerge(ProjectUnderstanding.layer),
               Layer.provide(MiniLmEmbedder.layer),
             ),

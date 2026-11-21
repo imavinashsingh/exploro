@@ -13,6 +13,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ServerConfig from "../config.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
@@ -90,7 +91,26 @@ const withUnderstanding = <A, E>(
           : { ...message, streaming: false },
       ),
     };
-    return yield* body.pipe(
+    return yield* Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      for (const project of [shop, blog]) {
+        for (const environment of [site, "https://staging.shop.test", "https://help.test"]) {
+          for (const path of [
+            "/",
+            "/login",
+            "/dashboard",
+            "/checkout",
+            "/cart",
+            "/search",
+            "/help",
+          ]) {
+            const id = environment + path;
+            yield* sql`INSERT INTO project_navigation_states VALUES (${project}, ${id}, ${JSON.stringify({ id, name: path, environment, path, aliases: [], context: {}, checks: [] })})`;
+          }
+        }
+      }
+      return yield* body;
+    }).pipe(
       Effect.provide(
         ProjectMemoryControl.layer.pipe(
           Layer.provideMerge(UnderstandingExtraction.layer),
@@ -123,7 +143,7 @@ const withUnderstanding = <A, E>(
               }),
             ),
           ),
-          Layer.provide(Layer.fresh(SqlitePersistence.layerMemory)),
+          Layer.provideMerge(Layer.fresh(SqlitePersistence.layerMemory)),
           Layer.provide(ServerConfig.layerTest(process.cwd(), baseDir)),
           Layer.provide(
             Layer.succeed(
@@ -154,6 +174,7 @@ const finishedRun = (
         thread,
         { scenario, verdict, note: `${scenario}: ${verdict}` },
         {
+          stateId: `${origin}${path}`,
           url: `${origin}${path}`,
           title: "Page",
           png: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
@@ -209,6 +230,7 @@ it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
           threadId,
           { scenario: "Login", verdict: "PASS", note: "password s3cret_pw" },
           {
+            stateId: site + "/",
             url: site,
             title: "Shop",
             png: new Uint8Array([1]),
@@ -242,8 +264,7 @@ it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
           { scenario: "Login works", verdict: "PASS", path: "/login" },
         ]);
         const userFact = yield* memory.putFact(shop, {
-          environment: site,
-          route: "/",
+          stateId: site + "/login",
           kind: "rule",
           key: "dashboard",
           value: "Needs a session",
@@ -519,7 +540,7 @@ it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
           // The model never sees a password the user gave, so it cannot learn it.
           if (input.prompt.includes("s3cret_pw")) return Effect.die("the prompt has the password");
           const factId =
-            /\[([^\]]+)\] result https:\/\/shop\.test\/login/.exec(input.prompt)?.[1] ?? "";
+            /\[([^\]]+)\] result .* https:\/\/shop\.test\/login/.exec(input.prompt)?.[1] ?? "";
           const output: ProjectUnderstandingExtraction = {
             items: [
               {
@@ -607,8 +628,7 @@ it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
           );
 
           const rule = yield* memory.putFact(shop, {
-            environment: site,
-            route: "/login",
+            stateId: site + "/login",
             kind: "result",
             key: "Locked out users must be refused",
             value: "PASS",
@@ -632,7 +652,7 @@ it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
         {
           generate: (input) => {
             const id = (key: string) =>
-              new RegExp(`\\[([^\\]]+)\\] result \\S+ "${key}"`).exec(input.prompt)?.[1] ?? "";
+              new RegExp(`\\[([^\\]]+)\\] result .* "${key}"`).exec(input.prompt)?.[1] ?? "";
             const earlier = id("Locked out user is rejected");
             const latest = id("locked_out_user cannot sign in");
             return Effect.succeed({

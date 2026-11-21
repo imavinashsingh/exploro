@@ -9,6 +9,8 @@ const fact = (
   overrides: Partial<ProjectMemoryFact> = {},
 ): ProjectMemoryFact => ({
   factId,
+  stateId: route,
+  stateName: route,
   route,
   projectId: ProjectId.make("shop"),
   environment: "https://shop.test",

@@ -1,5 +1,6 @@
 import {
   ProjectId,
+  NavigationState,
   type ProjectMemoryFact,
   type ProjectUnderstandingItem,
   type ProjectMemoryMapBranch,
@@ -14,6 +15,8 @@ const fact = (
   overrides: Partial<ProjectMemoryFact> = {},
 ): ProjectMemoryFact => ({
   factId,
+  stateId: route,
+  stateName: route,
   route,
   projectId: ProjectId.make("shop"),
   environment: "https://shop.test",
@@ -90,6 +93,66 @@ describe("project map", () => {
     expect(pages(tree)[1]?.details).toContainEqual(control);
     expect(seenNotTestedPages(map).map((page) => page.route)).toEqual(["/orders/:id", "/login"]);
     expect(buildProjectMap([]).environments).toEqual([]);
+    const screen = (id: string, name: string) =>
+      NavigationState.make({
+        id,
+        name,
+        path: "/login",
+        environment: "https://shop.test",
+        aliases: [],
+        context: {},
+        checks: [{ kind: "textVisible", text: name }],
+      });
+    const screens = buildProjectMap(
+      [
+        fact("login-pass", "/login", {
+          stateId: "login",
+          stateName: "Login",
+          kind: "result",
+          value: "PASS",
+        }),
+        fact("error-fail", "/login", {
+          stateId: "error",
+          stateName: "Login error",
+          kind: "result",
+          value: "FAIL",
+        }),
+      ],
+      [],
+      {
+        states: [
+          screen("login", "Login"),
+          screen("error", "Login error"),
+          screen("new", "Recover account"),
+        ],
+        transitions: [
+          {
+            id: "edge",
+            from: "login",
+            to: "error",
+            action: "Submit invalid credentials",
+            conditions: {},
+            runId: "run",
+            threadId: "thread",
+            observedAt: "now",
+            available: true,
+          },
+        ],
+        truncated: false,
+      },
+    );
+    const mapped = pages(screens.environments[0]!.tree);
+    expect(mapped.map((page) => [page.stateId, page.coverage])).toEqual([
+      ["login", "tested"],
+      ["error", "failing"],
+      ["new", "seen"],
+    ]);
+    expect(mapped.find((page) => page.stateId === "error")?.reachedBy).toEqual([
+      "Login: Submit invalid credentials",
+    ]);
+    expect(seenNotTestedPages(screens).map((page) => page.stateName)).toEqual(["Recover account"]);
+    expect(formatProjectMap(screens)).toContain("Login error [error] /login [failing]");
+    expect(formatProjectMap(screens)).toContain("reached from: Login: Submit invalid credentials");
   });
 
   it("keeps tested redirects as facts without inventing destination pages", () => {

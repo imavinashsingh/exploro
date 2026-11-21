@@ -114,6 +114,10 @@ const deleteOrphanStates = (sql: SqlClient.SqlClient) =>
   sql`DELETE FROM project_navigation_states WHERE NOT EXISTS (
     SELECT 1 FROM project_navigation_observations o
     WHERE o.project_id = project_navigation_states.project_id AND o.state_id = project_navigation_states.state_id
+  ) AND NOT EXISTS (
+    SELECT 1 FROM project_memory_facts f
+    WHERE f.project_id = project_navigation_states.project_id
+      AND f.state_id = project_navigation_states.state_id
   )`;
 
 /** Runs inside the caller's transaction; states another run still observed stay. */
@@ -139,9 +143,11 @@ const make = Effect.gen(function* () {
   const snapshot = Effect.fn("ProjectNavigationMemory.snapshot")(function* (projectId: ProjectId) {
     const states = yield* sql<{
       data: string;
-    }>`SELECT data FROM project_navigation_states WHERE project_id = ${projectId} AND EXISTS (
+    }>`SELECT data FROM project_navigation_states WHERE project_id = ${projectId} AND (EXISTS (
       SELECT 1 FROM project_navigation_observations o WHERE o.project_id = ${projectId} AND o.state_id = project_navigation_states.state_id
-    ) ORDER BY state_id LIMIT 501`;
+    ) OR EXISTS (
+      SELECT 1 FROM project_memory_facts f WHERE f.project_id = ${projectId} AND f.state_id = project_navigation_states.state_id
+    )) ORDER BY state_id LIMIT 501`;
     const observations = yield* sql<{
       data: string;
     }>`SELECT transition_json AS data FROM project_navigation_observations

@@ -131,7 +131,7 @@ describe("runMigrations", () => {
         "project_navigation_feedback",
       ];
 
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 103 });
       for (const table of tables) {
         assert.deepStrictEqual(yield* sql`SELECT * FROM ${sql(table)}`, []);
       }
@@ -144,8 +144,17 @@ describe("runMigrations", () => {
         "completed",
       );
       yield* sql`INSERT INTO project_navigation_states VALUES ('project', 'new-state', '{}')`;
-      assert.deepStrictEqual(yield* runMigrations(), []);
+      yield* sql`INSERT INTO project_memory_facts
+        (fact_id, project_id, environment, route, kind, fact_key, value, evidence_json, author, status, observed_at)
+        VALUES ('legacy', 'project', 'https://shop.test', '/', 'page', 'purpose', 'Home', '[]', 'agent', 'current', 'now')`;
+      yield* runMigrations();
+      assert.deepStrictEqual(yield* sql`SELECT * FROM project_memory_facts`, []);
       assert.lengthOf(yield* sql`SELECT * FROM project_navigation_states`, 1);
+      const indexes = yield* sql<{
+        sql: string;
+      }>`SELECT sql FROM sqlite_master WHERE name = 'project_memory_facts_current_idx'`;
+      assert.include(indexes[0]!.sql, "state_id");
+      assert.deepStrictEqual(yield* runMigrations(), []);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 

@@ -141,7 +141,7 @@ function FactRow(props: {
           </div>
           <div className="flex flex-wrap items-center gap-x-2 text-2xs text-muted-foreground">
             <span className="truncate">
-              {fact.environment}
+              {fact.stateName} · {fact.environment}
               {fact.route}
             </span>
             <span>{fact.kind}</span>
@@ -219,6 +219,12 @@ function FactsTab(props: {
   const [filter, setFilter] = useState<FactFilter>(EMPTY_FACT_FILTER);
   const options = factFilterOptions(props.facts, filter);
   const shown = filterFacts(props.facts, filter);
+  const screens = new Map<string, ProjectMemoryFact[]>();
+  for (const fact of shown) {
+    const facts = screens.get(fact.stateId) ?? [];
+    facts.push(fact);
+    screens.set(fact.stateId, facts);
+  }
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap gap-2">
@@ -260,18 +266,27 @@ function FactsTab(props: {
             : gt("No facts match these filters.")}
         </p>
       ) : (
-        <ul className="flex flex-col">
-          {shown.map((fact) => (
-            <FactRow
-              key={fact.factId}
-              fact={fact}
-              versions={factVersions(props.facts, fact)}
-              canEdit={props.canEdit}
-              onDelete={props.onDelete}
-              onOpenEvidence={props.onOpenEvidence}
-            />
+        <div className="flex flex-col gap-3">
+          {[...screens].map(([stateId, facts]) => (
+            <section key={stateId}>
+              <h4 className="text-sm font-medium">
+                {facts[0]?.stateName} · {facts[0]?.route}
+              </h4>
+              <ul className="flex flex-col">
+                {facts.map((fact) => (
+                  <FactRow
+                    key={fact.factId}
+                    fact={fact}
+                    versions={factVersions(props.facts, fact)}
+                    canEdit={props.canEdit}
+                    onDelete={props.onDelete}
+                    onOpenEvidence={props.onOpenEvidence}
+                  />
+                ))}
+              </ul>
+            </section>
           ))}
-        </ul>
+        </div>
       )}
       {props.truncated ? (
         <p className="text-2xs text-muted-foreground">
@@ -388,9 +403,14 @@ function MapTab(props: {
       {page === null ? null : (
         <div className="flex flex-col gap-1 border-t border-border/60 pt-2">
           <p className="break-all text-xs font-medium">
-            {page.environment}
+            {page.stateName} · {page.environment}
             {page.route}
           </p>
+          {page.reachedBy.map((step) => (
+            <p key={step} className="text-xs text-muted-foreground">
+              {step}
+            </p>
+          ))}
           <ul className="flex flex-col">
             {page.facts.map((fact) => (
               <FactRow
@@ -569,7 +589,7 @@ function UnderstandingRow(props: {
                   <li key={item.citedFactIds[index]} className="text-muted-foreground">
                     {fact === null
                       ? gt("A fact that was deleted")
-                      : `${fact.route} · ${fact.key}: ${fact.value}${fact.status === "current" ? "" : ` (${fact.status})`}`}
+                      : `${fact.stateName} · ${fact.route} · ${fact.key}: ${fact.value}${fact.status === "current" ? "" : ` (${fact.status})`}`}
                   </li>
                 ))}
               </ul>
@@ -613,7 +633,6 @@ export function ProjectMemorySettings(props: {
   const messages = useMessages();
   const navigate = useNavigate();
   const enabled = useScopedSettings((settings) => settings.qaMemoryEnabled);
-  const navigationEnabled = useScopedSettings((settings) => settings.qaNavigationMemory);
   const updateSettings = useUpdateScopedSettings();
   const [versionEnvironment, setVersionEnvironment] = useState("");
   const [appVersion, setAppVersion] = useState("");
@@ -709,21 +728,6 @@ export function ProjectMemorySettings(props: {
           />
         }
       />
-      <SettingsRow
-        serverScoped
-        settingKeys={["qaNavigationMemory"]}
-        title={gt("Project Navigation Memory")}
-        description={gt(
-          "Remember how to reach features. Each remembered step is checked against the live website. Turning it off keeps saved navigation.",
-        )}
-        control={
-          <Switch
-            checked={navigationEnabled}
-            onCheckedChange={(checked) => updateSettings({ qaNavigationMemory: Boolean(checked) })}
-            aria-label={gt("Project Navigation Memory")}
-          />
-        }
-      />
       {data?.navigation ? (
         <SettingsRow title={gt("Observed navigation")}>
           <div className="flex flex-col gap-3 pb-2">
@@ -779,11 +783,29 @@ export function ProjectMemorySettings(props: {
             {data.navigation.truncated || data.navigation.transitions.length > 50 ? (
               <p className="text-xs">{gt("Some navigation records are not shown.")}</p>
             ) : null}
+            {data.navigation.states.map((state) => (
+              <div key={state.id} className="flex items-center justify-between gap-3">
+                <span className="text-sm">
+                  {state.name} · {state.path}
+                </span>
+                <Button
+                  size="xs"
+                  variant="ghost-muted"
+                  disabled={!canDeleteNavigation}
+                  onClick={() =>
+                    void deleteNavigation({
+                      environmentId,
+                      input: { projectId, id: state.id },
+                    }).then(after(gt("Could not delete navigation memory")))
+                  }
+                >
+                  {gt("Delete screen and its facts")}
+                </Button>
+              </div>
+            ))}
             {data.navigation.states.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                {gt(
-                  "No navigation learned yet. Turn it on and explore a feature in a project thread.",
-                )}
+                {gt("No navigation learned yet. Explore a feature in a project thread.")}
               </p>
             ) : null}
           </div>

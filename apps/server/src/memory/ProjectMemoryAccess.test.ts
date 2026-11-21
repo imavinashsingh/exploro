@@ -25,7 +25,7 @@ const layer = ProjectMemoryAccess.layer.pipe(
     ServerSettings.layerTest({
       projectSettingsOverrides: {
         [off]: { qaMemoryEnabled: false },
-        [navigationOnly]: { qaMemoryEnabled: false, qaNavigationMemory: true },
+        [navigationOnly]: { qaMemoryEnabled: true },
       },
     }),
   ),
@@ -39,8 +39,7 @@ it.effect("gives memory only to projects that have it on", () =>
     assert.isTrue(yield* access.hasMemory(shop));
     assert.isFalse(yield* access.hasMemory(off));
     assert.isFalse(yield* access.hasMemory(scratch));
-    assert.isFalse(yield* access.hasMemory(navigationOnly));
-    assert.isTrue(yield* access.hasNavigation(navigationOnly));
+    assert.isTrue(yield* access.hasMemory(navigationOnly));
     assert.include(
       yield* access.firstTurnBrief(navigationOnly, "Reach profile"),
       "Project Navigation Memory is enabled",

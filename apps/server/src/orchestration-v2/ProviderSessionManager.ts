@@ -581,11 +581,6 @@ export const layerWithOptions = (
                   Option.isSome(memoryAccess) &&
                   (yield* memoryAccess.value.hasMemory(thread.projectId));
                 if (memoryAvailable) capabilities.add("memory");
-                const navigationAvailable =
-                  thread !== null &&
-                  Option.isSome(memoryAccess) &&
-                  (yield* memoryAccess.value.hasNavigation(thread.projectId));
-                if (navigationAvailable) capabilities.add("navigation-memory");
                 const existing = yield* mcpSessions.read(threadId);
                 if (existing !== undefined) {
                   // Reserve before async validation so release cannot revoke between validation and reservation.
@@ -608,7 +603,6 @@ export const layerWithOptions = (
                     resolved.capabilities.has("preview") === browserToolsAvailable &&
                     resolved.capabilities.has("device") === deviceToolsAvailable &&
                     resolved.capabilities.has("memory") === memoryAvailable &&
-                    resolved.capabilities.has("navigation-memory") === navigationAvailable &&
                     // A credential issued while the lineage read failed is replaced once it works.
                     (resolved.thread.subagent === true) === subagent
                   ) {

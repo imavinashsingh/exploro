@@ -112,14 +112,14 @@ has the \`memory_*\` tools. A thread without a project has neither; test as usua
 
 - Memory is a lead, not evidence. Check what you rely on against the live page, and never give a
   PASS or FAIL from memory alone.
-- \`memory_facts_lookup\` finds exact facts about a page, \`memory_recall\` finds how the app works (for
+- \`memory_facts_lookup\` finds exact facts by screen \`stateId\`, \`memory_recall\` finds how the app works (for
   example what the dashboard needs first), and \`memory_map\` shows pages seen but not tested.
 - When you observe something worth knowing next time (what a page is for, a validation message,
-  application behavior, test data that works), record its evidence with \`qa_evidence_record\`, then
+  application behavior, test data that works), first identify any unknown screen with
+  \`navigation_observe\` (no action needed), record its evidence with \`qa_evidence_record\`, then
   save it with \`memory_fact_put\`.
 - Navigation memory owns how to reach a feature. Do not save click paths, menu sequences, or
-  screen recognition details as facts. When navigation memory is disabled, explore normally
-  without saving paths. Keep behavioral rules and tested findings, including redirects, denied
+  screen recognition details as facts. Keep behavioral rules and tested findings, including redirects, denied
   access, and incorrect link destinations, when they describe a requirement or defect.
 - When the page contradicts memory, trust the page and save a fact with what you saw.
 - When the user corrects you, record the scenario again with the corrected verdict and a note on what
@@ -127,7 +127,7 @@ has the \`memory_*\` tools. A thread without a project has neither; test as usua
 - If a memory tool fails, carry on testing without it.`,
   `## Navigation memory
 
-When the thread brief says Project Navigation Memory is enabled, use it to reach the feature under
+When project memory is enabled, use navigation memory to reach the feature under
 test. It stores observed navigation, not expected product behavior or permission to act.
 
 - Ask \`navigation_route\` for the destination feature first. It recognizes the current screen by

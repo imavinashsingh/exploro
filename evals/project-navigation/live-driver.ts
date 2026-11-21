@@ -560,7 +560,7 @@ export async function prepareSeed(
         yield* (yield* Settings.ServerSettingsService).updateSettings({
           ...isolation.settings,
           projectSettingsOverrides: {
-            [project.projectId]: { qaMemoryEnabled: true, qaNavigationMemory: true },
+            [project.projectId]: { qaMemoryEnabled: true },
           },
         });
         const { scope, threadId } = yield* openThread(project.projectId, model, provider);

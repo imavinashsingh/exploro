@@ -13,18 +13,25 @@ import { View } from "react-native";
 import { AppText as Text } from "../../../components/ui/AppText";
 import { useEnvironmentQuery } from "../../../state/query";
 import { serverEnvironment } from "../../../state/server";
+import { useAtomCommand } from "../../../state/use-atom-command";
+import { SettingsSwitchRow } from "./SettingsSwitchRow";
 import { SettingsSection } from "./SettingsSection";
 
 const SHOWN = 30;
 const MAP_ROWS = 60;
 const NOTHING_COLLAPSED: ReadonlySet<string> = new Set();
 
-/** Exploro: what QA runs in this project remember. Read-only; manage it on web or desktop. */
+/** Exploro: project memory settings and a summary of what QA runs remember. */
 export function SettingsProjectMemorySection(props: { readonly project: EnvironmentProject }) {
   const gt = useGT();
   const messages = useMessages();
   const { environmentId, id: projectId } = props.project;
   const config = useAtomValue(serverEnvironment.configValueAtom(environmentId));
+  const updateSettings = useAtomCommand(serverEnvironment.updateSettings, {
+    label: "update project memory",
+    reportFailure: true,
+  });
+  const canUpdate = useAtomValue(serverEnvironment.updateSettings.permissionAtom(environmentId));
   const enabled =
     config === null || resolveProjectSettings(config.settings, projectId).settings.qaMemoryEnabled;
   const snapshot = useEnvironmentQuery(
@@ -43,6 +50,27 @@ export function SettingsProjectMemorySection(props: { readonly project: Environm
       title={gt("Memory", { $context: "settings section: what test runs remember" })}
       footer={gt("Edit or delete memory on web or desktop.")}
     >
+      <SettingsSwitchRow
+        label={gt("Project memory")}
+        value={enabled}
+        disabled={!canUpdate || config === null}
+        onValueChange={(qaMemoryEnabled) =>
+          void updateSettings({
+            environmentId,
+            input: {
+              patch: {
+                projectSettingsOverrides: {
+                  ...config?.settings.projectSettingsOverrides,
+                  [projectId]: {
+                    ...config?.settings.projectSettingsOverrides[projectId],
+                    qaMemoryEnabled,
+                  },
+                },
+              },
+            },
+          })
+        }
+      />
       <View className="gap-1 p-4">
         <Text className="text-sm text-foreground-muted">{status}</Text>
       </View>
@@ -96,7 +124,7 @@ export function SettingsProjectMemorySection(props: { readonly project: Environm
             {fact.key}: {fact.value}
           </Text>
           <Text className="text-xs text-foreground-muted" numberOfLines={1}>
-            {fact.environment}
+            {fact.stateName} · {fact.environment}
             {fact.route} · {fact.kind}
           </Text>
         </View>

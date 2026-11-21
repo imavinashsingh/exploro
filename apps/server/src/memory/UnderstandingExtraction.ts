@@ -123,13 +123,10 @@ const make = Effect.gen(function* () {
       { limit: 15 },
     );
     const runFactIds = new Set(facts.map((fact) => fact.factId));
-    const pages = new Map(
-      facts.map((fact) => [`${fact.environment} ${fact.route} ${fact.kind}`, fact] as const),
-    );
+    const pages = new Map(facts.map((fact) => [`${fact.stateId} ${fact.kind}`, fact] as const));
     const earlier = (yield* Effect.forEach([...pages.values()], (fact) =>
       memory.lookupFacts(projectId, {
-        environment: fact.environment,
-        route: fact.route,
+        stateId: fact.stateId,
         kind: fact.kind,
         limit: 20,
       }),
@@ -158,11 +155,14 @@ const make = Effect.gen(function* () {
     }));
     const writes = yield* Effect.forEach(planned, ({ userQuote, ...write }) =>
       Effect.gen(function* () {
-        if (userQuote === null || environment === null)
+        const stateId =
+          facts.find(
+            (fact) => fact.environment === environment && write.citedFactIds.includes(fact.factId),
+          )?.stateId ?? facts.find((fact) => fact.environment === environment)?.stateId;
+        if (userQuote === null || environment === null || stateId === undefined)
           return { ...write, author: "agent" as const };
         const userFact = yield* memory.putFact(projectId, {
-          environment,
-          route: "/",
+          stateId,
           kind: "rule",
           key: userQuote.slice(0, 200),
           value: userQuote.slice(0, 500),

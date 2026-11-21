@@ -821,7 +821,6 @@ function runBrowserAccessScenario(input: {
   readonly delegatedBy?: ThreadId;
   /** Whether the thread's project has memory; unset leaves memory out of the server. */
   readonly projectMemory?: boolean;
-  readonly projectNavigation?: boolean;
 }) {
   return Effect.gen(function* () {
     const state = yield* Ref.make(emptyState);
@@ -894,7 +893,6 @@ function runBrowserAccessScenario(input: {
               ? Layer.empty
               : Layer.mock(ProjectMemoryAccess.ProjectMemoryAccess)({
                   hasMemory: () => Effect.succeed(input.projectMemory === true),
-                  hasNavigation: () => Effect.succeed(input.projectNavigation === true),
                 }),
           ),
         ),
@@ -5731,23 +5729,15 @@ it.effect("ProviderSessionManagerV2 withholds device tools while device support 
 
 it.effect("ProviderSessionManagerV2 grants memory tools only to threads of a project", () =>
   Effect.gen(function* () {
-    const scenario = (projectMemory?: boolean, projectNavigation?: boolean) =>
+    const scenario = (projectMemory?: boolean) =>
       runBrowserAccessScenario({
         enableAgentBrowserAccess: true,
         projectOverride: true,
-        ...(projectMemory === undefined
-          ? {}
-          : { projectMemory, projectNavigation: projectNavigation === true }),
-      }).pipe(
-        Effect.map((config) => [
-          config?.capabilities?.has("memory") === true,
-          config?.capabilities?.has("navigation-memory") === true,
-        ]),
-      );
-    assert.deepStrictEqual(yield* scenario(true), [true, false]);
-    assert.deepStrictEqual(yield* scenario(false, true), [false, true], "navigation without facts");
-    assert.deepStrictEqual(yield* scenario(false), [false, false], "a scratch thread got memory");
-    assert.deepStrictEqual(yield* scenario(), [false, false], "a server without memory granted it");
+        ...(projectMemory === undefined ? {} : { projectMemory }),
+      }).pipe(Effect.map((config) => config?.capabilities?.has("memory") === true));
+    assert.isTrue(yield* scenario(true));
+    assert.isFalse(yield* scenario(false), "a scratch thread got memory");
+    assert.isFalse(yield* scenario(), "a server without memory granted it");
   }),
 );
 

@@ -18,6 +18,7 @@ import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as QaRuns from "../qa/QaRuns.ts";
 import { memoryEnabled } from "./ProjectMemoryAccess.ts";
+import { memoryEnvironment } from "./projectMemoryFacts.ts";
 import { providedSecrets } from "./providedSecrets.ts";
 import * as ProjectMemory from "./ProjectMemory.ts";
 import * as ProjectUnderstanding from "./ProjectUnderstanding.ts";
@@ -139,9 +140,13 @@ const make = Effect.gen(function* () {
       }
     }),
     setAppVersion: Effect.fn("ProjectMemoryControl.setAppVersion")(function* (input) {
+      const site = memoryEnvironment(input.environment);
+      if (site === null)
+        return yield* new ProjectMemoryError({
+          message: "Choose a website to set its app version.",
+        });
       const saved = yield* memory.putFact(input.projectId, {
-        environment: input.environment,
-        route: "/",
+        stateId: site,
         kind: "data",
         key: "Tested app version",
         value: input.appVersion,
