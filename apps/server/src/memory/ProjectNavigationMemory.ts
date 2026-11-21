@@ -121,6 +121,7 @@ const encodeState = Schema.encodeEffect(Schema.fromJsonString(NavigationState));
 const encodeTransition = Schema.encodeEffect(Schema.fromJsonString(NavigationTransition));
 const stateJson = Schema.decodeEffect(Schema.fromJsonString(NavigationState));
 const decodeCursor = Schema.decodeEffect(Schema.fromJsonString(Schema.String));
+const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 const encodeContext = Schema.encodeEffect(Schema.fromJsonString(NavigationState.fields.context));
 
 export function navigationRoute(
@@ -316,20 +317,16 @@ const make = Effect.gen(function* () {
     projectId: ProjectId,
     id: string,
   ) {
-    const state = yield* getState(projectId, id);
-    if (state === null) return null;
-    const [counts] = yield* sql<{
+    const [row] = yield* sql<{
+      name: string;
+      environment: string;
+      path: string;
       incomingCount: number;
       outgoingCount: number;
-    }>`SELECT incoming_count AS incomingCount,
-      outgoing_count AS outgoingCount FROM project_navigation_states WHERE project_id = ${projectId} AND state_id = ${id}`;
-    return {
-      id,
-      name: state.name,
-      environment: state.environment,
-      path: state.path,
-      ...counts!,
-    } satisfies NavigationSummary;
+    }>`SELECT json_extract(data, '$.name') AS name, environment, path,
+      incoming_count AS incomingCount, outgoing_count AS outgoingCount
+      FROM project_navigation_states WHERE project_id = ${projectId} AND state_id = ${id}`;
+    return row === undefined ? null : ({ id, ...row } satisfies NavigationSummary);
   });
   const statesAtAddress = Effect.fn("ProjectNavigationMemory.statesAtAddress")(function* (
     projectId: ProjectId,
@@ -412,6 +409,9 @@ const make = Effect.gen(function* () {
     const visited = new Set([key(from.id, from.context)]);
     let scanned = 0;
     let exhausted = false;
+    let batchEnd = 0;
+    let batch: ReadonlyArray<ConnectionRow & { ordinal: number; destination_data: string | null }> =
+      [];
     for (let index = 0; index < queue.length; index += 1) {
       const current = queue[index]!;
       if (current.state.id === to)
@@ -424,10 +424,22 @@ const make = Effect.gen(function* () {
         exhausted = true;
         continue;
       }
-      const edges = yield* sql<ConnectionRow>`SELECT * FROM project_navigation_connections
-        WHERE project_id = ${projectId} AND from_state_id = ${current.state.id}
-        AND available = 1
-        ORDER BY transition_id LIMIT ${ROUTE_BUDGET - scanned + 1}`;
+      if (index >= batchEnd) {
+        batchEnd = Math.min(queue.length, index + 128);
+        const frontier = queue
+          .slice(index, batchEnd)
+          .map((item, offset) => ({ id: item.state.id, ordinal: index + offset }));
+        batch = yield* sql<ConnectionRow & { ordinal: number; destination_data: string | null }>`
+          SELECT c.*, CAST(json_extract(f.value, '$.ordinal') AS INTEGER) AS ordinal, s.data AS destination_data
+          FROM json_each(${yield* encodeJson(frontier)}) f
+          CROSS JOIN project_navigation_connections c ON c.rowid IN (
+            SELECT rowid FROM project_navigation_connections
+            WHERE project_id = ${projectId} AND from_state_id = json_extract(f.value, '$.id') AND available = 1
+            ORDER BY transition_id LIMIT ${ROUTE_BUDGET - scanned + 1})
+          LEFT JOIN project_navigation_states s ON s.project_id = c.project_id AND s.state_id = c.to_state_id
+          ORDER BY ordinal, c.transition_id LIMIT ${ROUTE_BUDGET - scanned + 1}`;
+      }
+      const edges = batch.filter((row) => row.ordinal === index);
       for (const row of edges) {
         if (scanned >= ROUTE_BUDGET) {
           exhausted = true;
@@ -436,7 +448,7 @@ const make = Effect.gen(function* () {
         scanned += 1;
         const edge = connection(row);
         if (!Object.entries(edge.conditions).every(([k, v]) => current.context[k] === v)) continue;
-        const next = yield* getState(projectId, edge.to);
+        const next = row.destination_data === null ? null : yield* stateJson(row.destination_data);
         if (next === null || (environment !== undefined && next.environment !== environment))
           continue;
         const context = { ...current.context, ...next.context };
@@ -487,30 +499,25 @@ const make = Effect.gen(function* () {
     input: typeof NavigationOverviewInput.Type,
   ) {
     const limit = 200;
-    // Stored cluster tables are deferred until the 1M benchmark shows GROUP BY is too slow.
     const clusters = yield* sql<{
       environment: string;
       pathGroup: string;
       stateCount: number;
       incomingCount: number;
       outgoingCount: number;
-    }>`SELECT environment, path_group AS pathGroup,
-      COUNT(*) AS stateCount, SUM(incoming_count) AS incomingCount, SUM(outgoing_count) AS outgoingCount FROM project_navigation_states
-      WHERE project_id = ${input.projectId} GROUP BY environment, path_group ORDER BY environment, path_group LIMIT ${limit + 1}`;
+    }>`SELECT environment, path_group AS pathGroup, state_count AS stateCount,
+      incoming_count AS incomingCount, outgoing_count AS outgoingCount FROM project_navigation_clusters
+      WHERE project_id = ${input.projectId} ORDER BY environment, path_group LIMIT ${limit + 1}`;
     const connections = yield* sql<{
       fromEnvironment: string;
       fromPathGroup: string;
       toEnvironment: string;
       toPathGroup: string;
       count: number;
-    }>`SELECT f.environment AS fromEnvironment, f.path_group AS fromPathGroup,
-      t.environment AS toEnvironment, t.path_group AS toPathGroup, COUNT(*) AS count
-      FROM project_navigation_connections c
-      JOIN project_navigation_states f ON f.project_id = c.project_id AND f.state_id = c.from_state_id
-      JOIN project_navigation_states t ON t.project_id = c.project_id AND t.state_id = c.to_state_id
-      WHERE c.project_id = ${input.projectId}
-      GROUP BY f.environment, f.path_group, t.environment, t.path_group
-      ORDER BY count DESC, f.environment, f.path_group, t.environment, t.path_group LIMIT ${limit + 1}`;
+    }>`SELECT from_environment AS fromEnvironment, from_path_group AS fromPathGroup,
+      to_environment AS toEnvironment, to_path_group AS toPathGroup, connection_count AS count
+      FROM project_navigation_cluster_connections WHERE project_id = ${input.projectId}
+      ORDER BY count DESC, from_environment, from_path_group, to_environment, to_path_group LIMIT ${limit + 1}`;
     return {
       clusters: clusters.slice(0, limit),
       connections: connections.slice(0, limit),
@@ -594,15 +601,29 @@ const make = Effect.gen(function* () {
     const limit = Math.max(1, Math.min(50, input.limit));
     const query = input.query.trim().toLowerCase();
     const cursor = yield* cursorValue(input.cursor);
-    // The subquery keeps short search on the term range before sorting by state cursor.
+    const short = [...query].length < 3;
+    const match = `"${query.replaceAll('"', '""')}"`;
+    // Dense matches can stop in cursor order; sparse matches use the inverted index below.
+    const probe = yield* sql<{ state_id: string }>`SELECT s.state_id FROM
+      (SELECT rowid, state_id FROM project_navigation_states WHERE project_id = ${input.projectId}
+        AND state_id > ${cursor} ORDER BY state_id LIMIT 256) s
+      WHERE ${
+        short
+          ? sql`EXISTS (SELECT 1 FROM project_navigation_terms t WHERE t.project_id = ${input.projectId}
+            AND t.state_id = s.state_id AND t.kind = 'word' AND t.term >= ${query} AND t.term < ${query} || char(1114111))`
+          : sql`EXISTS (SELECT 1 FROM project_navigation_search f WHERE f.rowid = s.rowid AND project_navigation_search MATCH ${match})`
+      }
+      ORDER BY s.state_id LIMIT ${limit + 1}`;
     const rows =
-      [...query].length < 3
-        ? yield* sql<{
-            state_id: string;
-          }>`SELECT DISTINCT state_id FROM (SELECT state_id FROM project_navigation_terms WHERE project_id = ${input.projectId} AND kind = 'word' AND term >= ${query} AND term < ${query} || char(1114111) LIMIT -1) WHERE state_id > ${cursor} ORDER BY state_id LIMIT ${limit + 1}`
-        : yield* sql<{
-            state_id: string;
-          }>`SELECT s.state_id FROM project_navigation_search f CROSS JOIN project_navigation_states s ON s.rowid = f.rowid
+      probe.length > limit
+        ? probe
+        : [...query].length < 3
+          ? yield* sql<{
+              state_id: string;
+            }>`SELECT DISTINCT state_id FROM (SELECT state_id FROM project_navigation_terms WHERE project_id = ${input.projectId} AND kind = 'word' AND term >= ${query} AND term < ${query} || char(1114111) LIMIT -1) WHERE state_id > ${cursor} ORDER BY state_id LIMIT ${limit + 1}`
+          : yield* sql<{
+              state_id: string;
+            }>`SELECT s.state_id FROM project_navigation_search f CROSS JOIN project_navigation_states s ON s.rowid = f.rowid
         WHERE project_navigation_search MATCH ${`"${query.replaceAll('"', '""')}"`}
         AND s.project_id = ${input.projectId} AND s.state_id > ${cursor} ORDER BY s.state_id LIMIT ${limit + 1}`;
     return yield* statePage(
@@ -729,7 +750,7 @@ const make = Effect.gen(function* () {
               : null;
           yield* sql`INSERT INTO project_navigation_states (project_id, state_id, data) VALUES (${projectId}, ${state.id}, ${yield* encodeState(stored)})
           ON CONFLICT (project_id, state_id) DO UPDATE SET data = excluded.data`;
-          yield* indexNavigationState(sql, projectId, stored);
+          yield* indexNavigationState(sql, projectId, stored, remembered === null);
           if (edge !== null) yield* storeNavigationConnection(sql, projectId, edge);
           yield* sql`INSERT INTO project_navigation_observations (observation_id, project_id, thread_id, run_id, tab_id, state_id, step_index, transition_json, observed_at, transition_id)
           VALUES (${observationId}, ${projectId}, ${input.threadId}, ${input.runId}, ${input.tabId}, ${state.id}, ${input.stepIndex}, ${edge === null ? null : yield* encodeTransition(edge)}, ${observedAt}, ${edge?.id ?? null})`;
@@ -763,26 +784,54 @@ const make = Effect.gen(function* () {
         Effect.gen(function* () {
           yield* preparePrune(sql);
           yield* sql`INSERT OR IGNORE INTO navigation_prune VALUES (${projectId}, ${id})`;
-          let cursor = "";
-          while (true) {
-            const rows =
-              yield* sql<ConnectionRow>`SELECT * FROM project_navigation_connections WHERE project_id = ${projectId}
-              AND transition_id > ${cursor} AND transition_id IN (
-                SELECT transition_id FROM (SELECT transition_id FROM project_navigation_connections WHERE project_id = ${projectId} AND from_state_id = ${id}
-                  AND transition_id > ${cursor} ORDER BY transition_id LIMIT 500)
-                UNION SELECT transition_id FROM (SELECT transition_id FROM project_navigation_connections WHERE project_id = ${projectId} AND to_state_id = ${id}
-                  AND transition_id > ${cursor} ORDER BY transition_id LIMIT 500)
-                UNION SELECT transition_id FROM project_navigation_connections WHERE project_id = ${projectId} AND transition_id = ${id})
-              ORDER BY transition_id LIMIT 500`;
-            if (rows.length === 0) break;
-            for (const row of rows) {
-              yield* sql`INSERT OR IGNORE INTO navigation_prune VALUES (${projectId}, ${row.from_state_id}), (${projectId}, ${row.to_state_id})`;
-              yield* sql`DELETE FROM project_navigation_observations WHERE project_id = ${projectId} AND transition_id = ${row.transition_id}`;
-              yield* sql`DELETE FROM project_navigation_feedback WHERE project_id = ${projectId} AND transition_id = ${row.transition_id}`;
-              yield* rebuildNavigationConnection(sql, projectId, row.transition_id);
-            }
-            cursor = rows.at(-1)!.transition_id;
+          yield* sql`CREATE TEMP TABLE IF NOT EXISTS navigation_delete_edges (
+            transition_id TEXT PRIMARY KEY, from_state_id TEXT NOT NULL, to_state_id TEXT NOT NULL) WITHOUT ROWID`;
+          yield* sql`DELETE FROM navigation_delete_edges`;
+          // A UNION lets SQLite scan the project to merge in transition order instead of seeking each endpoint.
+          for (const column of ["from_state_id", "to_state_id", "transition_id"] as const)
+            yield* sql`INSERT OR IGNORE INTO navigation_delete_edges
+              SELECT transition_id, from_state_id, to_state_id FROM project_navigation_connections
+              WHERE project_id = ${projectId} AND ${sql(column)} = ${id}`;
+          yield* sql`INSERT OR IGNORE INTO navigation_prune
+            SELECT ${projectId}, from_state_id FROM navigation_delete_edges
+            UNION SELECT ${projectId}, to_state_id FROM navigation_delete_edges`;
+          // Rowid lookups keep the UPDATE planner from scanning every state in the project.
+          yield* sql`UPDATE project_navigation_states SET outgoing_count = outgoing_count - d.count
+            FROM (SELECT from_state_id AS id, COUNT(*) AS count FROM navigation_delete_edges GROUP BY from_state_id) d
+            WHERE rowid = (SELECT rowid FROM project_navigation_states
+              WHERE project_id = ${projectId} AND state_id = d.id)`;
+          yield* sql`UPDATE project_navigation_states SET incoming_count = incoming_count - d.count
+            FROM (SELECT to_state_id AS id, COUNT(*) AS count FROM navigation_delete_edges GROUP BY to_state_id) d
+            WHERE rowid = (SELECT rowid FROM project_navigation_states
+              WHERE project_id = ${projectId} AND state_id = d.id)`;
+          for (const direction of ["from_state_id", "to_state_id"] as const) {
+            const column =
+              direction === "from_state_id" ? sql`outgoing_count` : sql`incoming_count`;
+            yield* sql`UPDATE project_navigation_clusters SET ${column} = ${column} - d.count
+              FROM (SELECT s.environment, s.path_group, COUNT(*) AS count FROM navigation_delete_edges e
+                CROSS JOIN project_navigation_states s ON s.project_id = ${projectId} AND s.state_id = ${direction === "from_state_id" ? sql`e.from_state_id` : sql`e.to_state_id`}
+                GROUP BY s.environment, s.path_group) d
+              WHERE project_id = ${projectId} AND project_navigation_clusters.environment = d.environment
+                AND project_navigation_clusters.path_group = d.path_group`;
           }
+          yield* sql`UPDATE project_navigation_cluster_connections SET connection_count = connection_count - d.count
+            FROM (SELECT f.environment AS fe, f.path_group AS fp, t.environment AS te, t.path_group AS tp, COUNT(*) AS count
+              FROM navigation_delete_edges e
+              CROSS JOIN project_navigation_states f ON f.project_id = ${projectId} AND f.state_id = e.from_state_id
+              CROSS JOIN project_navigation_states t ON t.project_id = ${projectId} AND t.state_id = e.to_state_id
+              GROUP BY f.environment, f.path_group, t.environment, t.path_group) d
+            WHERE project_id = ${projectId} AND from_environment = d.fe AND from_path_group = d.fp
+              AND to_environment = d.te AND to_path_group = d.tp`;
+          yield* sql`DELETE FROM project_navigation_cluster_connections WHERE project_id = ${projectId} AND connection_count = 0`;
+          yield* sql`DELETE FROM project_navigation_observations WHERE rowid IN (
+            SELECT o.rowid FROM navigation_delete_edges e CROSS JOIN project_navigation_observations o
+              ON o.project_id = ${projectId} AND o.transition_id = e.transition_id)`;
+          yield* sql`DELETE FROM project_navigation_feedback WHERE rowid IN (
+            SELECT f.rowid FROM navigation_delete_edges e CROSS JOIN project_navigation_feedback f
+              ON f.project_id = ${projectId} AND f.transition_id = e.transition_id)`;
+          yield* sql`DELETE FROM project_navigation_connections WHERE rowid IN (
+            SELECT c.rowid FROM navigation_delete_edges e CROSS JOIN project_navigation_connections c
+              ON c.project_id = ${projectId} AND c.transition_id = e.transition_id)`;
           yield* sql`DELETE FROM project_navigation_observations WHERE project_id = ${projectId} AND state_id = ${id}`;
           yield* pruneStates(sql);
           yield* deleteNavigationState(sql, projectId, id);

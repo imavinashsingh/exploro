@@ -370,6 +370,8 @@ it.effect(
       const after = yield* memory.navigationOverview({ projectId: project });
       assert.strictEqual(after.clusters[0]?.stateCount, 6);
       assert.strictEqual(after.connections[0]?.count, 4);
+      assert.strictEqual(after.clusters[0]?.incomingCount, 4);
+      assert.strictEqual(after.clusters[0]?.outgoingCount, 4);
       const sql = yield* SqlClient.SqlClient;
       yield* sql.withTransaction(Navigation.forgetNavigationRun(sql, "review"));
       yield* sql.withTransaction(Navigation.forgetNavigationRun(sql, "run"));
@@ -507,7 +509,7 @@ it.effect(
         ...state("Employee"),
         id: "b",
         path: "/pim/view/1?tab=2#details",
-        aliases: ["Person"],
+        aliases: ["Person", "ÉQUIPE", "Person"],
       };
       for (const projectId of [project, other]) {
         for (const s of [a, b])
@@ -551,6 +553,24 @@ it.effect(
           })).states[0]?.id,
           b.id,
         );
+        assert.deepStrictEqual(
+          (yield* memory.navigationSearch({
+            projectId: project,
+            query: "équipe",
+            limit: 50,
+          })).states.map((s) => s.id),
+          [b.id],
+        );
+        assert.deepStrictEqual(
+          (yield* memory.destinations(project, b.environment, "ÉQUIPE")).states.map((s) => s.id),
+          [b.id],
+        );
+        const migratedOverview = yield* memory.navigationOverview({ projectId: project });
+        assert.strictEqual(
+          migratedOverview.clusters.reduce((sum, cluster) => sum + cluster.stateCount, 0),
+          2,
+        );
+        assert.strictEqual(migratedOverview.connections[0]?.count, 1);
         const [count] = yield* sql<{
           observation_count: number;
         }>`SELECT observation_count FROM project_navigation_connections WHERE project_id = ${project} AND transition_id = 'edge'`;
@@ -578,6 +598,10 @@ it.effect(
           observation_count: number;
         }>`SELECT observation_count FROM project_navigation_connections WHERE project_id = ${project} AND transition_id = 'edge'`;
         assert.strictEqual(restored?.observation_count, 1001);
+        assert.deepStrictEqual(
+          yield* memory.navigationOverview({ projectId: project }),
+          migratedOverview,
+        );
         yield* sql.withTransaction(Navigation.forgetNavigationRun(sql, "review"));
         assert.isTrue((yield* memory.snapshot(project)).transitions[0]!.available);
       }).pipe(Effect.provide(Navigation.layer.pipe(Layer.provide(NodeCrypto.layer))));
