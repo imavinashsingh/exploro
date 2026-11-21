@@ -14,6 +14,7 @@ vi.mock("../../../state/server", () => {
   return {
     serverEnvironment: {
       projectMemorySnapshot: query("overview"),
+      navigationLive: query("live"),
       navigationOverview: query("overview"),
       navigationChildren: query("children"),
       navigationNeighborhood: query("neighborhood"),
@@ -31,6 +32,7 @@ vi.mock("../../../state/use-atom-command", () => ({
 
 function setup(pendingRoute = false) {
   mocks.queries.clear();
+  mocks.queries.set("live", Atom.make(AsyncResult.initial()));
   const state = (id: string, name: string) => ({
     id,
     name,

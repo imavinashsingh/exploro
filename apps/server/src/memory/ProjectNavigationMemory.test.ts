@@ -3,6 +3,7 @@ import { ProjectId, NavigationState } from "@t3tools/contracts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Sqlite from "../persistence/Sqlite.ts";
@@ -731,4 +732,121 @@ it.effect(
         assert.ok(collapsed.states.every((s) => s.path.startsWith("/web/index.php/pim/employee/")));
       }
     }).pipe(Effect.provide(layer)),
+);
+
+it.effect("coalesces committed navigation revisions with bounded hints and project isolation", () =>
+  Effect.gen(function* () {
+    const memory = yield* Navigation.ProjectNavigationMemory;
+    const sql = yield* SqlClient.SqlClient;
+    const pull = yield* Stream.toPull(memory.subscribe(project));
+    const initial = yield* pull;
+    assert.strictEqual(initial[0]?.revision, 0);
+    const observe = (projectId: ProjectId, name: string, stepIndex: number, action?: string) =>
+      memory.observe(projectId, {
+        state: state(name),
+        threadId: "thread",
+        runId: "run",
+        tabId: "tab",
+        stepIndex,
+        action,
+      });
+    const first = yield* observe(project, "First", 0);
+    const second = yield* observe(project, "Second", 1, "Continue");
+    yield* observe(other, "Other", 0);
+    yield* TestClock.adjust("500 millis");
+    const [event] = yield* pull;
+    assert.strictEqual(event?.revision, 2);
+    assert.deepStrictEqual(new Set(event?.stateIds), new Set([first.id, second.id]));
+    assert.deepStrictEqual(event?.clusters, [
+      { environment: "https://shop.test", pathGroup: "/shared" },
+    ]);
+    const [edge] = (yield* memory.snapshot(project)).transitions;
+    assert.isDefined(edge);
+    yield* memory.feedback(project, "review", edge!.id, "mismatch");
+    yield* TestClock.adjust("500 millis");
+    const [feedback] = yield* pull;
+    assert.strictEqual(feedback?.revision, 3);
+    assert.deepStrictEqual(new Set(feedback?.stateIds), new Set([first.id, second.id]));
+    yield* memory.deleteRecord(project, first.id);
+    yield* TestClock.adjust("500 millis");
+    const [deleted] = yield* pull;
+    assert.strictEqual(deleted?.revision, 4);
+    assert.deepStrictEqual(new Set(deleted?.stateIds), new Set([first.id, second.id]));
+    const survivor = yield* observe(project, "Survivor", 2);
+    yield* sql.withTransaction(Navigation.forgetNavigationRun(sql, "run"));
+    yield* TestClock.adjust("500 millis");
+    const [forgotten] = yield* pull;
+    assert.strictEqual(forgotten?.revision, 6);
+    assert.isFalse(forgotten?.all);
+    assert.deepStrictEqual(forgotten?.stateIds, [survivor.id]);
+    assert.deepStrictEqual(forgotten?.clusters, [
+      { environment: "https://shop.test", pathGroup: "/shared" },
+    ]);
+  }).pipe(Effect.scoped, Effect.provide(layer)),
+);
+
+it.effect("rolls back revisions with writes and caps coalesced state hints", () =>
+  Effect.gen(function* () {
+    const memory = yield* Navigation.ProjectNavigationMemory;
+    const sql = yield* SqlClient.SqlClient;
+    const observe = (name: string) =>
+      memory.observe(project, {
+        state: state(name),
+        threadId: "thread",
+        runId: "run",
+        tabId: "tab",
+        stepIndex: 0,
+      });
+    const rolledBack = yield* Effect.exit(
+      sql.withTransaction(
+        Effect.gen(function* () {
+          yield* observe("Rolled back");
+          return yield* Effect.fail("rollback");
+        }),
+      ),
+    );
+    assert.strictEqual(rolledBack._tag, "Failure");
+    const pull = yield* Stream.toPull(memory.subscribe(project));
+    assert.strictEqual((yield* pull)[0]?.revision, 0);
+    assert.lengthOf((yield* memory.snapshot(project)).states, 0);
+    for (let i = 0; i < 51; i++) yield* observe(`Screen ${i}`);
+    yield* TestClock.adjust("500 millis");
+    const [event] = yield* pull;
+    assert.strictEqual(event?.revision, 51);
+    assert.isTrue(event?.all);
+    assert.deepStrictEqual(event?.stateIds, []);
+    assert.deepStrictEqual(event?.clusters, []);
+  }).pipe(Effect.scoped, Effect.provide(layer)),
+);
+
+it.effect("does not open transactions or emit revisions while a subscriber is idle", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    let transactions = 0;
+    const instrumented = new Proxy(sql, {
+      get(target, property, receiver) {
+        if (property === "withTransaction") {
+          const withTransaction: typeof sql.withTransaction = (effect) => {
+            transactions += 1;
+            return sql.withTransaction(effect);
+          };
+          return withTransaction;
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    yield* Effect.gen(function* () {
+      const memory = yield* Navigation.ProjectNavigationMemory;
+      const pull = yield* Stream.toPull(memory.subscribe(project));
+      assert.strictEqual((yield* pull)[0]?.revision, 0);
+      const next = yield* Effect.forkScoped(pull);
+      yield* TestClock.adjust("5 seconds");
+      assert.isUndefined(next.pollUnsafe());
+      assert.strictEqual(transactions, 0);
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(Navigation.layer.pipe(Layer.provide(NodeCrypto.layer))),
+      Effect.provideService(SqlClient.SqlClient, instrumented),
+    );
+  }).pipe(Effect.provide(Sqlite.layerMemory)),
 );

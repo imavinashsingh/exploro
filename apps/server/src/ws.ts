@@ -2336,6 +2336,8 @@ export const layerWsRpc = (
           providerSessionManager.subscribePromptSuggestion(input.threadId),
         [WS_METHODS.scheduledTasksSubscribe]: (_input) =>
           scheduledTasks.subscribeList().pipe(Stream.map(withVisibleWebhookUrls)),
+        [WS_METHODS.projectNavigationSubscribe]: (input) =>
+          navigationMemory.subscribe(input.projectId),
         [WS_METHODS.projectNavigationOverview]: (input) =>
           navigationMemory.navigationOverview(input),
         [WS_METHODS.projectNavigationChildren]: (input) =>

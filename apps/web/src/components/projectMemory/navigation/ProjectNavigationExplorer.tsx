@@ -1,3 +1,11 @@
+import {
+  navigationCountSuffix,
+  navigationInvalidation,
+  stateLocation,
+  relativeSubgroup,
+  commonPathParent,
+} from "@t3tools/client-runtime/state/projectNavigation";
+import { useNavigationLive } from "./useNavigationLive";
 import type {
   EnvironmentId,
   ProjectId,
@@ -33,9 +41,6 @@ import {
   clusterId,
   levelKey,
   navigationLayout,
-  stateLocation,
-  relativeSubgroup,
-  commonPathParent,
   type NavigationLevel,
   type LayoutItem,
   type Positions,
@@ -53,7 +58,8 @@ export default function ProjectNavigationExplorer(props: {
     props.initialCluster ? { kind: "cluster", ...props.initialCluster } : { kind: "overview" },
   );
   const [knownGroups, setKnownGroups] = useState<Record<string, string[]>>({});
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelectedId] = useState<string | null>(null);
+  const [selectedMemory, setSelectedMemory] = useState<NavigationSummary | null>(null);
   const [query, setQuery] = useState(props.initialSearch ?? "");
   const [debounced, setDebounced] = useState("");
   const [filter, setFilter] = useState<"all" | "available" | "needs-recheck">("all");
@@ -210,7 +216,7 @@ export default function ProjectNavigationExplorer(props: {
               kind: "subgroup",
               description: gt("{count, plural, one {# screen} other {# screens}}{suffix}", {
                 count: g.stateCount,
-                suffix: g.countCapped ? "+" : "",
+                suffix: navigationCountSuffix(g.countCapped),
               }),
             })),
             ...stateItems,
@@ -309,7 +315,7 @@ export default function ProjectNavigationExplorer(props: {
         stateId: state.id,
         name: state.name,
       });
-      setSelected(state.id);
+      setSelected(state.id, state);
     }
   }
   function open(id: string) {
@@ -323,9 +329,16 @@ export default function ProjectNavigationExplorer(props: {
       if (state) choose(state, false);
     }
   }
-  const selectedState = states.find(
-    (s) => s.id === (items.find((i) => i.id === selected)?.stateId ?? selected),
-  );
+  function setSelected(id: string | null, state?: NavigationSummary) {
+    setSelectedId(id);
+    setSelectedMemory(
+      state ?? states.find((s) => s.id === (items.find((i) => i.id === id)?.stateId ?? id)) ?? null,
+    );
+  }
+  // Live refresh restarts cursor pages; the selected screen can belong to a later page.
+  const selectedState =
+    states.find((s) => s.id === (items.find((i) => i.id === selected)?.stateId ?? selected)) ??
+    selectedMemory;
   const detailsRefresh = useEnvironmentQueryRefresh(
     selectedState
       ? serverEnvironment.navigationDetails({
@@ -334,6 +347,23 @@ export default function ProjectNavigationExplorer(props: {
         })
       : null,
   );
+  useNavigationLive(props, (event) => {
+    const invalid = navigationInvalidation(event, {
+      cluster: level.kind === "cluster" ? level : undefined,
+      stateIds: [
+        selectedState?.id ?? "",
+        ...(level.kind === "neighborhood" ? states.map((state) => state.id) : []),
+      ],
+    });
+    overview.refresh();
+    if (invalid.children) children.refresh();
+    if (invalid.selection) {
+      detailsRefresh.refresh();
+      neighborhood.refresh();
+      route.refresh();
+    }
+    if (invalid.search) search.refresh();
+  });
   function refresh() {
     detailsRefresh.refresh();
     overview.refresh();

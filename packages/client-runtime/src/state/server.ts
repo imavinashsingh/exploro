@@ -1579,6 +1579,11 @@ export function createServerEnvironmentAtoms<R, E>(
       tag: WS_METHODS.scheduledTasksSubscribe,
     }),
     // Drop inactive navigation requests so closing the explorer or changing search cancels the RPC.
+    navigationLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:server:navigation:live",
+      idleTtlMs: 0,
+      tag: WS_METHODS.projectNavigationSubscribe,
+    }),
     navigationOverview: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:navigation:overview",
       idleTtlMs: 0,

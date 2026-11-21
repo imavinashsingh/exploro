@@ -1,4 +1,5 @@
 import {
+  NavigationRevision,
   NavigationDeleteInput,
   NavigationOverviewInput,
   NavigationOverview,
@@ -630,6 +631,7 @@ export const WS_METHODS = {
 
   scheduledTasksSubscribe: "scheduledTasks.subscribe",
   projectMemoryMap: "projectMemory.map",
+  projectNavigationSubscribe: "projectNavigation.subscribe",
   projectNavigationDelete: "projectNavigation.delete",
   projectNavigationOverview: "projectNavigation.overview",
   projectNavigationChildren: "projectNavigation.children",
@@ -2244,6 +2246,12 @@ const WsProjectMemoryMapRpc = Rpc.make(WS_METHODS.projectMemoryMap, {
 });
 
 const memoryError = Schema.Union([ProjectMemoryError, EnvironmentAuthorizationError]);
+const WsProjectNavigationSubscribeRpc = Rpc.make(WS_METHODS.projectNavigationSubscribe, {
+  payload: NavigationOverviewInput,
+  success: NavigationRevision,
+  error: memoryError,
+  stream: true,
+});
 const WsProjectNavigationOverviewRpc = Rpc.make(WS_METHODS.projectNavigationOverview, {
   payload: NavigationOverviewInput,
   success: NavigationOverview,
@@ -2541,6 +2549,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsScheduledTasksSubscribeRpc,
   WsProjectMemoryMapRpc,
   WsProjectNavigationDeleteRpc,
+  WsProjectNavigationSubscribeRpc,
   WsProjectNavigationOverviewRpc,
   WsProjectNavigationChildrenRpc,
   WsProjectNavigationNeighborhoodRpc,

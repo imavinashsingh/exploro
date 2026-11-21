@@ -27,6 +27,8 @@ const words = (text: string) =>
 
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  yield* sql`CREATE TABLE project_navigation_revisions (
+    project_id TEXT PRIMARY KEY, revision INTEGER NOT NULL, hint TEXT NOT NULL, pending INTEGER NOT NULL DEFAULT 1)`;
   yield* sql`ALTER TABLE project_navigation_states ADD COLUMN environment TEXT NOT NULL DEFAULT ''`;
   yield* sql`ALTER TABLE project_navigation_states ADD COLUMN path TEXT NOT NULL DEFAULT ''`;
   yield* sql`ALTER TABLE project_navigation_states ADD COLUMN path_group TEXT NOT NULL DEFAULT '/'`;

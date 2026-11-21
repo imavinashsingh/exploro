@@ -1,3 +1,4 @@
+import { mergeNavigationStates } from "@t3tools/client-runtime/state/projectNavigation";
 import type { EnvironmentId, ProjectId, NavigationSummary } from "@t3tools/contracts";
 import { useState } from "react";
 import { useEnvironmentQuery } from "../../../state/query";
@@ -44,14 +45,14 @@ export function useNavigationPages(props: {
       : null,
   );
   const result = props.cluster ? children : search;
-  const states = [
-    ...new Map(
-      [...current.previous, ...(result.data?.states ?? [])].map((state) => [state.id, state]),
-    ).values(),
-  ];
+  const states = mergeNavigationStates(current.previous, result.data?.states ?? []);
   return {
     ...result,
     states,
+    refresh: () => {
+      setPage({ key, previous: [] });
+      if (!current.cursor) result.refresh();
+    },
     subgroups: children.data?.kind === "subgroups" ? children.data.subgroups : [],
     connections: children.data?.kind === "states" ? children.data.connections : [],
     connectionsTruncated: children.data?.kind === "states" && children.data.connectionsTruncated,

@@ -32,6 +32,7 @@ import { hideProvidedSecrets } from "./providedSecrets.ts";
 import { qaThreadFolder } from "../qa/qaEvidence.ts";
 import * as Option from "effect/Option";
 import * as ProjectNavigationMemory from "./ProjectNavigationMemory.ts";
+import { bumpNavigationRevision } from "./navigationRevision.ts";
 import { forgetNavigationRun } from "./ProjectNavigationMemory.ts";
 import {
   memoryEnvironment,
@@ -563,6 +564,7 @@ const make = Effect.gen(function* () {
             yield* navigation.value.deleteRecord(projectId, id);
           }),
         );
+        if (Option.isSome(navigation)) yield* navigation.value.notifyCommitted();
       },
       Effect.mapError(failure("Could not delete navigation memory.")),
     ),
@@ -665,6 +667,7 @@ const make = Effect.gen(function* () {
             yield* forgetNavigationRun(sql, runId);
           }),
         );
+        if (Option.isSome(navigation)) yield* navigation.value.notifyCommitted();
       },
       Effect.mapError(failure("Could not delete the run's facts.")),
     ),
@@ -691,6 +694,7 @@ const make = Effect.gen(function* () {
             yield* sql`DELETE FROM project_memory_facts WHERE project_id = ${projectId}`;
             yield* sql`DELETE FROM project_memory_deleted WHERE project_id = ${projectId}`;
             yield* sql`DELETE FROM project_memory_extractions WHERE project_id = ${projectId}`;
+            yield* bumpNavigationRevision(sql, projectId, [], true);
             yield* sql`DELETE FROM project_navigation_search WHERE rowid IN (SELECT rowid FROM project_navigation_states WHERE project_id = ${projectId})`;
             yield* sql`DELETE FROM project_navigation_terms WHERE project_id = ${projectId}`;
             yield* sql`DELETE FROM project_navigation_cluster_connections WHERE project_id = ${projectId}`;
@@ -701,6 +705,7 @@ const make = Effect.gen(function* () {
             yield* sql`DELETE FROM project_navigation_states WHERE project_id = ${projectId}`;
           }),
         );
+        if (Option.isSome(navigation)) yield* navigation.value.notifyCommitted();
       },
       Effect.mapError(failure("Could not delete the project's memory.")),
     ),

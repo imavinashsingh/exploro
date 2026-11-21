@@ -133,36 +133,3 @@ export function navigationLayout(
         );
   return { items: ordered, positions };
 }
-
-export function stateLocation(
-  state: { environment: string; path: string },
-  knownPrefixes: readonly string[] = [],
-) {
-  const segments = state.path.split(/[?#]/u)[0]!.split("/").filter(Boolean);
-  const controller = segments.findIndex((segment) => segment.includes("."));
-  const pathGroup = `/${segments[controller + 1] ?? ""}`;
-  const prefixes = knownPrefixes
-    .filter(
-      (prefix) => state.path.split(/[?#]/u)[0] === prefix || state.path.startsWith(`${prefix}/`),
-    )
-    .toSorted((a, b) => a.length - b.length);
-  return { environment: state.environment, pathGroup, prefixes };
-}
-export function relativeSubgroup(prefix: string, parent?: string) {
-  if (parent && prefix.startsWith(`${parent}/`)) return prefix.slice(parent.length);
-  const segments = prefix.split("/").filter(Boolean);
-  const controller = segments.findIndex((segment) => segment.includes("."));
-  return `/${segments.slice(controller + 2).join("/")}`;
-}
-
-export function commonPathParent(paths: readonly string[]) {
-  if (paths.length < 2) return undefined;
-  const segments = paths[0]!.split(/[?#]/u)[0]!.split("/");
-  const length = paths.reduce((length, path) => {
-    const other = path.split(/[?#]/u)[0]!.split("/");
-    let i = 0;
-    while (i < length && segments[i] === other[i]) i++;
-    return i;
-  }, segments.length);
-  return segments.slice(0, length).join("/") || "/";
-}

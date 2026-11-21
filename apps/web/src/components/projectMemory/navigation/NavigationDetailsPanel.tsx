@@ -1,8 +1,9 @@
+import { recognitionCheckLabel } from "@t3tools/client-runtime/state/projectNavigation";
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { useGT } from "gt-react";
+import { useGT, useMessages } from "gt-react";
 import { useEnvironmentQuery } from "../../../state/query";
 import { serverEnvironment } from "../../../state/server";
 import { useAtomCommand } from "../../../state/use-atom-command";
@@ -36,6 +37,7 @@ export function NavigationDetailsPanel(props: {
   onRouteFrom: () => void;
 }) {
   const gt = useGT();
+  const messages = useMessages();
   const { copyToClipboard } = useCopyToClipboard();
   const [confirm, setConfirm] = useState(false);
   const [pending, setPending] = useState(false);
@@ -98,16 +100,7 @@ export function NavigationDetailsPanel(props: {
               <ul className="space-y-2 text-xs">
                 {state.checks.map((check) => (
                   <li key={JSON.stringify(check)} className="rounded-md border p-2">
-                    {check.kind === "textVisible"
-                      ? gt("Text visible · {text}", { text: check.text })
-                      : check.kind === "urlIncludes"
-                        ? gt("URL includes · {value}", { value: check.value })
-                        : check.kind === "elementVisible"
-                          ? gt("Element visible · {target}", { target: check.target.display })
-                          : gt("Value equals · {target} = {value}", {
-                              target: check.target.display,
-                              value: check.value,
-                            })}
+                    {recognitionCheckLabel(check, messages)}
                   </li>
                 ))}
               </ul>
@@ -155,9 +148,9 @@ export function NavigationDetailsPanel(props: {
               <AlertDialog open={confirm} onOpenChange={setConfirm}>
                 <AlertDialogPopup>
                   <AlertDialogHeader>
-                    <AlertDialogTitle>{gt("Delete navigation state?")}</AlertDialogTitle>
+                    <AlertDialogTitle>{gt("Delete this screen from memory?")}</AlertDialogTitle>
                     <AlertDialogDescription>
-                      {gt("This removes the state and its connections from project memory.")}
+                      {gt("This removes the screen and its connections from project memory.")}
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>

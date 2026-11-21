@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import {
-  navigationLayout,
-  stateLocation,
-  relativeSubgroup,
-  commonPathParent,
-} from "./navigationLayout.logic";
+import { navigationLayout } from "./navigationLayout.logic";
 
 describe("navigation layout", () => {
   it("layers by shortest depth and puts unreachable cycles in the final column", () => {
@@ -70,33 +65,5 @@ describe("navigation layout", () => {
     expect(layout.positions.b!.x).toBe(0);
     expect(layout.positions.a!.x).toBe(260);
     expect(layout.positions.c!.y).toBeGreaterThan(layout.positions.a!.y);
-  });
-});
-
-describe("navigation locations", () => {
-  it("derives the state’s own environment and controller group, retaining only matching subgroup ancestors", () => {
-    const prefixes = ["/web/index.php/pim/viewEmployee/contact", "/web/index.php/pim/viewEmployee"];
-    expect(
-      stateLocation(
-        { environment: "https://other.test", path: "/web/index.php/dashboard/index" },
-        prefixes,
-      ),
-    ).toEqual({ environment: "https://other.test", pathGroup: "/dashboard", prefixes: [] });
-    expect(
-      stateLocation(
-        {
-          environment: "https://hrm.test",
-          path: "/web/index.php/pim/viewEmployee/contact/empNumber/1",
-        },
-        prefixes,
-      ).prefixes,
-    ).toEqual([...prefixes].reverse());
-    expect(
-      stateLocation({ environment: "https://other.test", path: "/dashboard?next=/pim" }).pathGroup,
-    ).toBe("/dashboard");
-    expect(relativeSubgroup("/web/index.php/pim/viewEmployee")).toBe("/viewEmployee");
-    expect(relativeSubgroup(prefixes[0]!, prefixes[1])).toBe("/contact");
-    const siblings = [prefixes[0]!, "/web/index.php/pim/viewEmployee/job"];
-    expect(relativeSubgroup(siblings[0]!, commonPathParent(siblings))).toBe("/contact");
   });
 });

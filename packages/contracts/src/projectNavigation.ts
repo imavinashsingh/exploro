@@ -192,3 +192,13 @@ export const NavigationRoutePreview = Schema.Struct({
   limit: Count,
   truncated: Schema.Boolean,
 });
+
+export const NavigationRevision = Schema.Struct({
+  revision: Count,
+  clusters: Schema.Array(
+    Schema.Struct({ environment: Schema.String, pathGroup: Schema.String }),
+  ).check(Schema.isMaxLength(50)),
+  stateIds: Schema.Array(Schema.String).check(Schema.isMaxLength(50)),
+  all: Schema.Boolean,
+});
+export type NavigationRevision = typeof NavigationRevision.Type;

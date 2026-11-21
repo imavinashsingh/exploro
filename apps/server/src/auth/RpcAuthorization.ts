@@ -120,6 +120,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.scheduledTasksSubscribe]: AuthOrchestrationReadScope,
   [WS_METHODS.projectMemoryMap]: AuthOrchestrationReadScope,
   [WS_METHODS.projectMemorySnapshot]: AuthOrchestrationReadScope,
+  [WS_METHODS.projectNavigationSubscribe]: AuthOrchestrationReadScope,
   [WS_METHODS.projectNavigationOverview]: AuthOrchestrationReadScope,
   [WS_METHODS.projectNavigationChildren]: AuthOrchestrationReadScope,
   [WS_METHODS.projectNavigationNeighborhood]: AuthOrchestrationReadScope,

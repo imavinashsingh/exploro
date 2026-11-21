@@ -22,6 +22,11 @@ import {
   NavigationRoutePreview,
   type NavigationSummary,
 } from "@t3tools/contracts";
+import { bumpNavigationRevision } from "./navigationRevision.ts";
+import * as PubSub from "effect/PubSub";
+import * as Stream from "effect/Stream";
+import * as Latch from "effect/Latch";
+import { NavigationRevision } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -57,6 +62,10 @@ interface ObservationInput {
 export class ProjectNavigationMemory extends Context.Service<
   ProjectNavigationMemory,
   {
+    readonly notifyCommitted: () => Effect.Effect<void>;
+    readonly subscribe: (
+      projectId: ProjectId,
+    ) => Stream.Stream<NavigationRevision, ProjectMemoryError>;
     readonly statesAtAddress: (
       projectId: ProjectId,
       environment: string,
@@ -119,6 +128,7 @@ const failure = (cause: unknown) =>
   isMemoryError(cause)
     ? cause
     : new ProjectMemoryError({ message: "Could not access navigation memory.", cause });
+const decodeRevision = Schema.decodeEffect(Schema.fromJsonString(NavigationRevision));
 const encodeState = Schema.encodeEffect(Schema.fromJsonString(NavigationState));
 const encodeTransition = Schema.encodeEffect(Schema.fromJsonString(NavigationTransition));
 const stateJson = Schema.decodeEffect(Schema.fromJsonString(NavigationState));
@@ -202,6 +212,9 @@ export const forgetNavigationRun = Effect.fn("ProjectNavigationMemory.forgetRun"
   sql: SqlClient.SqlClient,
   runId: string,
 ) {
+  const projects = yield* sql<{
+    project_id: string;
+  }>`SELECT DISTINCT project_id FROM project_navigation_observations WHERE run_id = ${runId} UNION SELECT project_id FROM project_navigation_feedback WHERE run_id = ${runId}`;
   yield* preparePrune(sql);
   yield* sql`CREATE TEMP TABLE IF NOT EXISTS navigation_rebuild (project_id TEXT NOT NULL, transition_id TEXT NOT NULL, PRIMARY KEY(project_id, transition_id)) WITHOUT ROWID`;
   yield* sql`DELETE FROM navigation_rebuild`;
@@ -213,6 +226,16 @@ export const forgetNavigationRun = Effect.fn("ProjectNavigationMemory.forgetRun"
     JOIN project_navigation_connections c ON c.project_id = r.project_id AND c.transition_id = r.transition_id
     UNION SELECT c.project_id, c.to_state_id FROM navigation_rebuild r
     JOIN project_navigation_connections c ON c.project_id = r.project_id AND c.transition_id = r.transition_id`;
+  for (const row of projects) {
+    const states = yield* sql<{
+      state_id: string;
+    }>`SELECT p.state_id FROM navigation_prune p JOIN project_navigation_states s ON s.project_id = p.project_id AND s.state_id = p.state_id WHERE p.project_id = ${row.project_id} LIMIT 51`;
+    yield* bumpNavigationRevision(
+      sql,
+      row.project_id,
+      states.map((state) => state.state_id),
+    );
+  }
   while (true) {
     const rows = yield* sql<{
       observation_id: string;
@@ -273,6 +296,39 @@ const pageCursor = (id: string) => Buffer.from(JSON.stringify(id)).toString("bas
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  const changes = yield* PubSub.unbounded<{ projectId: string; event: NavigationRevision }>();
+  const pending = yield* Latch.make();
+  const notifyCommitted = Effect.fn("ProjectNavigationMemory.notifyCommitted")(() =>
+    sql.afterCommit(Effect.asVoid(pending.open)),
+  );
+  let subscribers = 0;
+  const publishPending = Effect.fn("ProjectNavigationMemory.publishPending")(function* () {
+    const rows = yield* sql<{
+      project_id: string;
+      revision: number;
+      hint: string;
+    }>`SELECT project_id, revision, hint FROM project_navigation_revisions WHERE pending = 1`;
+    if (rows.length === 0) return;
+    yield* sql.withTransaction(
+      Effect.forEach(
+        rows,
+        (row) =>
+          sql`UPDATE project_navigation_revisions SET pending = 0 WHERE project_id = ${row.project_id} AND revision = ${row.revision}`,
+        { discard: true },
+      ),
+    );
+    for (const row of rows)
+      yield* PubSub.publish(changes, {
+        projectId: row.project_id,
+        event: yield* decodeRevision(row.hint),
+      });
+  });
+  yield* Effect.gen(function* () {
+    yield* pending.await;
+    yield* Effect.sleep("500 millis");
+    yield* pending.close;
+    if (subscribers > 0) yield* publishPending().pipe(Effect.ignore);
+  }).pipe(Effect.forever, Effect.forkScoped);
   const digest = yield* Digest.Digest;
   const hash = Effect.fn("ProjectNavigationMemory.hash")(function* (text: string) {
     return Hex.encode(yield* digest.digest(Digest.sha256, new TextEncoder().encode(text)));
@@ -812,6 +868,38 @@ const make = Effect.gen(function* () {
   );
 
   return ProjectNavigationMemory.of({
+    notifyCommitted,
+    subscribe: (projectId) =>
+      Stream.unwrap(
+        Effect.gen(function* () {
+          const subscription = yield* PubSub.subscribe(changes);
+          yield* Effect.acquireRelease(
+            Effect.sync(() => {
+              subscribers += 1;
+              pending.openUnsafe();
+            }),
+            () =>
+              Effect.sync(() => {
+                subscribers -= 1;
+              }),
+          );
+          const [row] = yield* sql<{
+            revision: number;
+          }>`SELECT revision FROM project_navigation_revisions WHERE project_id = ${projectId}`.pipe(
+            Effect.mapError(failure),
+          );
+          const revision = row?.revision ?? 0;
+          return Stream.concat(
+            Stream.succeed({ revision, clusters: [], stateIds: [], all: true }),
+            Stream.fromSubscription(subscription).pipe(
+              Stream.filter(
+                (item) => item.projectId === projectId && item.event.revision > revision,
+              ),
+              Stream.map((item) => item.event),
+            ),
+          );
+        }),
+      ),
     statesAtAddress,
     destinations,
     navigationRoute: route,
@@ -880,6 +968,8 @@ const make = Effect.gen(function* () {
           if (edge !== null) yield* storeNavigationConnection(sql, projectId, edge);
           yield* sql`INSERT INTO project_navigation_observations (observation_id, project_id, thread_id, run_id, tab_id, state_id, step_index, transition_json, observed_at, transition_id)
           VALUES (${observationId}, ${projectId}, ${input.threadId}, ${input.runId}, ${input.tabId}, ${state.id}, ${input.stepIndex}, ${edge === null ? null : yield* encodeTransition(edge)}, ${observedAt}, ${edge?.id ?? null})`;
+          yield* bumpNavigationRevision(sql, projectId, [state.id, ...(source ? [source.id] : [])]);
+          yield* notifyCommitted();
           return NavigationState.make(stored);
         }),
       );
@@ -892,16 +982,20 @@ const make = Effect.gen(function* () {
     ) {
       yield* sql.withTransaction(
         Effect.gen(function* () {
-          const [known] =
-            yield* sql`SELECT 1 FROM project_navigation_connections WHERE project_id = ${projectId} AND transition_id = ${transitionId}`;
+          const [known] = yield* sql<{
+            from_state_id: string;
+            to_state_id: string;
+          }>`SELECT from_state_id, to_state_id FROM project_navigation_connections WHERE project_id = ${projectId} AND transition_id = ${transitionId}`;
           if (known === undefined)
             return yield* new ProjectMemoryError({ message: "Unknown navigation connection." });
+          yield* bumpNavigationRevision(sql, projectId, [known.from_state_id, known.to_state_id]);
           const observedAt = yield* now;
           yield* sql`INSERT INTO project_navigation_feedback (feedback_id, project_id, transition_id, run_id, outcome, observed_at)
           VALUES (${yield* random.uuidV4()}, ${projectId}, ${transitionId}, ${runId}, ${outcome}, ${observedAt})`;
           if (outcome === "mismatch")
             yield* sql`UPDATE project_navigation_connections SET last_mismatch_at = MAX(COALESCE(last_mismatch_at, ''), ${observedAt})
           WHERE project_id = ${projectId} AND transition_id = ${transitionId}`;
+          yield* notifyCommitted();
         }),
       );
     }, Effect.mapError(failure)),
@@ -921,6 +1015,14 @@ const make = Effect.gen(function* () {
           yield* sql`INSERT OR IGNORE INTO navigation_prune
             SELECT ${projectId}, from_state_id FROM navigation_delete_edges
             UNION SELECT ${projectId}, to_state_id FROM navigation_delete_edges`;
+          const affected = yield* sql<{
+            state_id: string;
+          }>`SELECT p.state_id FROM navigation_prune p JOIN project_navigation_states s ON s.project_id = p.project_id AND s.state_id = p.state_id WHERE p.project_id = ${projectId} LIMIT 51`;
+          yield* bumpNavigationRevision(
+            sql,
+            projectId,
+            affected.map((row) => row.state_id),
+          );
           // Rowid lookups keep the UPDATE planner from scanning every state in the project.
           yield* sql`UPDATE project_navigation_states SET outgoing_count = outgoing_count - d.count
             FROM (SELECT from_state_id AS id, COUNT(*) AS count FROM navigation_delete_edges GROUP BY from_state_id) d
@@ -961,6 +1063,7 @@ const make = Effect.gen(function* () {
           yield* sql`DELETE FROM project_navigation_observations WHERE project_id = ${projectId} AND state_id = ${id}`;
           yield* pruneStates(sql);
           yield* deleteNavigationState(sql, projectId, id);
+          yield* notifyCommitted();
         }),
       );
     }, Effect.mapError(failure)),

@@ -1,3 +1,4 @@
+import { useNavigationLive } from "./useNavigationLive";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { useState } from "react";
 import { useGT } from "gt-react";
@@ -18,6 +19,7 @@ export function ProjectNavigationSummary(props: {
       input: { projectId: props.projectId },
     }),
   );
+  useNavigationLive(props, () => overview.refresh());
   return (
     <section className="flex min-w-0 flex-col gap-3 overflow-x-hidden text-xs">
       <Input

@@ -40,6 +40,7 @@ describe("RPC authorization scopes", () => {
 
   it("allows navigation explorer reads with the snapshot read scope", () => {
     for (const method of [
+      WS_METHODS.projectNavigationSubscribe,
       WS_METHODS.projectNavigationOverview,
       WS_METHODS.projectNavigationChildren,
       WS_METHODS.projectNavigationNeighborhood,
