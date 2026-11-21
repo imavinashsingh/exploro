@@ -142,7 +142,26 @@ const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(functio
         VALUES ('delivery-1', 'task-1', 'key-1', 1900000000000, '{}', '{}', '[]')`;
       yield* sql`INSERT INTO auth_sessions (session_id, subject, scopes, method, issued_at, expires_at)
         VALUES ('session-1', 'user', '[]', 'pairing', '2026-08-01', '2027-08-01')`;
-      if (toMigrationInclusive === undefined) yield* insertPeerLink(sql);
+      if (toMigrationInclusive === undefined) {
+        yield* insertPeerLink(sql);
+        // The deleted first state leaves a rowid gap, so search rows must be re-keyed on copy.
+        for (const stateId of ["state-gone", "state-kept"]) {
+          const [row] = yield* sql<{ rowid: number }>`INSERT INTO project_navigation_states
+            (project_id, state_id, data, environment, path, path_group, check_count)
+            VALUES ('project-kept', ${stateId}, '{}', 'https://app.test', '/pim/list', '/pim', 0)
+            RETURNING rowid`;
+          yield* sql`INSERT INTO project_navigation_search(rowid, text)
+            VALUES (${row!.rowid}, ${`${stateId} employee list /pim/list`})`;
+        }
+        yield* sql`DELETE FROM project_navigation_search WHERE rowid =
+          (SELECT rowid FROM project_navigation_states WHERE state_id = 'state-gone')`;
+        yield* sql`DELETE FROM project_navigation_states WHERE state_id = 'state-gone'`;
+        yield* sql`INSERT INTO project_navigation_connections
+          (project_id, transition_id, from_state_id, to_state_id, action, conditions_json,
+            last_run_id, last_thread_id, last_observed_at, observation_count)
+          VALUES ('project-kept', 'edge-1', 'state-kept', 'state-kept', 'Reload', '{}',
+            'run-1', 'stopped-thread', '2026-08-01', 1)`;
+      }
     }),
   );
   return databasePath;
@@ -194,7 +213,12 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
                 (SELECT COUNT(*) FROM scheduled_task_webhook_pending) AS webhooks,
               (SELECT COUNT(*) FROM orchestration_v2_projection_context_transfers) AS transfers,
               (SELECT COUNT(*) FROM peer_environment_links) AS links`;
-          return { threads, events, sessions, pullRequest, project, leftovers };
+          const navigation = yield* sql<{ state_id: string; available: number }>`
+            SELECT s.state_id, c.available FROM project_navigation_search f
+            JOIN project_navigation_states s ON s.rowid = f.rowid
+            JOIN project_navigation_connections c ON c.from_state_id = s.state_id
+            WHERE project_navigation_search MATCH 'employee'`;
+          return { threads, events, sessions, pullRequest, project, leftovers, navigation };
         }),
       );
       assert.deepStrictEqual(
@@ -234,6 +258,7 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
         ],
         "copied project scripts stay listed but never run on settle in the original checkout",
       );
+      assert.deepStrictEqual(kept.navigation, [{ state_id: "state-kept", available: 1 }]);
       assert.deepStrictEqual(kept.leftovers, {
         auth: 0,
         tasks: 0,

@@ -238,6 +238,12 @@ const copySourceSlice = Effect.fn("copyDevDbSourceSlice")(function* (sourcePath:
         SELECT m.name, c."notnull" FROM src.sqlite_master m, pragma_table_info(m.name, 'src') c
         WHERE m.type = 'table' AND c.name = 'thread_id'`;
       const threadIdNullable = new Map(threadColumns.map((row) => [row.name, row.notnull === 0]));
+      // Generated columns are computed on insert, so `SELECT *` would supply one value too many.
+      const storedColumns = yield* sql<{ table: string; columns: string }>`
+        SELECT m.name AS "table", group_concat('"' || replace(c.name, '"', '""') || '"', ',') AS columns
+        FROM src.sqlite_master m, pragma_table_xinfo(m.name, 'src') c
+        WHERE m.type = 'table' AND c.hidden = 0 GROUP BY m.name`;
+      const columnsOf = new Map(storedColumns.map((row) => [row.table, row.columns]));
       // FTS5 makes its own shadow tables and contentless rows cannot be copied:
       // create the virtual table, skip its shadow tables and rows, and rebuild the
       // index once the messages and triggers are in.
@@ -308,8 +314,10 @@ const copySourceSlice = Effect.fn("copyDevDbSourceSlice")(function* (sourcePath:
             : nullable === undefined || name === PROVIDER_SESSIONS_TABLE
               ? ""
               : `WHERE thread_id IN (SELECT thread_id FROM copied_threads)${nullable ? " OR thread_id IS NULL" : ""}`;
-        yield* sql.unsafe(`INSERT INTO main."${name}" SELECT * FROM src."${name}" ${filter}`)
-          .unprepared;
+        const columns = columnsOf.get(name) ?? "*";
+        yield* sql.unsafe(
+          `INSERT INTO main."${name}"${columns === "*" ? "" : `(${columns})`} SELECT ${columns} FROM src."${name}" ${filter}`,
+        ).unprepared;
       }
       yield* sql`DELETE FROM main.sqlite_sequence`;
       yield* sql`INSERT INTO main.sqlite_sequence SELECT name, seq FROM src.sqlite_sequence`;
@@ -317,6 +325,14 @@ const copySourceSlice = Effect.fn("copyDevDbSourceSlice")(function* (sourcePath:
         if (entry.type !== "table") yield* sql.unsafe(entry.sql).unprepared;
       }
       yield* rebuildMessageSearch(sql);
+      if (virtualTables.includes("project_navigation_search")) {
+        // Search rows are keyed by state rowid, which the copy does not keep.
+        yield* sql`INSERT INTO main.project_navigation_search(rowid, text)
+          SELECT d.rowid, f.text FROM src.project_navigation_search f
+          JOIN src.project_navigation_states s ON s.rowid = f.rowid
+          JOIN main.project_navigation_states d
+            ON d.project_id = s.project_id AND d.state_id = s.state_id`;
+      }
     }),
   );
   yield* sql`DETACH DATABASE src`;
