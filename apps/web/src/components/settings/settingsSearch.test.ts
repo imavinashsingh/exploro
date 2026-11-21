@@ -80,6 +80,7 @@ describe("searchSettings", () => {
       "pull-request-routing",
       "ghq-clone-layout",
       "new-threads",
+      "git-fetch-interval",
     ]) {
       expect(SETTINGS_SEARCH_ITEMS.some((item) => item.id === id)).toBe(false);
     }
@@ -126,7 +127,8 @@ describe("searchSettings", () => {
     expect(searchSettings("thè\u{1ab0}mes")[0]?.id).toBe("theme");
     const localeLowerCase = vi.spyOn(String.prototype, "toLocaleLowerCase").mockReturnValue("gıt");
     try {
-      expect(searchSettings("GIT")[0]?.id).toBe("git-fetch-interval");
+      // Exploro: Git fetch interval is hidden, so a visible title with an "I" stands in.
+      expect(searchSettings("THREAD DETAILS")[0]?.id).toBe("thread-details-items");
       expect(localeLowerCase).not.toHaveBeenCalled();
     } finally {
       localeLowerCase.mockRestore();

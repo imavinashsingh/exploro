@@ -190,6 +190,7 @@ const EXPLORO_HIDDEN_SETTINGS_ITEMS: ReadonlySet<string> = new Set([
   "pull-request-routing",
   "ghq-clone-layout",
   "new-threads",
+  "git-fetch-interval",
 ]);
 export const SETTINGS_NAV_GROUPS = ALL_SETTINGS_NAV_GROUPS.map((group) => ({
   ...group,
