@@ -137,6 +137,12 @@ export class ServerBrowserContexts {
   private readonly options: Options;
   private readonly contexts = new Map<string, Promise<BrowserContext>>();
   private readonly clearing = new Map<string, Promise<void>>();
+  /** Tabs still using each isolated context, which tabs of one thread share. */
+  private readonly leases = new Map<Promise<BrowserContext>, number>();
+  private readonly leaseOf = new WeakMap<
+    BrowserContext,
+    { readonly key: string; readonly pending: Promise<BrowserContext> }
+  >();
   private browser: Promise<Browser> | undefined;
   private closing: Promise<void> | undefined;
   private idleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -236,15 +242,17 @@ export class ServerBrowserContexts {
     if (this.closing) return Promise.reject(new Error("The preview browser is closed."));
     const key = JSON.stringify([profileId, isolationKey ?? null]);
     const cached = this.contexts.get(key);
-    if (cached) return cached;
+    if (cached) return isolationKey === undefined ? cached : this.lease(cached);
     const cleared = this.clearing.get(key)?.catch(constVoid) ?? Promise.resolve();
     const pending = cleared
       .then(() => this.createContext(profileId, isolationKey))
       .then(async (context) => {
         context.on("close", () => {
           if (this.contexts.get(key) === pending) this.contexts.delete(key);
+          this.leases.delete(pending);
           this.options.onContextClose?.(context);
         });
+        if (isolationKey !== undefined) this.leaseOf.set(context, { key, pending });
         for (const page of context.pages()) await page.close().catch(constVoid);
         if (this.closing) {
           await context.close().catch(constVoid);
@@ -255,8 +263,38 @@ export class ServerBrowserContexts {
     this.contexts.set(key, pending);
     void pending.catch(() => {
       if (this.contexts.get(key) === pending) this.contexts.delete(key);
+      this.leases.delete(pending);
     });
+    return isolationKey === undefined ? pending : this.lease(pending);
+  }
+
+  // Counted on request, so a tab opening while another closes keeps the context alive.
+  private lease(pending: Promise<BrowserContext>) {
+    this.leases.set(pending, (this.leases.get(pending) ?? 0) + 1);
     return pending;
+  }
+
+  /** Adds a lease for a page that joined an isolated context, such as a popup. */
+  retain(context: BrowserContext) {
+    const lease = this.leaseOf.get(context);
+    if (!lease || !this.leases.has(lease.pending)) return false;
+    this.lease(lease.pending);
+    return true;
+  }
+
+  /** Ends a lease on an isolated context and closes it after the last one. */
+  async release(context: BrowserContext) {
+    const lease = this.leaseOf.get(context);
+    const remaining = lease ? (this.leases.get(lease.pending) ?? 1) - 1 : 0;
+    if (lease && remaining > 0) {
+      this.leases.set(lease.pending, remaining);
+      return;
+    }
+    if (lease) {
+      this.leases.delete(lease.pending);
+      if (this.contexts.get(lease.key) === lease.pending) this.contexts.delete(lease.key);
+    }
+    await context.close();
   }
 
   private async createContext(profileId: string, isolationKey?: string) {

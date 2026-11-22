@@ -677,7 +677,7 @@ const make = Effect.gen(function* () {
       );
       dropTab(tab, false, true);
       // A context that is still closing would take the new page down with it.
-      if (tab.isolatedContext) await tab.page.context().close().catch(constVoid);
+      if (tab.isolatedContext) await contexts.release(tab.page.context()).catch(constVoid);
       const { sessions } = await runPromise(manager.list({ threadId: tab.threadId }));
       const snapshot = sessions.find(
         (session) => session.tabId === tab.tabId && session.runtime === "server",
@@ -1047,7 +1047,8 @@ const make = Effect.gen(function* () {
         .close({ runBeforeUnload: tab.dialog === null && tab.crash === undefined })
         .catch(() => page.close())
         .catch(constVoid);
-      if (tab.isolatedContext) void closed.then(() => page.context().close()).catch(constVoid);
+      if (tab.isolatedContext)
+        void closed.then(() => contexts.release(page.context())).catch(constVoid);
     }
     void tab.recording?.encoder.close().catch(constVoid);
     void NodeFSP.rm(downloadDir(tab), { recursive: true, force: true }).catch(constVoid);
@@ -1117,8 +1118,12 @@ const make = Effect.gen(function* () {
   ): Promise<ServerTab> => {
     const adopted = adoptedPages.get(tabKey(snapshot.threadId, snapshot.tabId));
     adoptedPages.delete(tabKey(snapshot.threadId, snapshot.tabId));
+    const agentSession =
+      snapshot.automationOwner !== undefined &&
+      (snapshot.profileId === undefined || snapshot.profileId === INCOGNITO_BROWSER_PROFILE_ID);
+    // The desktop's incognito partition is shared by every thread, so an agent session stays here.
     const desktop =
-      adopted === undefined && (await desktopRenders(snapshot))
+      adopted === undefined && !agentSession && (await desktopRenders(snapshot))
         ? await connectDesktop(snapshot)
         : null;
     if (desktop) opened.push(desktop.close);
@@ -1132,19 +1137,21 @@ const make = Effect.gen(function* () {
           .pipe(Effect.ignore),
       );
     }
-    const isolatedContext =
-      adopted === undefined &&
-      desktop === null &&
-      ((snapshot.automationOwner !== undefined && snapshot.profileId === undefined) ||
-        snapshot.profileId === INCOGNITO_BROWSER_PROFILE_ID);
+    const isolatedContext = adopted
+      ? contexts.retain(adopted.page.context())
+      : desktop === null && (agentSession || snapshot.profileId === INCOGNITO_BROWSER_PROFILE_ID);
     const context =
       adopted?.page.context() ??
       desktop?.page.context() ??
       (await contexts.contextFor(
         snapshot.profileId ?? "default",
-        isolatedContext ? tabKey(snapshot.threadId, snapshot.tabId) : undefined,
+        !isolatedContext
+          ? undefined
+          : agentSession
+            ? `agent\u0000${snapshot.threadId}`
+            : tabKey(snapshot.threadId, snapshot.tabId),
       ));
-    if (isolatedContext) opened.push(() => context.close());
+    if (isolatedContext) opened.push(() => contexts.release(context));
     if (adopted?.page.isClosed()) throw new Error("The popup closed before it opened.");
     if (!desktop) await prepareContext(context);
     const page = adopted?.page ?? desktop?.page ?? (await context.newPage());
@@ -2045,7 +2052,8 @@ const make = Effect.gen(function* () {
   };
 
   const resolveOpenProfile = (requested: string | undefined): string | undefined => {
-    if (requested === undefined) return reportedProfiles?.defaultProfileId;
+    // Each thread's agent starts signed out, so a QA run never depends on an earlier one.
+    if (requested === undefined) return INCOGNITO_BROWSER_PROFILE_ID;
     const profiles = reportedProfiles?.profiles ?? BUILT_IN_BROWSER_PROFILES;
     const wanted = requested.toLowerCase();
     const match =

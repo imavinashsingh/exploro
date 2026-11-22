@@ -23,7 +23,7 @@ const BoundedUrl = Schema.String.check(Schema.isTrimmed())
   .check(Schema.isMaxLength(2048));
 const URL_GUIDANCE = "Absolute http(s) URL, or a bare host (https; http for loopback).";
 const PROFILE_GUIDANCE =
-  "Profile id or name from preview_status, for a new tab. Default: the user's. A tab keeps its profile.";
+  "Profile id or name from preview_status. Default: fresh session per thread. A tab keeps its profile.";
 const OptionalTimeoutMs = Schema.optional(
   Schema.Int.check(Schema.isGreaterThan(0)).check(Schema.isLessThanOrEqualTo(60_000)),
 ).annotate({ description: "Default 15000." });
