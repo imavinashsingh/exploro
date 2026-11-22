@@ -44,16 +44,39 @@ export function redactFactInput(input: ProjectMemoryFactInput): ProjectMemoryFac
   };
 }
 
+/** A run that could not check a scenario says nothing new about it. */
+export const isObservedVerdict = (value: string) => /^(PASS|FAIL)\b/u.test(value);
+
+const scenarioName = (name: string) => name.trim().replace(/\s+/g, " ").toLowerCase();
+
 export interface RunResultFact {
-  readonly input: ProjectMemoryFactInput;
-  readonly observedAt: string;
+  readonly scenarioIndex: number;
+  /** Earlier recordings of the same scenario in this run, which this one corrects. */
+  readonly corrects: ReadonlyArray<number>;
+  /** Null when the latest recording has nothing to remember, such as a BLOCKED verdict. */
+  readonly fact: { readonly input: ProjectMemoryFactInput; readonly observedAt: string } | null;
 }
 
+/** One entry per scenario name: only its latest recording in the run counts. */
 export function resultFactsFor(run: QaRun): ReadonlyArray<RunResultFact> {
-  return run.scenarios.flatMap((scenario) => {
+  const byName = new Map<string, Array<QaRun["scenarios"][number]>>();
+  for (const scenario of run.scenarios) {
+    const name = scenarioName(scenario.scenario);
+    byName.set(name, [...(byName.get(name) ?? []), scenario]);
+  }
+  return [...byName.values()].map((recordings) => {
+    const scenario = recordings.at(-1)!;
+    const corrects = recordings.slice(0, -1).map((earlier) => earlier.index);
     const url = scenario.pageUrl ?? run.site;
     const environment = url === null ? null : memoryEnvironment(url);
-    if (url === null || environment === null || scenario.stateId === null) return [];
+    if (
+      url === null ||
+      environment === null ||
+      scenario.stateId === null ||
+      !isObservedVerdict(scenario.verdict)
+    ) {
+      return { scenarioIndex: scenario.index, corrects, fact: null };
+    }
     const ref = (type: ProjectMemoryEvidenceRef["type"]): ProjectMemoryEvidenceRef => ({
       threadId: run.threadId,
       runId: run.runId,
@@ -66,8 +89,10 @@ export function resultFactsFor(run: QaRun): ReadonlyArray<RunResultFact> {
       ...(scenario.networkPath === null ? [] : [ref("network")]),
     ];
     const cause = scenario.downgradeReason ?? scenario.actual ?? scenario.note;
-    return [
-      {
+    return {
+      scenarioIndex: scenario.index,
+      corrects,
+      fact: {
         observedAt: scenario.recordedAt,
         input: redactFactInput({
           stateId: scenario.stateId,
@@ -83,6 +108,6 @@ export function resultFactsFor(run: QaRun): ReadonlyArray<RunResultFact> {
           author: "server",
         }),
       },
-    ];
+    };
   });
 }

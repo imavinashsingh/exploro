@@ -13,6 +13,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as TestClock from "effect/testing/TestClock";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ServerConfig from "../config.ts";
@@ -731,4 +732,34 @@ it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
       },
     ),
   );
+
+  it.effect("learns again when a follow-up turn finishes the same run", () => {
+    const prompts: Array<string> = [];
+    return withUnderstanding(
+      Effect.gen(function* () {
+        const extraction = yield* UnderstandingExtraction.UnderstandingExtraction;
+        const first = yield* finishedRun(shop, [
+          { scenario: "Login works", verdict: "PASS", path: "/login" },
+        ]);
+        yield* extraction.enqueue(first.run);
+        yield* extraction.extract(first.run.runId);
+        yield* TestClock.adjust("1 minute");
+        // One thread is one run: the follow-up turn reopens and finishes it again.
+        const second = yield* finishedRun(shop, [
+          { scenario: "Checkout opens", verdict: "PASS", path: "/checkout" },
+        ]);
+        assert.strictEqual(second.run.runId, first.run.runId);
+        yield* extraction.enqueue(second.run);
+        yield* extraction.extract(second.run.runId);
+        assert.strictEqual(prompts.length, 2);
+        assert.include(prompts[1], "Checkout opens");
+      }),
+      {
+        generate: (input) => {
+          prompts.push(input.prompt);
+          return noItems(input);
+        },
+      },
+    );
+  });
 });

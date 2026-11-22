@@ -82,13 +82,14 @@ const make = Effect.gen(function* () {
   );
   const fail = (message: string) => (cause: unknown) => new ProjectMemoryError({ message, cause });
 
+  // A follow-up turn may requeue the run mid-extraction; that pending mark must survive.
   const markStatus = (runId: string, status: string, error: string | null) =>
     Effect.flatMap(
       nowIso,
       (updatedAt) => sql`
         UPDATE project_memory_extractions
         SET status = ${status}, error = ${error}, updated_at = ${updatedAt}
-        WHERE run_id = ${runId}
+        WHERE run_id = ${runId} AND status = 'running'
       `,
     );
 
@@ -250,7 +251,10 @@ const make = Effect.gen(function* () {
           INSERT INTO project_memory_extractions (
             run_id, project_id, thread_id, status, error, attempts, updated_at
           ) VALUES (${run.runId}, ${run.projectId}, ${run.threadId}, 'pending', NULL, 0, ${updatedAt})
-          ON CONFLICT (run_id) DO NOTHING
+          ON CONFLICT (run_id) DO UPDATE
+            SET status = 'pending', error = NULL, updated_at = excluded.updated_at
+            -- A follow-up turn finishes the same run again; learn only from what is newer.
+            WHERE project_memory_extractions.updated_at < ${run.finishedAt}
           RETURNING run_id
         `;
         if (inserted.length > 0) yield* Queue.offer(queue, run.runId);

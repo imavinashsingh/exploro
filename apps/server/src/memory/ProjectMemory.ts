@@ -38,6 +38,7 @@ import {
   memoryEnvironment,
   memoryRoute,
   redactFactInput,
+  isObservedVerdict,
   resultFactsFor,
 } from "./projectMemoryFacts.ts";
 
@@ -146,8 +147,6 @@ const decodeLogJson = Schema.decodeUnknownOption(
 );
 
 const DEFAULT_LOOKUP_LIMIT = 100;
-// A run that could not check a scenario says nothing new about it.
-const isObservedVerdict = (value: string) => /^(PASS|FAIL)\b/u.test(value);
 
 const isProjectMemoryError = Schema.is(ProjectMemoryError);
 const failure = (message: string) => (cause: unknown) =>
@@ -642,9 +641,24 @@ const make = Effect.gen(function* () {
         `;
         const recordedScenarios = new Set(recorded.map((row) => row.scenarioIndex));
         let written = 0;
-        for (const { input, observedAt } of resultFactsFor(run)) {
-          if (recordedScenarios.has(input.evidence[0]?.scenarioIndex ?? -1)) continue;
-          if ((yield* write(projectId, input, observedAt, secrets)) !== null) written += 1;
+        for (const { scenarioIndex, corrects, fact } of resultFactsFor(run)) {
+          if (recordedScenarios.has(scenarioIndex)) continue;
+          if (corrects.length > 0) {
+            const corrected = yield* sql`
+              ${selectFacts}
+              WHERE project_id = ${projectId} AND kind = 'result' AND author = 'server'
+                AND EXISTS (
+                  SELECT 1 FROM json_each(evidence_json)
+                  WHERE json_extract(value, '$.runId') = ${run.runId}
+                    AND json_extract(value, '$.scenarioIndex') IN ${sql.in(corrects)}
+                )
+            `.pipe(Effect.flatMap(decodeRows));
+            yield* sql.withTransaction(deleteRows(corrected));
+          }
+          if (fact === null) continue;
+          if ((yield* write(projectId, fact.input, fact.observedAt, secrets)) !== null) {
+            written += 1;
+          }
         }
         return written;
       },
