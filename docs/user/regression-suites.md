@@ -8,7 +8,8 @@ you check its verdicts. After that, the same steps and checks rerun for free, as
 1. Let an agent finish a test run. When it records a PASS, it saves checks that prove it, such as
    text the page shows or the URL it reached. Exploro tests each check on the live page before
    saving it.
-2. Open the thread's **Test run** section and choose **Save as regression**.
+2. Open the thread's **Test run** section and choose **Save as regression**, or ask the agent to
+   create a regression suite.
 
 Only scenarios that passed and have checks are saved. Exploro tells you which scenarios it left
 out and why, for example one that came after a drag and drop, a file upload, a dialog or a

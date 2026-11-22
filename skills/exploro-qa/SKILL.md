@@ -111,6 +111,8 @@ or `elementVisible` / `valueEquals` with `locator='aria-ref=<ref>'` from your la
 checks each on the live page before saving it and returns `droppedChecks` for any that did not hold.
 Saved checks let the user replay the run later as a regression suite without a model, so pick ones
 that prove the result, not ones that are true of every page.
+When the user asks for a regression suite, finish the run with `qa_report_finish`, then save it with
+`qa_regression_save`. It keeps only PASS scenarios with checks, so verify a flow before saving it.
 
 ## Project memory
 
