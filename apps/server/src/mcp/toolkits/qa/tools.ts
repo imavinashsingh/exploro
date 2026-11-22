@@ -18,11 +18,14 @@ import {
   QaEvidenceRecordInput,
   QaRun,
   QaRunError,
+  QaRunId,
   ProjectMemoryError,
   ProjectMemoryFactKind,
   QaScenario,
+  QaSuiteCreateResult,
   QaSuiteId,
   QaSuiteSummary,
+  TrimmedNonEmptyString,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { McpSchema, Tool, Toolkit } from "effect/ai";
@@ -166,7 +169,7 @@ const regressionDependencies = [
 
 const QaRegressionListTool = Tool.make("qa_regression_list", {
   description:
-    "List saved regression suites: passed QA runs a replay repeats without a model. Each has a suiteId for qa_regression_run.",
+    "List saved regression suites: passed QA runs a replay repeats without a model. Each has a suiteId for qa_regression_run. qa_regression_save makes one from a finished run.",
   success: Schema.Struct({ suites: Schema.Array(QaSuiteSummary) }),
   failure,
   dependencies: regressionDependencies,
@@ -174,6 +177,21 @@ const QaRegressionListTool = Tool.make("qa_regression_list", {
   .annotate(Tool.Title, "List regression suites")
   .annotate(Tool.Readonly, true)
   .annotate(Tool.Destructive, false);
+
+const QaRegressionSaveTool = Tool.make("qa_regression_save", {
+  description:
+    "Save a finished QA test run of this thread as a regression suite that replays without a model. Defaults to the thread's latest test run; call qa_report_finish first if it is still open. Only PASS scenarios with saved checks are kept; `skipped` says which were left out and why. Returns the suite for qa_regression_run.",
+  parameters: Schema.Struct({
+    runId: Schema.optional(QaRunId),
+    name: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(120))),
+  }),
+  success: QaSuiteCreateResult,
+  failure,
+  dependencies: regressionDependencies,
+})
+  .annotate(Tool.Title, "Save regression suite")
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 
 const QaRegressionRunTool = Tool.make("qa_regression_run", {
   description:
@@ -228,6 +246,7 @@ export const QaToolkit = Toolkit.make(
   NavigationRouteTool,
   NavigationFeedbackTool,
   QaRegressionListTool,
+  QaRegressionSaveTool,
   QaRegressionRunTool,
   QaEvidenceRecordTool,
   QaReportFinishTool,

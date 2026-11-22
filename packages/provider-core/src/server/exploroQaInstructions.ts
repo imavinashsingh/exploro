@@ -105,7 +105,9 @@ For a PASS, also pass \`checks\`: what the page shows that proves it, such as
 or \`elementVisible\` / \`valueEquals\` with \`locator='aria-ref=<ref>'\` from your latest snapshot. Exploro
 checks each on the live page before saving it and returns \`droppedChecks\` for any that did not hold.
 Saved checks let the user replay the run later as a regression suite without a model, so pick ones
-that prove the result, not ones that are true of every page.`,
+that prove the result, not ones that are true of every page.
+When the user asks for a regression suite, finish the run with \`qa_report_finish\`, then save it with
+\`qa_regression_save\`. It keeps only PASS scenarios with checks, so verify a flow before saving it.`,
   `## Project memory
 
 A thread in a project starts with a "Project memory from earlier runs" brief when there is one, and

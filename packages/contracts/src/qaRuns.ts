@@ -369,7 +369,8 @@ export type QaSuitesSnapshot = typeof QaSuitesSnapshot.Type;
 
 export const QaSuiteCreateInput = Schema.Struct({
   threadId: ThreadId,
-  runId: QaRunId,
+  /** Defaults to the thread's latest test run. */
+  runId: Schema.optional(QaRunId),
   name: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(120))),
 });
 export type QaSuiteCreateInput = typeof QaSuiteCreateInput.Type;

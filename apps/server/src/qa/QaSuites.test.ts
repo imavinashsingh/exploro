@@ -295,6 +295,8 @@ it.layer(NodeServices.layer)("QaSuites", (it) => {
         assert.include(run.scenarios[2]!.note, "Test broken: step 4");
         assert.notInclude(run.scenarios[2]!.note, "Healing");
         assert.include(run.scenarios[3]!.note, "Not run");
+        // Without a run id it saves the thread's latest test run, never the replay above.
+        assert.strictEqual((yield* suites.create({ threadId })).suite.scenarioCount, 4);
         assert.include(run.scenarios[0]!.steps.join("\n"), 'Type "{{secret:1}}"');
         assert.notInclude(JSON.stringify(run), "s3cret!");
       }).pipe(Effect.provide(yield* layer({})));
