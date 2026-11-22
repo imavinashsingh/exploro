@@ -120,6 +120,8 @@ export class DesktopBrowserHost extends Context.Service<
       readonly key: DesktopBrowserTabKey;
       readonly active: boolean;
     }>;
+    /** Whether an agent turn runs on a thread with an attached tab, each time that changes. */
+    readonly agentDriving: Stream.Stream<boolean>;
   }
 >()("@t3tools/desktop/preview/DesktopBrowserHost") {}
 
@@ -135,6 +137,7 @@ export const make = Effect.gen(function* () {
     readonly key: DesktopBrowserTabKey;
     readonly active: boolean;
   }>();
+  const driving = yield* PubSub.unbounded<boolean>();
   const runFork = Effect.runForkWith(yield* Effect.context<never>());
   const tabs = new Map<string, AttachedTab>();
   /** Threads whose agent turn runs, by the server's account. */
@@ -145,6 +148,14 @@ export const make = Effect.gen(function* () {
   const drawnTabs = new Set<string>();
   const drawWaiters = new Map<string, Set<() => void>>();
   const emit = (event: DesktopBrowserEventType) => runFork(PubSub.publish(outbox, event));
+
+  let agentDriving = false;
+  const syncAgentDriving = () => {
+    const next = [...tabs.values()].some((tab) => agentTurns.has(tab.key.threadId));
+    if (next === agentDriving) return;
+    agentDriving = next;
+    runFork(PubSub.publish(driving, next));
+  };
 
   const nextScreenshot = (tab: AttachedTab) => {
     tab.screenshotTurn = null;
@@ -344,6 +355,7 @@ export const make = Effect.gen(function* () {
    */
   const endAgentTurn = (threadId: string) => {
     agentTurns.delete(threadId);
+    syncAgentDriving();
     for (const tab of tabs.values()) {
       if (tab.key.threadId !== threadId) continue;
       tab.agentUsed = false;
@@ -509,6 +521,7 @@ export const make = Effect.gen(function* () {
     const tab = tabs.get(id);
     if (!tab) return;
     tabs.delete(id);
+    syncAgentDriving();
     const announced = tab.stopWaiting === null;
     tab.stopWaiting?.();
     tab.relay = null;
@@ -559,6 +572,7 @@ export const make = Effect.gen(function* () {
       stopWaiting: null,
     };
     tabs.set(id, tab);
+    syncAgentDriving();
     debuggee.debugger.on("message", tab.onMessage);
     debuggee.webContents.on("did-navigate", tab.onNewDocument);
     const announce = () => {
@@ -636,8 +650,10 @@ export const make = Effect.gen(function* () {
       const command = decodeCommand(line);
       if (Option.isNone(command)) return;
       if (command.value.type === "turn") {
-        if (command.value.active) agentTurns.add(command.value.threadId);
-        else endAgentTurn(command.value.threadId);
+        if (command.value.active) {
+          agentTurns.add(command.value.threadId);
+          syncAgentDriving();
+        } else endAgentTurn(command.value.threadId);
         return;
       }
       const tab = tabs.get(keyOf(command.value));
@@ -668,6 +684,7 @@ export const make = Effect.gen(function* () {
   const announceAll = Effect.suspend(() => {
     // A new backend: the old one's turns ended without telling us.
     agentTurns.clear();
+    syncAgentDriving();
     return Effect.forEach(
       [...tabs.values()],
       (tab) => {
@@ -690,6 +707,7 @@ export const make = Effect.gen(function* () {
   return DesktopBrowserHost.of({
     pointers: Stream.fromPubSub(pointers),
     painting: Stream.fromPubSub(painting),
+    agentDriving: Stream.fromPubSub(driving),
     // Subscribes before announcing, so no attach falls between the two.
     events: Stream.unwrap(
       Effect.gen(function* () {

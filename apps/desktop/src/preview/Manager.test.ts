@@ -2470,6 +2470,64 @@ describe("PreviewManager", () => {
   );
 
   effectIt.effect(
+    "keeps the main window unthrottled while an agent turn drives a tab, through a recording",
+    () =>
+      Effect.gen(function* () {
+        const host = yield* DesktopBrowserHost.DesktopBrowserHost;
+        const serverTab = { threadId: "thread-1", tabId: "server-tab-1" };
+        fromId.mockReturnValue(
+          Object.assign(
+            makeTestPreviewWebContents(
+              async () => ({
+                toJPEG: () => Buffer.from("frame"),
+                getSize: () => ({ width: 100, height: 80 }),
+              }),
+              42,
+            ),
+            { isDevToolsOpened: () => false, getUserAgent: () => "Electron" },
+          ),
+        );
+        const throttling = yield* Queue.unbounded<boolean>();
+        const setBackgroundThrottling = vi.fn((enabled: boolean) => {
+          Queue.offerUnsafe(throttling, enabled);
+        });
+        const manager = yield* PreviewManager.PreviewManager;
+        const attached = yield* Deferred.make<void>();
+        yield* host.events.pipe(
+          Stream.runForEach((line) =>
+            new TextDecoder().decode(line).includes('"type":"attached"')
+              ? Deferred.succeed(attached, undefined)
+              : Effect.void,
+          ),
+          Effect.forkScoped,
+        );
+        yield* manager.createTab("tab_1", { serverTab });
+        yield* manager.registerWebview("tab_1", 42);
+        yield* Deferred.await(attached);
+        yield* manager.setMainWindow({
+          isDestroyed: () => false,
+          once: vi.fn(),
+          webContents: { setBackgroundThrottling },
+        } as never);
+        const turn = (active: boolean) =>
+          host.handleCommandLine(
+            JSON.stringify({ type: "turn", threadId: serverTab.threadId, active }),
+          );
+
+        yield* turn(true);
+        expect(yield* Queue.take(throttling)).toBe(false);
+        // A recording that ends mid-turn must not throttle the window the agent still needs.
+        yield* manager.startRecording("tab_1");
+        yield* manager.stopRecording("tab_1");
+        expect(setBackgroundThrottling.mock.calls).toEqual([[false], [false]]);
+
+        yield* turn(false);
+        expect(yield* Queue.take(throttling)).toBe(false);
+        expect(yield* Queue.take(throttling)).toBe(true);
+      }).pipe(Effect.provide(managerLayer())),
+  );
+
+  effectIt.effect(
     "opens a new-tab link in the background only when the agent's input led to it",
     () =>
       Effect.gen(function* () {

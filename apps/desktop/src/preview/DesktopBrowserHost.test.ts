@@ -649,6 +649,30 @@ describe("DesktopBrowserHost", () => {
     }),
   );
 
+  it.effect("drives only while a running turn's thread has an attached tab", () =>
+    Effect.gen(function* () {
+      const host = yield* makeDrawnHost;
+      const driving: Array<boolean> = [];
+      yield* host.agentDriving.pipe(
+        Stream.runForEach((value) => Effect.sync(() => driving.push(value))),
+        Effect.forkScoped,
+      );
+      yield* Effect.yieldNow;
+      const turn = (threadId: string, active: boolean) =>
+        host.handleCommandLine(encodeJson({ type: "turn", threadId, active }));
+
+      // Another thread's turn drives nothing here; this one's starts before its tab attaches.
+      yield* turn("other-thread", true);
+      yield* turn(key.threadId, true);
+      host.attach(key, makeDebuggee().tab);
+      host.detach(key);
+      host.attach(key, makeDebuggee().tab);
+      yield* turn(key.threadId, false);
+      yield* Effect.yieldNow;
+      expect(driving).toEqual([true, false, true, false]);
+    }),
+  );
+
   it.effect("paints for a screenshot queued behind one its viewer abandoned mid-capture", () =>
     Effect.gen(function* () {
       const host = yield* makeDrawnHost;
