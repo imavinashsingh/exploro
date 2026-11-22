@@ -271,9 +271,18 @@ const make = Effect.gen(function* () {
   });
 
   const create = Effect.fn("QaSuites.create")(function* (input: QaSuiteCreateInput) {
-    const run = (yield* qaRuns.list(input.threadId)).find((entry) => entry.runId === input.runId);
+    const runs = yield* qaRuns.list(input.threadId);
+    const run =
+      input.runId === undefined
+        ? runs.find((entry) => entry.kind !== "regression")
+        : runs.find((entry) => entry.runId === input.runId);
     if (run === undefined)
-      return yield* new QaRunError({ message: "That QA run no longer exists." });
+      return yield* new QaRunError({
+        message:
+          input.runId === undefined
+            ? "This thread has no QA test run to save."
+            : "That QA run no longer exists.",
+      });
     if (run.finishedAt === null)
       return yield* new QaRunError({ message: "Finish the run before saving it as a suite." });
     if (run.kind === "regression")

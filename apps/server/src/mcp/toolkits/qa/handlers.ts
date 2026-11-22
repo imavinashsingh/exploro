@@ -194,6 +194,16 @@ export const layer = McpToolAccess.toLayer(QaToolkit, {
       return { suites: yield* (yield* QaSuites.QaSuites).list };
     }),
   ),
+  qa_regression_save: McpToolAccess.actsAsCaller(({ runId, name }) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.requireThreadMcpCapability("preview");
+      return yield* (yield* QaSuites.QaSuites).create({
+        threadId: scope.thread.threadId,
+        ...(runId === undefined ? {} : { runId }),
+        ...(name === undefined ? {} : { name }),
+      });
+    }),
+  ),
   qa_regression_run: McpToolAccess.writes(({ suiteId, baseUrl }) =>
     Effect.gen(function* () {
       const suites = yield* QaSuites.QaSuites;
