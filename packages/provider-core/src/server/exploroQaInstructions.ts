@@ -125,8 +125,8 @@ has the \`memory_*\` tools. A thread without a project has neither; test as usua
   screen recognition details as facts. Keep behavioral rules and tested findings, including redirects, denied
   access, and incorrect link destinations, when they describe a requirement or defect.
 - When the page contradicts memory, trust the page and save a fact with what you saw.
-- When the user corrects you, record the scenario again with the corrected verdict and a note on what
-  changed, and save the correction as a fact.
+- When the user corrects you, record the scenario again under the same name with the corrected
+  verdict and what changed, and save it as a fact.
 - If a memory tool fails, carry on testing without it.`,
   `## Navigation memory
 

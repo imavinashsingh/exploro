@@ -2,7 +2,12 @@ import * as ProjectUnderstanding from "./ProjectUnderstanding.ts";
 import * as MemoryEmbedder from "./MemoryEmbedder.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ProjectId, ThreadId, type ProjectMemoryFactInput } from "@t3tools/contracts";
+import {
+  ProjectId,
+  ThreadId,
+  type ProjectMemoryFactInput,
+  type QaVerdict,
+} from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
@@ -107,7 +112,7 @@ const finishedRun = (
   projectId: ProjectId | null,
   scenarios: ReadonlyArray<{
     scenario: string;
-    verdict: "PASS" | "FAIL";
+    verdict: QaVerdict;
     url: string;
     requests?: QaRuns.QaPageCapture["networkEntries"];
   }>,
@@ -292,6 +297,29 @@ it.layer(NodeServices.layer)("ProjectMemory", (it) => {
     ),
   );
 
+  it.effect("keeps only a scenario's latest observed verdict from a run", () =>
+    withMemory(
+      Effect.gen(function* () {
+        const memory = yield* ProjectMemory.ProjectMemory;
+        yield* finishedRun(shop, [
+          { scenario: "Switch subscriber", verdict: "FAIL", url: "https://shop.test/dashboard" },
+          { scenario: "Checkout submits", verdict: "BLOCKED", url: "https://shop.test/login" },
+          { scenario: "Cart opens", verdict: "FAIL", url: "https://shop.test/cart" },
+        ]);
+        // A follow-up turn re-records after the user corrected the agent.
+        yield* finishedRun(shop, [
+          { scenario: "Switch subscriber", verdict: "PASS", url: "https://shop.test/other" },
+          { scenario: "cart  opens", verdict: "INCONCLUSIVE", url: "https://shop.test/cart" },
+        ]);
+        const facts = yield* memory.lookupFacts(shop, { kind: "result" });
+        assert.deepStrictEqual(
+          facts.map((row) => [row.route, row.key, row.value]),
+          [["/other", "Switch subscriber", "PASS"]],
+        );
+      }),
+    ),
+  );
+
   it.effect("writes nothing for a run without a project", () =>
     withMemory(
       Effect.gen(function* () {
@@ -466,9 +494,12 @@ it.layer(NodeServices.layer)("ProjectMemory", (it) => {
             author: "user",
           }),
         );
-        const older = yield* finishedRun(null, [
-          { scenario: "Login", verdict: "FAIL", url: "https://shop.test/login" },
-        ]);
+        const olderThread = ThreadId.make("thread-memory-older");
+        const older = yield* finishedRun(
+          null,
+          [{ scenario: "Login", verdict: "FAIL", url: "https://shop.test/login" }],
+          olderThread,
+        );
         yield* TestClock.adjust("1 second");
         yield* memory.putFact(
           shop,
@@ -484,7 +515,7 @@ it.layer(NodeServices.layer)("ProjectMemory", (it) => {
         yield* finishedRun(shop, [
           { scenario: "Login", verdict: "PASS", url: "https://shop.test/login" },
         ]);
-        yield* runs.rememberRun(threadId, older.runId, shop);
+        yield* runs.rememberRun(olderThread, older.runId, shop);
         const current = yield* memory.lookupFacts(shop, { kind: "result" });
         assert.deepStrictEqual(
           current.map((row) => [row.value, row.appVersion]),
