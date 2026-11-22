@@ -597,6 +597,9 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   const frameCaptureSessionsRef = yield* SynchronizedRef.make<
     ReadonlyMap<string, FrameCaptureSession>
   >(new Map());
+  // A throttled window that gets minimized composites no guest, so every capture an agent
+  // sends hangs until the window is restored. Throttling must be off before the minimize.
+  const agentDrivingRef = yield* Ref.make(false);
   const pictureInPictureSessionsRef = yield* SynchronizedRef.make<
     ReadonlyMap<string, PictureInPictureSession>
   >(new Map());
@@ -706,6 +709,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     );
   });
   const setFrameCaptureBackgroundThrottling = Effect.fnUntraced(function* (enabled: boolean) {
+    if (enabled && (yield* Ref.get(agentDrivingRef))) return;
     const mainWindow = yield* Ref.get(mainWindowRef);
     if (Option.isNone(mainWindow)) return;
     yield* setWindowBackgroundThrottling(mainWindow.value, enabled);
@@ -1727,7 +1731,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       Effect.gen(function* () {
         // Cleanup or lock acquisition can outlive the replacement window.
         if (window.isDestroyed()) return [undefined, sessions] as const;
-        if (sessions.size > 0) {
+        if (sessions.size > 0 || (yield* Ref.get(agentDrivingRef))) {
           yield* setWindowBackgroundThrottling(window, false);
         }
         yield* Ref.set(mainWindowRef, Option.some(window));
@@ -3638,6 +3642,17 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       }
     },
   );
+  const updateAgentDriving = Effect.fn("PreviewManager.updateAgentDriving")(function* (
+    driving: boolean,
+  ) {
+    yield* SynchronizedRef.modifyEffect(frameCaptureSessionsRef, (sessions) =>
+      Effect.gen(function* () {
+        yield* Ref.set(agentDrivingRef, driving);
+        if (driving || sessions.size === 0) yield* setFrameCaptureBackgroundThrottling(!driving);
+        return [undefined, sessions] as const;
+      }),
+    );
+  });
   let browserHostStarted = false;
   // Subscribes before the attach that follows, so no event falls between the two.
   const listenToBrowserHost = Effect.suspend(() => {
@@ -3648,6 +3663,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       [
         browserHost.pointers.pipe(Stream.runForEach(emitAgentPointer), listen),
         browserHost.painting.pipe(Stream.runForEach(updateServerTabCapturing), listen),
+        browserHost.agentDriving.pipe(Stream.runForEach(updateAgentDriving), listen),
       ],
       { discard: true },
     );
