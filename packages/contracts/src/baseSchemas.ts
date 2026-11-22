@@ -316,6 +316,12 @@ export const ScheduledTaskId = makeEntityId("ScheduledTaskId");
 /** A one-use handle to a secret the user entered for an agent; the agent never sees the value. */
 export const SecretRef = makeEntityId("SecretRef");
 export type SecretRef = typeof SecretRef.Type;
+/** A password the user chose to save for a project; reusable there, and the agent never sees it. */
+export const QaSavedSecretId = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(64),
+  Schema.isPattern(/^qa-secret-[0-9a-f]+$/),
+);
+export type QaSavedSecretId = typeof QaSavedSecretId.Type;
 export type ScheduledTaskId = typeof ScheduledTaskId.Type;
 export const ApprovalRequestId = makeEntityId("ApprovalRequestId");
 export type ApprovalRequestId = typeof ApprovalRequestId.Type;

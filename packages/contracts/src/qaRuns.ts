@@ -1,7 +1,13 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import { NonNegativeInt, ProjectId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import {
+  NonNegativeInt,
+  ProjectId,
+  QaSavedSecretId,
+  ThreadId,
+  TrimmedNonEmptyString,
+} from "./baseSchemas.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import { PreviewAutomationAssertion, PreviewAutomationDurableTarget } from "./previewAutomation.ts";
 
@@ -310,12 +316,6 @@ export const QaSuiteSummary = Schema.Struct({
   proposals: Schema.Array(QaHealProposal),
 });
 export type QaSuiteSummary = typeof QaSuiteSummary.Type;
-
-export const QaSavedSecretId = TrimmedNonEmptyString.check(
-  Schema.isMaxLength(64),
-  Schema.isPattern(/^qa-secret-[0-9a-f]+$/),
-);
-export type QaSavedSecretId = typeof QaSavedSecretId.Type;
 
 /** A password the user chose to remember for a project's suites; the value stays on the server. */
 export const QaSavedSecret = Schema.Struct({

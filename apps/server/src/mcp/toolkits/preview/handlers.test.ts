@@ -16,6 +16,7 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Stream from "effect/Stream";
 
@@ -207,7 +208,7 @@ it.effect("preview_act types a secretRef's value unseen and consumes it once", (
     const reused = yield* Effect.flip(act({ secretRef: ref }));
     expect(reused.message).toContain("already used");
     const both = yield* Effect.flip(act({ secretRef: ref, text: "x" }));
-    expect(both.message).toContain("not both");
+    expect(both.message).toContain("Pass one of");
     expect(requests.filter((request) => request.operation === "type")).toHaveLength(1);
 
     remembered.length = 0;
@@ -218,6 +219,30 @@ it.effect("preview_act types a secretRef's value unseen and consumes it once", (
       target: passwordField,
       text: "{{saved:qa-secret-0a}}",
     });
+
+    // A saved password is reusable in later threads, and its step stays replayable.
+    const savedId = QaSavedSecretId.make("qa-secret-0a");
+    for (const _ of [1, 2]) {
+      const typedSaved = yield* act({ savedSecretId: savedId });
+      expect(JSON.stringify(typedSaved.at(-1)?.result)).not.toContain("s3cret!");
+      expect(loggedSteps.at(-1)).toEqual({
+        kind: "type",
+        target: passwordField,
+        text: "{{saved:qa-secret-0a}}",
+      });
+    }
+    expect(
+      requests.filter((request) => request.operation === "type").map(({ input }) => input),
+    ).toEqual([
+      { locator: "aria-ref=e7", text: "hunter2!" },
+      { locator: "aria-ref=e7", text: "s3cret!" },
+      { locator: "aria-ref=e7", text: "s3cret!" },
+      { locator: "aria-ref=e7", text: "s3cret!" },
+    ]);
+    const unknown = yield* Effect.flip(
+      act({ savedSecretId: QaSavedSecretId.make("qa-secret-ff") }),
+    );
+    expect(unknown.message).toContain("No saved password");
   }).pipe(
     Effect.provideService(McpInvocationContext.McpInvocationContext, {
       environmentId: EnvironmentId.make("environment-1"),
@@ -245,6 +270,8 @@ it.effect("preview_act types a secretRef's value unseen and consumes it once", (
               remembered.push({ label: input.label, value: input.value });
               return QaSavedSecretId.make("qa-secret-0a");
             }),
+          read: (_projectId, secretId) =>
+            Effect.succeed(secretId === "qa-secret-0a" ? Option.some("s3cret!") : Option.none()),
         }),
       ).pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
     ),

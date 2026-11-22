@@ -115,9 +115,17 @@ export const PROJECT_UNDERSTANDING_KINDS = [
   "test-strategy",
   "lesson",
   "open-question",
+  "account",
+  "instruction",
 ] as const;
 export const ProjectUnderstandingKind = Schema.Literals(PROJECT_UNDERSTANDING_KINDS);
 export type ProjectUnderstandingKind = typeof ProjectUnderstandingKind.Type;
+
+/** How the user tests the project rather than how its app behaves; every thread starts with these. */
+export const PROJECT_CONTEXT_KINDS = [
+  "account",
+  "instruction",
+] as const satisfies ReadonlyArray<ProjectUnderstandingKind>;
 
 /** Agents write hypotheses or verified items; only the user confirms. */
 export const ProjectUnderstandingStatus = Schema.Literals(["hypothesis", "verified", "confirmed"]);

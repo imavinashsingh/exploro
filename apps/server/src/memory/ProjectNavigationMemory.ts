@@ -70,7 +70,6 @@ export class ProjectNavigationMemory extends Context.Service<
       projectId: ProjectId,
       environment: string,
       path: string,
-      context?: Readonly<Record<string, string>>,
     ) => Effect.Effect<ReadonlyArray<NavigationState>, ProjectMemoryError>;
     readonly destinations: (
       projectId: ProjectId,
@@ -134,7 +133,6 @@ const encodeTransition = Schema.encodeEffect(Schema.fromJsonString(NavigationTra
 const stateJson = Schema.decodeEffect(Schema.fromJsonString(NavigationState));
 const decodeCursor = Schema.decodeEffect(Schema.fromJsonString(Schema.String));
 const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
-const encodeContext = Schema.encodeEffect(Schema.fromJsonString(NavigationState.fields.context));
 
 export function navigationRoute(
   snapshot: NavigationSnapshot,
@@ -395,12 +393,9 @@ const make = Effect.gen(function* () {
     projectId: ProjectId,
     environment: string,
     path: string,
-    context: Readonly<Record<string, string>> = {},
   ) {
     const rows = yield* sql<{ data: string }>`SELECT data FROM project_navigation_states
       WHERE project_id = ${projectId} AND environment = ${environment} AND path = ${path}
-      AND NOT EXISTS (SELECT 1 FROM json_each(${yield* encodeContext(context)}) c
-        WHERE EXISTS (SELECT 1 FROM json_each(data, '$.context') saved WHERE saved.key = c.key AND saved.value != c.value))
       ORDER BY check_count DESC, state_id LIMIT 8`;
     return yield* Effect.forEach(rows, (row) => stateJson(row.data));
   }, Effect.mapError(failure));
@@ -947,6 +942,7 @@ const make = Effect.gen(function* () {
           const source = prior === undefined ? undefined : yield* stateJson(prior.data);
           const edge =
             source !== undefined &&
+            source.id !== state.id &&
             previous !== undefined &&
             input.action !== undefined &&
             input.stepIndex > previous.stepIndex

@@ -43,7 +43,9 @@ it.effect("learns connected paths with isolated history and feedback", () =>
         action,
       });
     const login = yield* observe("Login", "first", 0);
-    const dashboard = yield* observe("Dashboard", "first", 1, "Sign in with provided credentials");
+    // A test action that leaves the screen unchanged is not a way to get anywhere.
+    yield* observe("Login", "first", 1, "Click Continue with the Email field empty");
+    const dashboard = yield* observe("Dashboard", "first", 2, "Sign in with provided credentials");
     const reused = yield* memory.observe(project, {
       state: { ...state("Dashboard"), name: "Home dashboard" },
       threadId: "thread",
@@ -57,6 +59,7 @@ it.effect("learns connected paths with isolated history and feedback", () =>
     yield* observe("Applications", "second", 1, "Choose Applications");
     const form = yield* observe("New application", "second", 2, "Choose New application");
     const snapshot = yield* memory.snapshot(project);
+    assert.isFalse(snapshot.transitions.some((edge) => edge.from === edge.to));
     assert.strictEqual(Navigation.navigationRoute(snapshot, login.id, form.name).steps.length, 3);
     assert.strictEqual(
       Navigation.navigationRoute(snapshot, login.id, form.name).directUrl,

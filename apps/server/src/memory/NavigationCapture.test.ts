@@ -225,6 +225,32 @@ it.effect("requires a live screen check and runtime access before persisting nav
         (yield* capture.route(scope, { fromStateId: duplicate.id, destination: "Account" })).status,
         "already-there",
       );
+      // The model words context freely; a screen the live page satisfies keeps one identity.
+      const dashboard = yield* memory.observe(projectId, {
+        state: {
+          name: "Dashboard",
+          aliases: [],
+          context: { authenticated: "true", role: "authenticated user" },
+          checks: [{ kind: "textVisible", text: "Dashboard" }],
+          environment: "https://shop.test",
+          path: "/dashboard",
+        },
+        threadId,
+        runId: "earlier",
+        tabId: "earlier-tab",
+        stepIndex: 0,
+      });
+      url = "https://shop.test/dashboard";
+      const again = yield* capture.observe(scope, {
+        ...input,
+        name: "ATS dashboard",
+        context: { authenticated: "true", role: "test account" },
+        checks: [{ kind: "textVisible", text: "Dashboard" }],
+      });
+      assert.strictEqual(again.id, dashboard.id);
+      assert.deepStrictEqual(again.context, dashboard.context);
+      assert.deepStrictEqual(again.aliases, ["ATS dashboard"]);
+      url = "https://shop.test/profile";
       matches = false;
       const unknownStart = yield* capture.route(scope, {
         fromStateId: state.id,
@@ -256,7 +282,7 @@ it.effect("requires a live screen check and runtime access before persisting nav
       scratch = true;
       assert.strictEqual((yield* Effect.result(capture.observe(scope, input)))._tag, "Failure");
       assert.strictEqual(reads, before);
-      assert.strictEqual((yield* memory.snapshot(projectId)).states.length, 2);
+      assert.strictEqual((yield* memory.snapshot(projectId)).states.length, 3);
       // A snapshot would revoke the element refs the agent is about to click.
       assert.deepStrictEqual([...operations].toSorted(), ["check", "status"]);
     }).pipe(Effect.provide(layer));

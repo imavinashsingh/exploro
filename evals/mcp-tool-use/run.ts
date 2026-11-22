@@ -20,6 +20,7 @@ import {
   OrchestratorMcpTaskRole,
   ProjectMemoryFact,
   ProjectUnderstandingItem,
+  QaSavedSecret,
   PreviewAutomationError,
   PreviewAutomationUnavailableError,
   ProviderInstanceId,
@@ -55,7 +56,10 @@ import { formatThreadLink } from "@t3tools/shared/threadLinks";
 import { buildCodexAdditionalContext } from "../../apps/server/src/provider/CodexDeveloperInstructions.ts";
 import { makeSideChatContext } from "../../apps/server/src/orchestration-v2/ContextHandoffService.ts";
 import { withInlineContext } from "../../apps/server/src/orchestration-v2/ContextHandoffDelivery.ts";
-import { formatMemoryBrief } from "../../apps/server/src/memory/memoryBrief.ts";
+import {
+  formatMemoryBrief,
+  formatProjectContext,
+} from "../../apps/server/src/memory/memoryBrief.ts";
 import { AttachmentToolkit } from "../../apps/server/src/mcp/toolkits/attachment/tools.ts";
 import { DeviceToolkit } from "../../apps/server/src/mcp/toolkits/device/tools.ts";
 import { EnvironmentToolkit } from "../../apps/server/src/mcp/toolkits/environment/tools.ts";
@@ -352,6 +356,14 @@ export const McpToolUseCase = Schema.Struct({
             via: Schema.Literals(["match", "dependency"]),
           }),
         ),
+      }),
+    ),
+    /** A project thread's first turn: T3 puts this project context ahead of the memory brief. */
+    projectContext: Schema.optional(
+      Schema.Struct({
+        sites: Schema.Array(Schema.String),
+        savedPasswords: Schema.Array(QaSavedSecret),
+        items: Schema.Array(ProjectUnderstandingItem),
       }),
     ),
     /** The thread is a side chat's first turn: T3 puts the parent's digest ahead of `prompt`. */
@@ -1131,7 +1143,11 @@ export const buildMessages = (sample: Sample) => {
       : projectComposerContextForProvider({ text: testCase.prompt, ...testCase.promptContext });
   const memoryBrief =
     testCase.setup.memoryBrief === undefined ? "" : formatMemoryBrief(testCase.setup.memoryBrief);
-  const inlineContext = [sideChatContext ?? "", memoryBrief]
+  const projectContext =
+    testCase.setup.projectContext === undefined
+      ? ""
+      : formatProjectContext(testCase.setup.projectContext);
+  const inlineContext = [sideChatContext ?? "", projectContext, memoryBrief]
     .filter((part) => part !== "")
     .join("\n\n");
   const prompt = withInlineContext(inlineContext, userText);

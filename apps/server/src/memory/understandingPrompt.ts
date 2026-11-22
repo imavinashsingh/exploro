@@ -1,4 +1,5 @@
 import {
+  PROJECT_CONTEXT_KINDS,
   PROJECT_UNDERSTANDING_KINDS,
   type ProjectMemoryFact,
   type ProjectUnderstandingExtraction,
@@ -64,7 +65,11 @@ export function buildExtractionPrompt(input: ExtractionInput): string {
     "Read what the latest test run found and return new or revised understanding items.",
     "",
     "Rules:",
-    "- Only knowledge specific to this app: how its behavioral workflows run, what depends on what, how to test it, lessons, open questions. Never generic testing advice such as checking empty or invalid inputs.",
+    "- Only knowledge specific to this app and how this user tests it: how its behavioral workflows run, what depends on what, how to test it, lessons, open questions, test accounts, and the user's standing instructions. Never generic testing advice such as checking empty or invalid inputs.",
+    "- The facts already record what each run saw. Never write an item that only restates one fact in other words; an item must add what no single fact says, such as a rule across screens, a prerequisite, or a lesson.",
+    "- account: a test account or role the user gave, such as which email to sign in with and what it can do. Never its password.",
+    "- instruction: a standing instruction the user gave for testing this project, such as which data to use or how a flow behaves. Not a one-off request for this run.",
+    "- An account or instruction item needs userQuote: the user's own sentence it comes from. When the user changed an account or instruction, revise the existing item by its id instead of adding another.",
     "- Navigation memory owns how to reach a feature. Do not extract click paths, menu sequences, screen recognition details, or navigation-only summaries.",
     "- Keep behavioral workflows and prerequisites, such as adding an item updating the cart or checkout requiring a nonempty cart. For mixed observations, retain only the behavioral knowledge. Tested redirects, denied access, and incorrect link destinations may describe a requirement or defect; keep that knowledge without a route recipe.",
     `- kind is one of: ${PROJECT_UNDERSTANDING_KINDS.join(", ")}.`,
@@ -95,6 +100,7 @@ export function buildExtractionPrompt(input: ExtractionInput): string {
 }
 
 const KINDS = new Set<string>(PROJECT_UNDERSTANDING_KINDS);
+const CONTEXT_KINDS = new Set<string>(PROJECT_CONTEXT_KINDS);
 const isKind = (kind: string): kind is ProjectUnderstandingKind => KINDS.has(kind);
 const normalizeSpace = (text: string) => text.replace(/\s+/g, " ").trim();
 const sentences = (text: string) =>
@@ -127,8 +133,11 @@ export function planUnderstandingWrites(
     }
     const current = existing.get(ref);
     if (current?.status === "confirmed") continue;
+    const quoted = item.userQuote === null ? "" : normalizeSpace(item.userQuote);
+    const userQuote = quoted.length >= MIN_QUOTE_CHARS && userSentences.has(quoted) ? quoted : null;
+    // Context reaches every later thread as the user's own setup, so page text never becomes one.
+    if (CONTEXT_KINDS.has(item.kind) && userQuote === null) continue;
     refs.add(ref);
-    const userQuote = item.userQuote === null ? "" : normalizeSpace(item.userQuote);
     writes.push({
       ref,
       itemId: current === undefined ? null : ref,
@@ -136,8 +145,7 @@ export function planUnderstandingWrites(
       statement,
       citedFactIds: item.citedFactIds.filter((id) => factIds.has(id)),
       dependsOn: item.dependsOn.map((dependency) => dependency.trim()),
-      userQuote:
-        userQuote.length >= MIN_QUOTE_CHARS && userSentences.has(userQuote) ? userQuote : null,
+      userQuote,
     });
     if (writes.length === MAX_ITEMS) break;
   }

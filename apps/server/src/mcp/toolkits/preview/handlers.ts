@@ -19,6 +19,7 @@ import {
   type PreviewTabId,
   type ProjectId,
   type QaReplayStep,
+  type QaSavedSecretId,
   type SecretRef,
 } from "@t3tools/contracts";
 
@@ -139,41 +140,73 @@ const decodeActInput = Record.map(PreviewAutomationActInputs, (schema) =>
 const invalidAct = (message: string) =>
   new OrchestratorMcpFailure({ code: "invalid_request", message });
 
-/** Swaps a `secretRef` for its value, consumed here so the agent never sees it. */
+/** Swaps a `secretRef` or `savedSecretId` for its value, here, so the agent never sees it. */
 const withSecretText = Effect.fn("PreviewToolkit.withSecretText")(function* (
   action: string,
-  input: { readonly text?: string | undefined; readonly secretRef?: SecretRef | undefined },
+  input: {
+    readonly text?: string | undefined;
+    readonly secretRef?: SecretRef | undefined;
+    readonly savedSecretId?: QaSavedSecretId | undefined;
+  },
 ) {
-  const { secretRef, ...rest } = input;
-  if (secretRef === undefined) return { input: rest, typedSecret: null };
-  if (action !== "type") return yield* invalidAct("`secretRef` works only with action `type`.");
-  if (rest.text !== undefined) return yield* invalidAct("Pass `text` or `secretRef`, not both.");
+  const { secretRef, savedSecretId, ...rest } = input;
+  const source =
+    savedSecretId !== undefined
+      ? { saved: savedSecretId }
+      : secretRef !== undefined
+        ? { ref: secretRef }
+        : null;
+  if (source === null) return { input: rest, typedSecret: null };
+  if (action !== "type")
+    return yield* invalidAct("`secretRef` and `savedSecretId` work only with action `type`.");
+  if ([rest.text, secretRef, savedSecretId].filter((value) => value !== undefined).length > 1)
+    return yield* invalidAct("Pass one of `text`, `secretRef` or `savedSecretId`.");
   const scope = yield* McpInvocationContext.requireThreadMcpCapability("preview");
   const thread = yield* (yield* ThreadManagementService.ThreadManagementService)
     .getThreadShell(scope.thread.threadId)
     .pipe(Effect.mapError(() => invalidAct("Could not read this thread's project.")));
   if (thread === null) return yield* invalidAct("This thread has no project for its secrets.");
+  if ("saved" in source) {
+    const saved = yield* (yield* QaSavedSecrets.QaSavedSecrets)
+      .read(thread.projectId, source.saved)
+      .pipe(Effect.mapError((error) => invalidAct(error.message)));
+    if (Option.isNone(saved))
+      return yield* invalidAct(
+        "No saved password with that id in this project. Ask with request_secret instead.",
+      );
+    return {
+      input: { ...rest, text: saved.value },
+      typedSecret: { kind: "saved" as const, secretId: source.saved },
+    };
+  }
   const { value, remember } = yield* (yield* SecretRequests.SecretRequests)
-    .consumeDetailed({ ref: secretRef, projectId: thread.projectId })
+    .consumeDetailed({ ref: source.ref, projectId: thread.projectId })
     .pipe(Effect.mapError((error) => invalidAct(error.message)));
   return {
     input: { ...rest, text: value },
-    typedSecret: { projectId: thread.projectId, value, remember },
+    typedSecret: { kind: "requested" as const, projectId: thread.projectId, value, remember },
   };
 });
 
 const ONE_USE_STEP = "A one-use secret was typed, so a replay cannot type it again.";
 
-/** The QA step for a typed secret: a saved placeholder when the user asked to remember it. */
+type TypedSecret =
+  | { readonly kind: "saved"; readonly secretId: QaSavedSecretId }
+  | {
+      readonly kind: "requested";
+      readonly projectId: ProjectId;
+      readonly value: string;
+      readonly remember: SecretRequests.RememberRequest | undefined;
+    };
+
+/** The QA step for a typed secret: a saved placeholder when the value is in the project's vault. */
 const secretStep = Effect.fn("PreviewToolkit.secretStep")(function* (
-  typed: {
-    readonly projectId: ProjectId;
-    readonly value: string;
-    readonly remember: SecretRequests.RememberRequest | undefined;
-  },
+  typed: TypedSecret,
   decoded: Readonly<Record<string, unknown>>,
   target: PreviewAutomationDurableTarget | null,
 ) {
+  if (typed.kind === "saved")
+    return actStep("type", { ...decoded, text: savedSecretPlaceholder(typed.secretId) }, target);
   const unreplayable: QaReplayStep = { kind: "unreplayable", action: "type", reason: ONE_USE_STEP };
   if (typed.remember === undefined) return unreplayable;
   const secretId = yield* (yield* QaSavedSecrets.QaSavedSecrets)

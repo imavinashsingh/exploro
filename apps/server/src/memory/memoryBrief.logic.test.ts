@@ -1,7 +1,7 @@
 import { ProjectId, type ProjectMemoryFact } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 
-import { formatMemoryBrief, memoryTarget } from "./memoryBrief.ts";
+import { formatMemoryBrief, formatProjectContext, memoryTarget } from "./memoryBrief.ts";
 
 const fact = (
   factId: string,
@@ -78,5 +78,31 @@ describe("formatMemoryBrief", () => {
     expect(brief).toMatch(/…\d+ more; look them up/);
     expect(brief.indexOf("### Open failures")).toBeLessThan(brief.indexOf("### Facts"));
     expect(brief).toContain("### Seen, not tested\n- https://shop.test/settings");
+  });
+
+  it("keeps project context under its own cap, whatever the project holds", () => {
+    expect(formatProjectContext({ sites: [], savedPasswords: [], items: [] })).toBe("");
+    const context = formatProjectContext({
+      sites: ["https://shop.test"],
+      savedPasswords: [],
+      items: Array.from({ length: 100 }, (_, index) => ({
+        itemId: `item-${index}`,
+        projectId: ProjectId.make("shop"),
+        kind: "instruction" as const,
+        statement: `Instruction ${index}\nwith a second line`,
+        status: "hypothesis" as const,
+        author: "agent" as const,
+        version: 1,
+        citedFactIds: [],
+        dependsOn: [],
+        needsReview: false,
+        createdAt: "2026-01-01T00:00:00Z",
+        updatedAt: "2026-01-01T00:00:00Z",
+      })),
+    });
+    expect(context.length).toBeLessThanOrEqual(1200);
+    expect(context).toContain("### Sites under test\n- https://shop.test");
+    expect(context).toContain('[instruction] "Instruction 0\\nwith a second line"');
+    expect(context).toMatch(/…\d+ more; look them up/);
   });
 });
