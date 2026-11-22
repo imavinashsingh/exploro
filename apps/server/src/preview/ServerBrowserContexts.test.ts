@@ -176,6 +176,29 @@ describe("ServerBrowserContexts", () => {
     for (const context of browser.created) expect(context.close).toHaveBeenCalled();
   });
 
+  it("closes an isolated context only when its last tab releases it", async () => {
+    const browser = makeBrowser();
+    launches.launch.mockResolvedValue(browser as unknown as Browser);
+    const pool = new ServerBrowserContexts(options());
+    try {
+      const first = await pool.contextFor(INCOGNITO_BROWSER_PROFILE_ID, "thread");
+      expect(await pool.contextFor(INCOGNITO_BROWSER_PROFILE_ID, "thread")).toBe(first);
+      expect(pool.retain(first)).toBe(true);
+      await pool.release(first);
+      await pool.release(first);
+      expect(first.close).not.toHaveBeenCalled();
+      // The last release forgets the context at once, so a tab opened while it closes starts fresh.
+      const closing = pool.release(first);
+      const next = await pool.contextFor(INCOGNITO_BROWSER_PROFILE_ID, "thread");
+      await closing;
+      expect(first.close).toHaveBeenCalledOnce();
+      expect(next).not.toBe(first);
+      expect(pool.retain(first)).toBe(false);
+    } finally {
+      await pool.close();
+    }
+  });
+
   it("keeps human profiles persistent without sharing their storage with agents", async () => {
     const human = makeContext();
     const browser = makeBrowser();
