@@ -1,3 +1,4 @@
+import * as MarkdownMemoryStore from "./MarkdownMemoryStore.ts";
 import { ProjectId, QaSavedSecretId, type ProjectUnderstandingItem } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -35,6 +36,30 @@ const account = item("account", "Sign in as qa@shop.test, an applicant account."
 
 const layer = ProjectMemoryAccess.layer.pipe(
   Layer.provide(
+    Layer.mock(MarkdownMemoryStore.MarkdownMemoryStore)({
+      migrateLegacyUnderstandingIfEmpty: () => Effect.void,
+      syncProject: () => Effect.void,
+      listDocs: () => Effect.succeed([]),
+      matchDocsByRoutes: () => Effect.succeed([]),
+      searchDocs: () =>
+        Effect.succeed([
+          {
+            docId: "checkout",
+            projectId: shop,
+            kind: "guide",
+            slug: "checkout",
+            title: "Checkout",
+            summary: "Cart",
+            body: "Checkout needs a nonempty cart.",
+            status: "confirmed",
+            routes: [],
+            keywords: [],
+            updatedAt: "2026-11-23",
+          },
+        ]),
+    }),
+  ),
+  Layer.provide(
     Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
       namedProjectsRoot: "/projects",
       isScratchProject: (projectId) => Effect.succeed(projectId === scratch),
@@ -59,14 +84,6 @@ const layer = ProjectMemoryAccess.layer.pipe(
   Layer.provide(
     Layer.mock(ProjectUnderstanding.ProjectUnderstanding)({
       contextItems: (projectId) => Effect.succeed(projectId === shop ? [account] : []),
-      recall: () =>
-        Effect.succeed({
-          mode: "text",
-          items: [
-            { item: account, via: "match" },
-            { item: item("workflow", "Checkout needs a nonempty cart."), via: "match" },
-          ],
-        }),
     }),
   ),
   Layer.provide(

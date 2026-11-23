@@ -1,3 +1,5 @@
+import * as MarkdownMemoryStore from "./memory/MarkdownMemoryStore.ts";
+import * as MarkdownMemoryRecall from "./memory/MarkdownMemoryRecall.ts";
 import * as ProjectNavigationMemory from "./memory/ProjectNavigationMemory.ts";
 import * as NavigationCapture from "./memory/NavigationCapture.ts";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
@@ -912,7 +914,9 @@ const layerMakeRoutes = Layer.mergeAll(
           ),
           Layer.provideMerge(QaRuns.layer),
           Layer.provideMerge(
-            ProjectMemory.layer.pipe(
+            MarkdownMemoryRecall.layer.pipe(
+              Layer.provideMerge(MarkdownMemoryStore.layer),
+              Layer.provideMerge(ProjectMemory.layer),
               Layer.provideMerge(ProjectNavigationMemory.layer),
               Layer.provideMerge(ProjectUnderstanding.layer),
               Layer.provide(MiniLmEmbedder.layer),

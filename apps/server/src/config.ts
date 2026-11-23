@@ -138,6 +138,15 @@ export const otlpResource = (
 
 export const layer = (config: ServerConfig["Service"]) => Layer.succeed(ServerConfig, make(config));
 
+export const projectMemoryDirectory = (
+  stateDir: string,
+  projectId: string,
+  join: (...parts: string[]) => string,
+) => {
+  if (!/^[a-zA-Z0-9_-]+$/u.test(projectId)) throw new Error("Invalid project memory id");
+  return join(stateDir, "projects", projectId, "memory");
+};
+
 export const deriveServerPaths = Effect.fn(function* (
   baseDir: ServerConfig["Service"]["baseDir"],
   devUrl: ServerConfig["Service"]["devUrl"],

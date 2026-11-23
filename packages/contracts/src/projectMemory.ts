@@ -1,4 +1,4 @@
-import { NavigationSnapshot } from "./projectNavigation.ts";
+import { NavigationSnapshot, NavigationTransition } from "./projectNavigation.ts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
@@ -79,6 +79,8 @@ export type ProjectMemoryFact = typeof ProjectMemoryFact.Type;
 
 /** Exact-match filters; every field left out matches anything. */
 export const ProjectMemoryFactLookup = Schema.Struct({
+  query: Schema.optional(MemoryText(2000)),
+  excludeVerdicts: Schema.optional(Schema.Boolean),
   stateId: Schema.optional(MemoryText(200)),
   environment: Schema.optional(MemoryText(2048)),
   route: Schema.optional(MemoryText(2048)),
@@ -293,4 +295,56 @@ export const ProjectMemoryVersionInput = Schema.Struct({
   projectId: ProjectId,
   environment: MemoryText(2048),
   appVersion: MemoryText(100),
+});
+
+export const MemoryDocKind = Schema.Literals(["playbook", "guide"]);
+export const MemorySlug = Schema.String.check(Schema.isPattern(/^[a-z0-9-]+$/u));
+export const MemoryDoc = Schema.Struct({
+  docId: Schema.String,
+  projectId: ProjectId,
+  kind: MemoryDocKind,
+  slug: MemorySlug,
+  title: MemoryText(300),
+  summary: Schema.String,
+  environment: Schema.optional(Schema.String),
+  status: Schema.Literals(["draft", "confirmed"]),
+  routes: Schema.Array(Schema.String),
+  keywords: Schema.Array(Schema.String),
+  body: Schema.String,
+  updatedAt: Schema.String,
+});
+export type MemoryDoc = typeof MemoryDoc.Type;
+export const MemoryProposal = Schema.Struct({
+  proposalId: Schema.String,
+  projectId: ProjectId,
+  targetDocId: Schema.String,
+  kind: MemoryDocKind,
+  title: Schema.String,
+  proposedMarkdown: Schema.String,
+  rationale: Schema.String,
+  sourceRunId: Schema.optional(QaRunId),
+  status: Schema.Literals(["pending", "approved", "dismissed"]),
+  createdAt: Schema.String,
+});
+export type MemoryProposal = typeof MemoryProposal.Type;
+export const MemoryGetGuideInput = Schema.Struct({ slug: MemorySlug });
+export const MemoryGetGuideResult = Schema.Struct({ guide: Schema.NullOr(MemoryDoc) });
+export const MemorySearchInput = Schema.Struct({
+  query: MemoryText(2000),
+  environment: Schema.optional(MemoryText(2048)),
+});
+export const MemoryForScreenInput = Schema.Struct({
+  route: MemoryText(2048),
+  environment: Schema.optional(MemoryText(2048)),
+});
+export const MemorySearchResult = Schema.Struct({
+  docs: Schema.Array(MemoryDoc),
+  facts: Schema.Array(ProjectMemoryFact),
+});
+export const MemoryForScreenResult = Schema.Struct({
+  guides: Schema.Array(MemoryDoc),
+  facts: Schema.Array(ProjectMemoryFact),
+  connections: Schema.Array(NavigationTransition),
+  openIssuesLabel: Schema.Literal("Open issues from recent runs"),
+  openIssues: Schema.Array(ProjectMemoryFact),
 });

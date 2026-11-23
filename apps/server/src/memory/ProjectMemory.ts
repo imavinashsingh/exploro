@@ -508,6 +508,19 @@ const make = Effect.gen(function* () {
           ${selectFacts}
           WHERE ${sql.and([
             sql`project_id = ${projectId}`,
+            ...(lookup.excludeVerdicts ? [sql`kind != 'result'`] : []),
+            ...(lookup.query === undefined
+              ? []
+              : [
+                  sql.or(
+                    (lookup.query.match(/[\p{L}\p{N}]+/gu) ?? [])
+                      .slice(0, 64)
+                      .map(
+                        (word) =>
+                          sql`instr(lower(fact_key || ' ' || value || ' ' || coalesce(detail, '')), ${word.toLowerCase()}) > 0`,
+                      ),
+                  ),
+                ]),
             sql`status = ${lookup.openFailures ? "current" : (lookup.status ?? "current")}`,
             ...(environment === undefined ? [] : [sql`environment = ${environment}`]),
             ...(lookup.stateId === undefined ? [] : [sql`state_id = ${lookup.stateId}`]),

@@ -19,6 +19,7 @@ import {
   RunAttemptId,
   RunId,
   ThreadId,
+  TurnItemId,
   ProjectId,
   type OrchestrationV2ThreadProjection,
   OrchestrationV2DomainEvent,
@@ -2169,12 +2170,15 @@ effectIt.effect(
 effectIt.effect.each([
   { laterTurn: false, sendsBrief: true },
   { laterTurn: true, sendsBrief: false },
+  { laterTurn: true, sendsBrief: true, prompt: "Test https://shop.test/orders" },
+  { laterTurn: true, sendsBrief: true, compacted: true },
+  { laterTurn: true, sendsBrief: true, automaticCompaction: true },
 ])(
-  "sends the project memory brief with a thread's first prompt only: %j",
-  ({ laterTurn, sendsBrief }) =>
+  "refreshes project memory at thread start, compaction and new routes: %j",
+  ({ laterTurn, sendsBrief, prompt, compacted, automaticCompaction }) =>
     Effect.gen(function* () {
       const harness = makeLocalCommandHarness({
-        text: "Test the dashboard",
+        text: prompt ?? "Test the dashboard",
         memoryBrief: "MEMORY_BRIEF",
         previousNativeSession: laterTurn,
         sideChat: { contextRun: "current" },
@@ -2182,9 +2186,54 @@ effectIt.effect.each([
       // Nothing else to deliver, so only the brief needs the inline context path.
       harness.setProjection({ ...harness.projection(), contextHandoffs: [] });
       harness.tryHandlePromptCommand.mockReturnValue(Effect.succeed(false));
+      if (laterTurn) {
+        const projection = harness.projection();
+        const current = projection.runs.at(-1)!;
+        const previous = projection.runs[0]!;
+        const message = projection.messages.find((source) => source.id === current.userMessageId)!;
+        const previousId = MessageId.make("previous-memory-message");
+        harness.setProjection({
+          ...projection,
+          runs: projection.runs.map((source) =>
+            source.id === previous.id ? { ...source, userMessageId: previousId } : source,
+          ),
+          turnItems: automaticCompaction
+            ? [
+                ...projection.turnItems,
+                {
+                  id: TurnItemId.make("memory-compaction"),
+                  threadId: current.threadId,
+                  runId: previous.id,
+                  nodeId: null,
+                  providerThreadId: previous.providerThreadId,
+                  providerTurnId: null,
+                  nativeItemRef: null,
+                  parentItemId: null,
+                  ordinal: 1,
+                  status: "completed",
+                  title: null,
+                  startedAt: null,
+                  completedAt: null,
+                  updatedAt: message.updatedAt,
+                  type: "compaction",
+                  driver: null,
+                },
+              ]
+            : projection.turnItems,
+          messages: [
+            {
+              ...message,
+              id: previousId,
+              runId: previous.id,
+              text: compacted ? "/compact" : "Test the dashboard",
+            },
+            ...projection.messages,
+          ],
+        });
+      }
       yield* harness.start;
       const text = harness.startTurn.mock.calls[0]?.[0].message.text;
-      expect(text?.endsWith("Test the dashboard")).toBe(true);
+      expect(text?.endsWith(prompt ?? "Test the dashboard")).toBe(true);
       expect(text?.includes("MEMORY_BRIEF")).toBe(sendsBrief);
     }),
 );

@@ -1,3 +1,4 @@
+import { memoryEnvironment, memoryRoute } from "./projectMemoryFacts.ts";
 import * as Digest from "effect/crypto/Digest";
 import * as Hex from "effect/encoding/Hex";
 import * as DateTime from "effect/DateTime";
@@ -66,6 +67,11 @@ export class ProjectNavigationMemory extends Context.Service<
     readonly subscribe: (
       projectId: ProjectId,
     ) => Stream.Stream<NavigationRevision, ProjectMemoryError>;
+    readonly outgoingForScreen: (
+      projectId: ProjectId,
+      route: string,
+      environment?: string,
+    ) => Effect.Effect<ReadonlyArray<NavigationTransition>, ProjectMemoryError>;
     readonly statesAtAddress: (
       projectId: ProjectId,
       environment: string,
@@ -863,6 +869,26 @@ const make = Effect.gen(function* () {
   );
 
   return ProjectNavigationMemory.of({
+    outgoingForScreen: Effect.fn("ProjectNavigationMemory.outgoingForScreen")(function* (
+      projectId,
+      route,
+      environment,
+    ) {
+      const origin =
+        environment === undefined ? null : (memoryEnvironment(environment) ?? environment);
+      const states = yield* sql<{
+        state_id: string;
+        path: string;
+      }>`SELECT state_id, path FROM project_navigation_states
+        WHERE project_id = ${projectId} AND (${origin} IS NULL OR environment = ${origin})`;
+      const ids = states
+        .filter((state) => memoryRoute(state.path) === memoryRoute(route))
+        .map((state) => state.state_id);
+      if (ids.length === 0) return [];
+      const rows = yield* sql<ConnectionRow>`SELECT * FROM project_navigation_connections
+        WHERE project_id = ${projectId} AND from_state_id IN ${sql.in(ids)} ORDER BY last_observed_at DESC, transition_id`;
+      return rows.map(connection);
+    }, Effect.mapError(failure)),
     notifyCommitted,
     subscribe: (projectId) =>
       Stream.unwrap(

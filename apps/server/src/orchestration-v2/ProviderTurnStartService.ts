@@ -1,3 +1,4 @@
+import { shouldRefreshMemoryBrief } from "../memory/memoryBrief.ts";
 import { modelSelectionsEqual } from "@t3tools/shared/model";
 import { projectComposerContextForProvider } from "@t3tools/shared/composerContextReferences";
 import {
@@ -931,11 +932,29 @@ export const layer: Layer.Layer<
         restartCancelledWork.length === 0
           ? ""
           : restartCancelledBackgroundWorkNote(restartCancelledWork);
-      // Memory is read once, as a thread starts; later turns have the thread itself.
+      const previousRuns = projection.runs.filter(
+        (source) =>
+          source.ordinal < run.ordinal &&
+          (source.startedAt !== null || source.status === "completed"),
+      );
+      const previousRun = previousRuns.at(-1);
+      const previousMessage = projection.messages.find(
+        (source) => source.id === previousRun?.userMessageId,
+      );
+      const compacted =
+        (previousMessage !== undefined && isCompactionCommandMessage(previousMessage)) ||
+        projection.turnItems.some(
+          (item) => item.type === "compaction" && item.runId === previousRun?.id,
+        );
+      const previousMessageIds = new Set(previousRuns.map((source) => source.userMessageId));
+      const previousGoals = projection.messages
+        .filter((source) => source.role === "user" && previousMessageIds.has(source.id))
+        .map((source) => source.text);
       const memoryBrief =
         Option.isNone(memoryAccess) ||
         goalCommand ||
-        projection.runs.some((source) => source.ordinal < run.ordinal)
+        isCompactionCommandMessage(providerMessage) ||
+        !shouldRefreshMemoryBrief(userText, previousGoals, compacted || run.freshContext === true)
           ? ""
           : yield* memoryAccess.value.firstTurnBrief(
               projection.thread.projectId,

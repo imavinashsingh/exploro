@@ -1,3 +1,4 @@
+import * as MarkdownMemoryStore from "../memory/MarkdownMemoryStore.ts";
 import * as WorktreeBranchSync from "./WorktreeBranchSync.ts";
 import * as GuestShareService from "../guest/GuestShareService.ts";
 import * as UsageLimitRecoveryWorker from "./UsageLimitRecoveryWorker.ts";
@@ -127,6 +128,7 @@ const layerManagedProjectFoldersProvided = ManagedProjectFolders.layer.pipe(
  * provides this; runtimes built without it, as in tests, run without memory.
  */
 export const layerProjectMemoryAccess = ProjectMemoryAccess.layer.pipe(
+  Layer.provide(MarkdownMemoryStore.layer),
   Layer.provide(layerManagedProjectFoldersProvided),
   Layer.provide(layerProjectMemoryProvided),
   Layer.provide(QaSavedSecrets.layer),

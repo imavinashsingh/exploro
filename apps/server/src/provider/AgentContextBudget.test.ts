@@ -1,3 +1,4 @@
+import { MarkdownMemoryRecall } from "../memory/MarkdownMemoryRecall.ts";
 import * as NavigationCapture from "../memory/NavigationCapture.ts";
 import * as ProjectMemory from "../memory/ProjectMemory.ts";
 import * as ProjectUnderstanding from "../memory/ProjectUnderstanding.ts";
@@ -59,6 +60,7 @@ import * as QaSuites from "../qa/QaSuites.ts";
 
 // Registration only stores tool definitions, so the handlers' services are never called.
 const toolHandlerServices = Layer.mergeAll(
+  Layer.mock(MarkdownMemoryRecall)({}),
   Layer.mock(AssetSigner)({}),
   Layer.mock(DeviceService)({}),
   Layer.mock(DocumentText)({}),

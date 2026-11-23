@@ -1,7 +1,14 @@
 import { ProjectId, type ProjectMemoryFact } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 
-import { formatMemoryBrief, formatProjectContext, memoryTarget } from "./memoryBrief.ts";
+import {
+  formatMemoryBrief,
+  formatProjectContext,
+  memoryTarget,
+  memoryPromptTargets,
+  formatMarkdownMemoryBrief,
+  shouldRefreshMemoryBrief,
+} from "./memoryBrief.ts";
 
 const fact = (
   factId: string,
@@ -105,4 +112,56 @@ describe("formatMemoryBrief", () => {
     expect(context).toContain('[instruction] "Instruction 0\\nwith a second line"');
     expect(context).toMatch(/…\d+ more; look them up/);
   });
+});
+
+it("extracts every URL and route and refreshes after compaction or a newly named target", () => {
+  const goal =
+    "Test https://shop.test/orders/42 and https://staging.shop.test/login, then /settings/profile";
+  expect(memoryPromptTargets(goal)).toEqual([
+    { environment: "https://shop.test", routes: ["/orders/:id"] },
+    { environment: "https://staging.shop.test", routes: ["/login"] },
+    { environment: null, routes: ["/settings/profile"] },
+  ]);
+  expect(memoryPromptTargets("Check /, /orders?q=1 and `/settings`")).toEqual([
+    { environment: null, routes: ["/"] },
+    { environment: null, routes: ["/orders"] },
+    { environment: null, routes: ["/settings"] },
+  ]);
+  expect(shouldRefreshMemoryBrief(goal, [])).toBe(true);
+  expect(shouldRefreshMemoryBrief(goal, [goal])).toBe(false);
+  expect(shouldRefreshMemoryBrief("continue", [goal], true)).toBe(true);
+  expect(shouldRefreshMemoryBrief("Test /new-screen", [goal])).toBe(true);
+  expect(shouldRefreshMemoryBrief("Test https://other.test/login", [goal])).toBe(true);
+});
+
+it("budgets playbook, guide index, two excerpts and setup within 2500 characters", () => {
+  const docs = Array.from({ length: 12 }, (_, i) => ({
+    docId: `guide-${i}`,
+    projectId: ProjectId.make("shop"),
+    kind: "guide" as const,
+    slug: `guide-${i}`,
+    title: `Guide ${i}`,
+    summary: "Summary",
+    status: i === 0 ? ("confirmed" as const) : ("draft" as const),
+    routes: [],
+    keywords: [],
+    body: `Content ${i} `.repeat(200),
+    updatedAt: "2026-11-23",
+  }));
+  const brief = formatMarkdownMemoryBrief({
+    docs: [
+      { ...docs[0]!, kind: "playbook", slug: "playbook", body: "Playbook text ".repeat(400) },
+      ...docs,
+    ],
+    matches: docs,
+    context: "Sites: https://shop.test; saved password: QA login",
+  });
+  expect(brief.length).toBeLessThanOrEqual(2500);
+  expect(brief).toContain("Playbook text");
+  expect(brief).toContain("- guide-0: Guide 0 — Summary [confirmed]");
+  expect(brief).toContain("### guide-0 [confirmed]");
+  expect(brief).toContain("### guide-1 [draft]");
+  expect(brief).not.toContain("### guide-2");
+  expect(brief).toContain("saved password: QA login");
+  expect(brief).toContain("memory_for_screen");
 });
