@@ -7,6 +7,7 @@ import {
 import {
   PROJECT_UNDERSTANDING_KINDS,
   type EnvironmentId,
+  type MemoryProposal,
   type ProjectId,
   type ThreadId,
   type ProjectMemoryFact,
@@ -46,6 +47,12 @@ import {
   type UnderstandingBadge,
 } from "@t3tools/client-runtime/state/projectMemory";
 import { ProjectNavigationDialog } from "../projectMemory/navigation/ProjectNavigationDialog";
+import {
+  MemoryDocsTab,
+  MemoryOpenIssuesList,
+  MemoryProposalsTab,
+  type MemoryDocDraft,
+} from "./ProjectMemoryDocs";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 
@@ -641,7 +648,9 @@ export function ProjectMemorySettings(props: {
   const [appVersion, setAppVersion] = useState("");
   const [savingVersion, setSavingVersion] = useState(false);
   const [memberKey, setMemberKey] = useState<string | null>(null);
-  const [tab, setTab] = useState<"map" | "facts" | "understanding">("map");
+  const [tab, setTab] = useState<
+    "map" | "facts" | "issues" | "understanding" | "docs" | "proposals"
+  >("map");
   const member =
     props.members.find((candidate) => candidate.physicalProjectKey === memberKey) ??
     props.members[0]!;
@@ -673,6 +682,15 @@ export function ProjectMemorySettings(props: {
   });
   const retry = useAtomCommand(serverEnvironment.retryMemoryExtraction, {
     label: "retry memory extraction",
+  });
+  const saveDoc = useAtomCommand(serverEnvironment.saveMemoryDoc, {
+    label: "save memory document",
+  });
+  const approveProposal = useAtomCommand(serverEnvironment.approveMemoryProposal, {
+    label: "approve memory proposal",
+  });
+  const dismissProposal = useAtomCommand(serverEnvironment.dismissMemoryProposal, {
+    label: "dismiss memory proposal",
   });
 
   const deleteNavigation = useAtomCommand(serverEnvironment.deleteNavigationRecord, {
@@ -706,6 +724,22 @@ export function ProjectMemorySettings(props: {
       params: { environmentId, threadId: ref.threadId },
     });
   };
+  const docs = data?.docs ?? [];
+  const proposals = data?.proposals ?? [];
+  const openIssues = data?.openIssues ?? [];
+  const onSaveDoc = (draft: MemoryDocDraft) =>
+    saveDoc({ environmentId, input: { projectId, ...draft } }).then(
+      after(gt("Could not save the document")),
+    );
+  const onApprove = (proposal: MemoryProposal, replaceConfirmed: boolean) =>
+    approveProposal({
+      environmentId,
+      input: { projectId, proposalId: proposal.proposalId, replaceConfirmed },
+    }).then(after(gt("Could not approve the proposal")));
+  const onDismiss = (proposal: MemoryProposal) =>
+    dismissProposal({ environmentId, input: { projectId, proposalId: proposal.proposalId } }).then(
+      after(gt("Could not dismiss the proposal")),
+    );
   const save = (item: ProjectUnderstandingItem, statement: string) =>
     updateItem({
       environmentId,
@@ -963,7 +997,14 @@ export function ProjectMemorySettings(props: {
             aria-label={gt("Memory contents")}
             value={[tab]}
             onValueChange={(next) => {
-              if (next[0] === "map" || next[0] === "facts" || next[0] === "understanding")
+              if (
+                next[0] === "map" ||
+                next[0] === "facts" ||
+                next[0] === "issues" ||
+                next[0] === "understanding" ||
+                next[0] === "docs" ||
+                next[0] === "proposals"
+              )
                 setTab(next[0]);
             }}
           >
@@ -975,9 +1016,24 @@ export function ProjectMemorySettings(props: {
                 Facts · <Var>{data?.facts.filter((f) => f.status === "current").length ?? 0}</Var>
               </T>
             </Toggle>
+            <Toggle value="issues">
+              <T>
+                Open issues · <Var>{openIssues.length}</Var>
+              </T>
+            </Toggle>
             <Toggle value="understanding">
               <T>
                 Understanding · <Var>{data?.understanding.length ?? 0}</Var>
+              </T>
+            </Toggle>
+            <Toggle value="docs">
+              <T>
+                Playbook and guides · <Var>{docs.length}</Var>
+              </T>
+            </Toggle>
+            <Toggle value="proposals">
+              <T>
+                To review · <Var>{proposals.length}</Var>
               </T>
             </Toggle>
           </ToggleGroup>
@@ -997,6 +1053,18 @@ export function ProjectMemorySettings(props: {
               canEdit={canEdit}
               onDelete={onDeleteFact}
               onOpenEvidence={onOpenEvidence}
+            />
+          ) : tab === "issues" ? (
+            <MemoryOpenIssuesList issues={openIssues} />
+          ) : tab === "docs" ? (
+            <MemoryDocsTab docs={docs} canEdit={canEdit} onSave={onSaveDoc} />
+          ) : tab === "proposals" ? (
+            <MemoryProposalsTab
+              proposals={proposals}
+              docs={docs}
+              canEdit={canEdit}
+              onApprove={onApprove}
+              onDismiss={onDismiss}
             />
           ) : data.understanding.length === 0 ? (
             <p className="py-2 text-sm text-muted-foreground">

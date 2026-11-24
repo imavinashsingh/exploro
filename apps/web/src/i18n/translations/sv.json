@@ -12513,5 +12513,60 @@
   "27d76249d09eb69f": "Granskningsguiden är klar",
   "faa3bb26abb39c93": "Granskningsguiden misslyckades",
   "b7df38b7d8792d78": "Öppna guiden",
-  "9e91e9a77b664e4e": "Kunde inte starta en granskningsguide"
+  "9e91e9a77b664e4e": "Kunde inte starta en granskningsguide",
+  "7f9f1239cd187f14": "{count, plural, one {{count} förslag} other {{count} förslag}}",
+  "b7a4d3015a2fa508": "Guider · {count}",
+  "cc7c9dbd50d250a5": "bekräftad",
+  "783101659683f517": "utkast",
+  "556e87b379403824": "Öppna problem från senaste körningar · {count}",
+  "d2aba9b17b6df56c": "Ingen spelbok eller guider än. Godkänn ett förslag eller skriv en i inställningarna.",
+  "55b2a09461611865": "Inga regler. Kontrollera ett problem igen innan du rapporterar det.",
+  "c3ea24ac809a5ed5": "Titel",
+  "8caeeced121d6929": "En rad om vad det täcker",
+  "e705d84c2eb2bda6": "Vägar det gäller, en per rad, till exempel /checkout",
+  "122398bf85e299f5": "Markdown",
+  "37f9397b2b479651": "Spelbok",
+  "f1fa6dd73b7dbed8": "Guide",
+  "96f92b7cf0d018c9": "Ändrar ett bekräftat dokument",
+  "b8d0faab549c0c55": "Dölj Markdown",
+  "4842f2e26ae92e04": "Visa Markdown",
+  "707a97ff73bcb1f4": "Det finns redan en guide med det namnet. Redigera den guiden eller välj en annan titel.",
+  "aa1d477d59bb6267": "Agenter läser dessa innan de testar. När du sparar blir dokumentet bekräftat, så att agenter bara kan föreslå ändringar.",
+  "415fe61d05c52e20": "Skriv spelboken",
+  "efa654d64d965f7a": "Ny guide",
+  "1de6c80486085850": "Ingen spelbok eller guider än. Godkänn ett förslag eller skriv en.",
+  "2c91db5495069972": "Inget att granska. Avslutade testkörningar föreslår ändringar i spelboken och guiderna här.",
+  "5170d375ed691617": "Godkänn och ändra bekräftat",
+  "f1e5c1be1ac92361": "Godkänn",
+  "f9ad2e78730dda85": "Inga öppna problem. Misslyckade kontroller från avslutade körningar visas här.",
+  "d98f1f8a9bb01a4a": "Fel som setts i senaste körningar. De är inga regler för spelboken eller guiderna: kontrollera ett igen innan du rapporterar det.",
+  "d28967536b065ad3": "Kunde inte spara dokumentet",
+  "b3941b7a51bbe339": "Kunde inte godkänna förslaget",
+  "772cd01743b540ab": "Kunde inte avfärda förslaget",
+  "ab595d87fed78bd3": [
+    "Öppna problem · ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
+  "7fadf0ceed123f2e": [
+    "Spelbok och guider · ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
+  "eb9fecc359dd79f2": [
+    "Att granska · ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
+  "7415659b3d9f4b78": "Projektets spelbok",
+  "f5ee4d404eaa8f1b": "Hur det här projektet testas"
 }

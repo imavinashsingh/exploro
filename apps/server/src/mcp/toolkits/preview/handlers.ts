@@ -27,6 +27,7 @@ import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as PreviewAutomationBroker from "../../PreviewAutomationBroker.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
+import * as RouteTrigger from "../../../memory/RouteTrigger.ts";
 import * as QaRecorder from "../../../qa/QaRecorder.ts";
 import * as SecretRequests from "../../../secrets/SecretRequests.ts";
 import * as QaSavedSecrets from "../../../qa/QaSavedSecrets.ts";
@@ -118,6 +119,22 @@ const logStep = Effect.fn("PreviewToolkit.logStep")(function* (step: QaReplaySte
   );
   if (scope._tag === "None") return;
   yield* (yield* QaRecorder.QaRecorder).stepPerformed(scope.value.thread.threadId, step);
+});
+
+/** Adds the landed page's remembered guides and open issues, when there are new ones. */
+const withMemoryNote = Effect.fn("PreviewToolkit.withMemoryNote")(function* <A extends object>(
+  result: A,
+  url: string | null | undefined,
+) {
+  const scope = yield* McpInvocationContext.requireThreadMcpCapability("preview").pipe(
+    Effect.option,
+  );
+  if (scope._tag === "None" || !scope.value.capabilities.has("memory")) return result;
+  const note = yield* (yield* RouteTrigger.RouteTrigger).onPage(
+    scope.value.thread.threadId,
+    url ?? null,
+  );
+  return note === null ? result : { ...result, memoryNote: note };
 });
 
 /** Splits off the target the browser named for the step, which the agent does not need. */
@@ -258,7 +275,7 @@ const handlers = {
       const startUrl = (target === undefined ? url : undefined) ?? result.url;
       if (startUrl !== null && /^https?:\/\//i.test(startUrl))
         yield* logStep({ kind: "navigate", url: startUrl });
-      return result;
+      return yield* withMemoryNote(result, result.url);
     }),
   ),
   preview_navigate: McpToolAccess.actsAsCaller((input) =>
@@ -267,6 +284,7 @@ const handlers = {
         const url = requestedUrl(input) ?? status.url;
         return url === null ? Effect.void : logStep({ kind: "navigate", url });
       }),
+      Effect.flatMap((status) => withMemoryNote(status, status.url)),
     ),
   ),
   preview_resize: McpToolAccess.actsAsCaller((input) =>
@@ -312,7 +330,11 @@ const handlers = {
           ? actStep(action, decoded, target)
           : yield* secretStep(typedSecret, decoded, target),
       );
-      return result;
+      const pageUrl =
+        "toolIcon" in result && result.toolIcon?._tag === "website"
+          ? result.toolIcon.pageUrl
+          : null;
+      return yield* withMemoryNote(result, pageUrl);
     }),
   ),
   preview_evaluate: McpToolAccess.actsAsCaller(({ tabId, ...input }) =>

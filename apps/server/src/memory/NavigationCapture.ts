@@ -99,7 +99,9 @@ const make = Effect.gen(function* () {
     const parsed = URL.canParse(status.url ?? "") ? new URL(status.url ?? "") : null;
     const url = parsed !== null && ["https:", "http:"].includes(parsed.protocol) ? parsed : null;
     const stepIndex = Date.parse(status.lastActionAt ?? "") || 0;
-    return { url, tabId: actualTab, stepIndex };
+    // The browser, not the agent, knows which tab opened this one.
+    const openerTabId = status.tabs?.find((tab) => tab.tabId === actualTab)?.openerTabId;
+    return { url, tabId: actualTab, stepIndex, openerTabId };
   });
   const page = Effect.fn("NavigationCapture.page")(function* (scope: Scope, tabId?: PreviewTabId) {
     const current = yield* tabStatus(scope, tabId);
@@ -264,6 +266,9 @@ const make = Effect.gen(function* () {
         tabId: current.tabId,
         stepIndex,
         ...(input.action === undefined ? {} : { action: hide(input.action) }),
+        ...(input.action === undefined || current.openerTabId === undefined
+          ? {}
+          : { openerTabId: current.openerTabId }),
       });
     }, Effect.mapError(failure)),
     route: Effect.fn("NavigationCapture.route")(function* (scope, input) {

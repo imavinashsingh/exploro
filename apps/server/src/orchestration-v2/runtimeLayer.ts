@@ -1,3 +1,4 @@
+import * as MarkdownMemoryStore from "../memory/MarkdownMemoryStore.ts";
 import * as WorktreeBranchSync from "./WorktreeBranchSync.ts";
 import * as GuestShareService from "../guest/GuestShareService.ts";
 import * as UsageLimitRecoveryWorker from "./UsageLimitRecoveryWorker.ts";
@@ -17,7 +18,6 @@ import * as AgentSessionImporter from "../project/AgentSessionImporter.ts";
 import * as AgentSessionScanner from "../project/AgentSessionScanner.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
-import * as MiniLmEmbedder from "../memory/MiniLmEmbedder.ts";
 import * as ProjectNavigationMemory from "../memory/ProjectNavigationMemory.ts";
 import * as ProjectMemory from "../memory/ProjectMemory.ts";
 import * as ProjectMemoryAccess from "../memory/ProjectMemoryAccess.ts";
@@ -103,7 +103,6 @@ const layerLegacyV1ThreadImporterProvided = LegacyV1ThreadImporter.layer.pipe(
 const layerProjectMemoryProvided = ProjectMemory.layer.pipe(
   Layer.provideMerge(ProjectNavigationMemory.layer),
   Layer.provideMerge(ProjectUnderstanding.layer),
-  Layer.provide(MiniLmEmbedder.layer),
 );
 
 export const layerProjectService = ProjectService.layer.pipe(
@@ -127,6 +126,7 @@ const layerManagedProjectFoldersProvided = ManagedProjectFolders.layer.pipe(
  * provides this; runtimes built without it, as in tests, run without memory.
  */
 export const layerProjectMemoryAccess = ProjectMemoryAccess.layer.pipe(
+  Layer.provide(MarkdownMemoryStore.layer),
   Layer.provide(layerManagedProjectFoldersProvided),
   Layer.provide(layerProjectMemoryProvided),
   Layer.provide(QaSavedSecrets.layer),

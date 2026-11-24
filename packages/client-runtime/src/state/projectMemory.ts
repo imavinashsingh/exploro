@@ -1,5 +1,7 @@
 import {
   PROJECT_UNDERSTANDING_KINDS,
+  type MemoryDoc,
+  type MemoryProposal,
   type ProjectMemoryFact,
   type ProjectMemoryFactKind,
   type ProjectMemoryFactStatus,
@@ -203,4 +205,33 @@ export function mapCoverageLabel(
   ]
     .filter((part) => part !== null)
     .join(", ");
+}
+
+/** The playbook first, then guides by title. */
+export function memoryDocsInOrder(docs: ReadonlyArray<MemoryDoc>): ReadonlyArray<MemoryDoc> {
+  return [...docs].sort(
+    (a, b) =>
+      Number(b.kind === "playbook") - Number(a.kind === "playbook") ||
+      a.title.localeCompare(b.title),
+  );
+}
+
+/** Approving this proposal changes a confirmed document, which needs the user's explicit go-ahead. */
+export function proposalChangesConfirmed(
+  proposal: MemoryProposal,
+  docs: ReadonlyArray<MemoryDoc>,
+): boolean {
+  return docs.some((doc) => doc.docId === proposal.targetDocId && doc.status === "confirmed");
+}
+
+/** A guide's file name from its title; the server accepts `[a-z0-9-]` only. */
+export function memoryGuideSlug(title: string): string {
+  const slug = title
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, "-")
+    .replace(/^-+|-+$/gu, "")
+    .slice(0, 60)
+    .replace(/-+$/u, "");
+  return slug === "" ? "guide" : slug;
 }

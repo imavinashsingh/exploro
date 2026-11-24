@@ -25,6 +25,11 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ProjectUnderstanding from "./ProjectUnderstanding.ts";
+import {
+  normalizeMemoryEnvironment,
+  memoryEnvironmentMatches,
+  makeMemoryEnvironmentResolver,
+} from "./memoryEnvironment.ts";
 import { buildProjectMap } from "./projectMap.ts";
 
 import * as ServerConfig from "../config.ts";
@@ -161,6 +166,7 @@ const tombstoneRef = (fact: {
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  const resolveEnvironment = yield* makeMemoryEnvironmentResolver;
   const understanding = yield* ProjectUnderstanding.ProjectUnderstanding;
   const navigation = yield* Effect.serviceOption(ProjectNavigationMemory.ProjectNavigationMemory);
   const config = yield* ServerConfig.ServerConfig;
@@ -238,7 +244,7 @@ const make = Effect.gen(function* () {
       ...row,
       mayBeOutdated:
         (testing?.environment !== undefined &&
-          row.environment !== (memoryEnvironment(testing.environment) ?? testing.environment)) ||
+          !memoryEnvironmentMatches(testing.environment, row.environment)) ||
         (testing?.appVersion !== undefined &&
           row.appVersion !== null &&
           row.appVersion !== testing.appVersion),
@@ -276,7 +282,7 @@ const make = Effect.gen(function* () {
         message: "Unknown screen. Call navigation_observe on this screen first.",
       });
     }
-    const environment = state.environment;
+    const environment = normalizeMemoryEnvironment(state.environment) ?? state.environment;
     if (input.appVersion === undefined) {
       const versions = yield* sql<{ readonly appVersion: string }>`
         SELECT app_version AS "appVersion" FROM project_memory_facts
@@ -501,15 +507,28 @@ const make = Effect.gen(function* () {
 
     lookupFacts: Effect.fn("ProjectMemory.lookupFacts")(
       function* (projectId, lookup) {
-        const environment =
-          lookup.environment === undefined ? undefined : memoryEnvironment(lookup.environment);
-        if (environment === null) return [];
+        const scope = yield* resolveEnvironment(projectId, lookup.environment);
         const rows = yield* sql`
           ${selectFacts}
           WHERE ${sql.and([
             sql`project_id = ${projectId}`,
+            ...(lookup.excludeVerdicts ? [sql`kind != 'result'`] : []),
+            ...(lookup.query === undefined
+              ? []
+              : [
+                  sql.or(
+                    (lookup.query.match(/[\p{L}\p{N}]+/gu) ?? [])
+                      .slice(0, 64)
+                      .map(
+                        (word) =>
+                          sql`instr(lower(fact_key || ' ' || value || ' ' || coalesce(detail, '')), ${word.toLowerCase()}) > 0`,
+                      ),
+                  ),
+                ]),
             sql`status = ${lookup.openFailures ? "current" : (lookup.status ?? "current")}`,
-            ...(environment === undefined ? [] : [sql`environment = ${environment}`]),
+            ...(scope.appliedEnvironment === null
+              ? []
+              : [sql.in("environment", scope.environments)]),
             ...(lookup.stateId === undefined ? [] : [sql`state_id = ${lookup.stateId}`]),
             ...(lookup.route === undefined ? [] : [sql`route = ${memoryRoute(lookup.route)}`]),
             ...(lookup.openFailures
@@ -632,7 +651,13 @@ const make = Effect.gen(function* () {
     recordRun: Effect.fn("ProjectMemory.recordRun")(
       function* (run, secrets = []) {
         const projectId = run.projectId;
-        if (projectId === null || run.finishedAt === null) return 0;
+        if (
+          projectId === null ||
+          run.finishedAt === null ||
+          run.kind === "regression" ||
+          run.remember === false
+        )
+          return 0;
         const recorded = yield* sql<{ readonly scenarioIndex: number }>`
           SELECT DISTINCT json_extract(evidence.value, '$.scenarioIndex') AS "scenarioIndex"
           FROM project_memory_facts AS fact, json_each(fact.evidence_json) AS evidence

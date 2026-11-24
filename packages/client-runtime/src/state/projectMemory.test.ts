@@ -1,5 +1,7 @@
 import {
   ProjectId,
+  type MemoryDoc,
+  type MemoryProposal,
   type ProjectMemoryFact,
   type ProjectMemoryMap,
   type ProjectMemoryMapBranch,
@@ -15,7 +17,10 @@ import {
   filterFacts,
   mapCoverageLabel,
   mapRows,
+  memoryDocsInOrder,
+  memoryGuideSlug,
   memoryStatusLine,
+  proposalChangesConfirmed,
 } from "./projectMemory.ts";
 
 const fact = (factId: string, overrides: Partial<ProjectMemoryFact> = {}): ProjectMemoryFact => ({
@@ -159,5 +164,45 @@ describe("map rows", () => {
     expect(mapCoverageLabel(page("/a", { coverage: "failing", passCount: 2, failCount: 1 }))).toBe(
       "1 FAIL, 2 PASS",
     );
+  });
+});
+
+describe("memory documents", () => {
+  const doc = (slug: string, overrides: Partial<MemoryDoc> = {}): MemoryDoc => ({
+    docId: `shop:guide:${slug}`,
+    projectId: ProjectId.make("shop"),
+    kind: "guide",
+    slug,
+    title: slug,
+    summary: "",
+    status: "draft",
+    routes: [],
+    keywords: [],
+    body: "",
+    updatedAt: "2026-11-24",
+    ...overrides,
+  });
+  const proposal = (targetDocId: string) =>
+    ({ proposalId: "p", targetDocId, status: "pending" }) as MemoryProposal;
+
+  it("orders the playbook first and needs consent only for confirmed targets", () => {
+    const docs = [
+      doc("zeta"),
+      doc("playbook", { docId: "shop:playbook:playbook", kind: "playbook", title: "Playbook" }),
+      doc("alpha", { status: "confirmed" }),
+    ];
+    expect(memoryDocsInOrder(docs).map((entry) => entry.slug)).toEqual([
+      "playbook",
+      "alpha",
+      "zeta",
+    ]);
+    expect(proposalChangesConfirmed(proposal("shop:guide:alpha"), docs)).toBe(true);
+    expect(proposalChangesConfirmed(proposal("shop:guide:zeta"), docs)).toBe(false);
+    expect(proposalChangesConfirmed(proposal("shop:guide:new"), docs)).toBe(false);
+  });
+
+  it("derives a server-safe slug from a title", () => {
+    expect(memoryGuideSlug("  Checkout: Pay with Café card! ")).toBe("checkout-pay-with-cafe-card");
+    expect(memoryGuideSlug("ログイン")).toBe("guide");
   });
 });

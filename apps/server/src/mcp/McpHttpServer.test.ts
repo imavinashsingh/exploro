@@ -1,5 +1,7 @@
-import { ProjectMemoryError } from "@t3tools/contracts";
+import * as MarkdownMemoryRecall from "../memory/MarkdownMemoryRecall.ts";
+import { ProjectId, ProjectMemoryError } from "@t3tools/contracts";
 import * as NavigationCapture from "../memory/NavigationCapture.ts";
+import * as RouteTrigger from "../memory/RouteTrigger.ts";
 import * as ProjectMemory from "../memory/ProjectMemory.ts";
 import * as ProjectUnderstanding from "../memory/ProjectUnderstanding.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
@@ -117,6 +119,41 @@ const layerTest = McpHttpServer.layerPreviewToolkit.pipe(
       Layer.mock(SecretRequests.SecretRequests)({}),
       Layer.mock(QaSavedSecrets.QaSavedSecrets)({}),
       Layer.mock(ProjectMemory.ProjectMemory)({}),
+      Layer.mock(MarkdownMemoryRecall.MarkdownMemoryRecall)({
+        getGuide: (projectId, slug) =>
+          Effect.succeed({
+            guide: {
+              docId: `${projectId}:${slug}`,
+              projectId,
+              kind: "guide",
+              slug,
+              title: "Checkout",
+              summary: "Cart",
+              status: "confirmed",
+              routes: ["/checkout"],
+              keywords: [],
+              body: "Require cart",
+              updatedAt: "2026-11-23",
+            },
+          }),
+        search: (_, input) =>
+          Effect.succeed({
+            docs: [],
+            facts: [],
+            appliedEnvironment: input.environment ?? null,
+            matchedCount: 0,
+          }),
+        forScreen: () =>
+          Effect.succeed({
+            appliedEnvironment: null,
+            matchedCount: 0,
+            guides: [],
+            facts: [],
+            connections: [],
+            openIssuesLabel: "Open issues from recent runs",
+            openIssues: [],
+          }),
+      }),
       Layer.mock(NavigationCapture.NavigationCapture)({
         recognize: () =>
           Effect.fail(
@@ -131,6 +168,7 @@ const layerTest = McpHttpServer.layerPreviewToolkit.pipe(
         browserOpened: () => Effect.void,
         stepPerformed: () => Effect.void,
       }),
+      Layer.mock(RouteTrigger.RouteTrigger)({ onPage: () => Effect.succeed(null) }),
     ),
   ),
   Layer.provideMerge(PreviewAutomationBroker.layer),
@@ -2142,6 +2180,9 @@ it.effect("hides memory tools from a thread without a project and refuses their 
       .filter(({ tool }) => tool.name.startsWith("memory_"))
       .map(({ tool }) => tool.name);
     expect(memoryTools).toEqual([
+      "memory_get_guide",
+      "memory_search",
+      "memory_for_screen",
       "memory_map",
       "memory_fact_put",
       "memory_facts_lookup",
@@ -2191,4 +2232,69 @@ it.effect("hides memory tools from a thread without a project and refuses their 
       expect(refused.message).toBe(`Tool '${name}' not found`);
     }
   }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect(
+  "serves all three Markdown recall tools in the caller's project and enforces memory settings",
+  () =>
+    Effect.gen(function* () {
+      const server = yield* McpServer.McpServer;
+      const call = (name: string, args: Record<string, unknown>) =>
+        server.callTool({ name, arguments: args }).pipe(
+          Effect.provideService(McpInvocationContext.McpInvocationContext, {
+            ...invocation,
+            capabilities: new Set(["preview", "memory"] as const),
+          }),
+          Effect.provideService(McpSchema.McpServerClient, client),
+        );
+      const invalid = yield* call("memory_get_guide", {
+        slug: "checkout",
+        projectId: "other",
+      }).pipe(Effect.flip);
+      expect(invalid.message).toContain('Unknown argument "projectId"');
+      const guide = yield* call("memory_get_guide", { slug: "checkout" });
+      expect(guide.structuredContent).toMatchObject({
+        guide: { projectId: "project:mcp-test", slug: "checkout", body: "Require cart" },
+      });
+      for (const environment of ["dev", "https://dev.dvapply.com/path", null]) {
+        expect(
+          (yield* call("memory_get_guide", { slug: "checkout", environment })).isError,
+        ).not.toBe(true);
+        expect((yield* call("memory_search", { query: "cart", environment })).isError).not.toBe(
+          true,
+        );
+        expect(
+          (yield* call("memory_for_screen", { route: "/checkout", environment })).isError,
+        ).not.toBe(true);
+      }
+      expect(
+        (yield* call("memory_search", { query: "cart", environment: "https://shop.test" }))
+          .structuredContent,
+      ).toEqual({ docs: [], facts: [], appliedEnvironment: "https://shop.test", matchedCount: 0 });
+      expect(
+        (yield* call("memory_for_screen", { route: "/checkout" })).structuredContent,
+      ).toMatchObject({
+        openIssuesLabel: "Open issues from recent runs",
+        openIssues: [],
+        appliedEnvironment: null,
+        matchedCount: 0,
+      });
+      for (const [name, args] of [
+        ["memory_get_guide", { slug: "checkout" }],
+        ["memory_search", { query: "cart" }],
+        ["memory_for_screen", { route: "/checkout" }],
+      ] as const) {
+        const refused = yield* call(name, args).pipe(
+          Effect.provide(
+            ServerSettings.layerTest({
+              projectSettingsOverrides: {
+                [ProjectId.make("project:mcp-test")]: { qaMemoryEnabled: false },
+              },
+            }),
+          ),
+        );
+        expect(refused.isError).toBe(true);
+        expect(JSON.stringify(refused.content)).toContain("Fact memory is off");
+      }
+    }).pipe(Effect.provide(layerTest)),
 );

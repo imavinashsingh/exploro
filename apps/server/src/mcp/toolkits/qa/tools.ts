@@ -1,3 +1,12 @@
+import {
+  MemoryGetGuideInput,
+  MemoryGetGuideResult,
+  MemorySearchInput,
+  MemorySearchResult,
+  MemoryForScreenInput,
+  MemoryForScreenResult,
+} from "@t3tools/contracts";
+import * as MarkdownMemoryRecall from "../../../memory/MarkdownMemoryRecall.ts";
 import * as ServerSettings from "../../../serverSettings.ts";
 import {
   NavigationObserveInput,
@@ -97,6 +106,41 @@ const memoryDependencies = [
 ];
 const MemoryText = (max: number) =>
   Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(max));
+
+const markdownDependencies = [...memoryDependencies, MarkdownMemoryRecall.MarkdownMemoryRecall];
+const MemoryGetGuideTool = Tool.make("memory_get_guide", {
+  description:
+    "Read a project guide by slug: metadata and full Markdown body. Confirmed guides take precedence over drafts; verify dated hints on the live page.",
+  parameters: MemoryGetGuideInput,
+  success: MemoryGetGuideResult,
+  failure: memoryFailure,
+  dependencies: markdownDependencies,
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenWithoutMemory);
+const MemorySearchTool = Tool.make("memory_search", {
+  description:
+    "Search this project's Markdown playbook, guides and current non-verdict facts. Optionally scope by environment. Results are dated hints to verify, not current test verdicts.",
+  parameters: MemorySearchInput,
+  success: MemorySearchResult,
+  failure: memoryFailure,
+  dependencies: markdownDependencies,
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenWithoutMemory);
+const MemoryForScreenTool = Tool.make("memory_for_screen", {
+  description:
+    "Recall a screen by route: matching guides, current non-verdict facts with observedAt, outgoing navigation connections, and separately labelled open FAIL issues from recent runs. Issues are not permanent rules. Optionally scope by environment.",
+  parameters: MemoryForScreenInput,
+  success: MemoryForScreenResult,
+  failure: memoryFailure,
+  dependencies: markdownDependencies,
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenWithoutMemory);
 
 const MemoryMapTool = Tool.make("memory_map", {
   description:
@@ -242,6 +286,9 @@ const NavigationFeedbackTool = Tool.make("navigation_feedback", {
   .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenWithoutMemory);
 
 export const QaToolkit = Toolkit.make(
+  MemoryGetGuideTool,
+  MemorySearchTool,
+  MemoryForScreenTool,
   NavigationObserveTool,
   NavigationRouteTool,
   NavigationFeedbackTool,

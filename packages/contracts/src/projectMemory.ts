@@ -1,4 +1,4 @@
-import { NavigationSnapshot } from "./projectNavigation.ts";
+import { NavigationSnapshot, NavigationTransition } from "./projectNavigation.ts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
@@ -79,6 +79,8 @@ export type ProjectMemoryFact = typeof ProjectMemoryFact.Type;
 
 /** Exact-match filters; every field left out matches anything. */
 export const ProjectMemoryFactLookup = Schema.Struct({
+  query: Schema.optional(MemoryText(2000)),
+  excludeVerdicts: Schema.optional(Schema.Boolean),
   stateId: Schema.optional(MemoryText(200)),
   environment: Schema.optional(MemoryText(2048)),
   route: Schema.optional(MemoryText(2048)),
@@ -248,16 +250,6 @@ export const ProjectMemoryStatus = Schema.Struct({
 });
 export type ProjectMemoryStatus = typeof ProjectMemoryStatus.Type;
 
-/** Everything the Memory screen shows: every version of every fact, newest first. */
-export const ProjectMemorySnapshot = Schema.Struct({
-  navigation: Schema.optional(NavigationSnapshot),
-  facts: Schema.Array(ProjectMemoryFact),
-  /** More facts exist than were sent. */
-  factsTruncated: Schema.Boolean,
-  understanding: Schema.Array(ProjectUnderstandingItem),
-  status: ProjectMemoryStatus,
-});
-export type ProjectMemorySnapshot = typeof ProjectMemorySnapshot.Type;
 export const ProjectMemorySnapshotInput = Schema.Struct({ projectId: ProjectId });
 
 export const ProjectMemoryFactDeleteInput = Schema.Struct({
@@ -293,4 +285,103 @@ export const ProjectMemoryVersionInput = Schema.Struct({
   projectId: ProjectId,
   environment: MemoryText(2048),
   appVersion: MemoryText(100),
+});
+
+export const MemoryDocKind = Schema.Literals(["playbook", "guide"]);
+export const MemorySlug = Schema.String.check(Schema.isPattern(/^[a-z0-9-]+$/u));
+export const MemoryDoc = Schema.Struct({
+  docId: Schema.String,
+  projectId: ProjectId,
+  kind: MemoryDocKind,
+  slug: MemorySlug,
+  title: MemoryText(300),
+  summary: Schema.String,
+  environment: Schema.optional(Schema.String),
+  status: Schema.Literals(["draft", "confirmed"]),
+  routes: Schema.Array(Schema.String),
+  keywords: Schema.Array(Schema.String),
+  body: Schema.String,
+  updatedAt: Schema.String,
+});
+export type MemoryDoc = typeof MemoryDoc.Type;
+export const MemoryProposal = Schema.Struct({
+  proposalId: Schema.String,
+  projectId: ProjectId,
+  targetDocId: Schema.String,
+  kind: MemoryDocKind,
+  title: Schema.String,
+  proposedMarkdown: Schema.String,
+  rationale: Schema.String,
+  sourceRunId: Schema.optional(QaRunId),
+  status: Schema.Literals(["pending", "approved", "dismissed"]),
+  createdAt: Schema.String,
+});
+export type MemoryProposal = typeof MemoryProposal.Type;
+/** Everything the Memory screen shows: every version of every fact, newest first. */
+export const ProjectMemorySnapshot = Schema.Struct({
+  navigation: Schema.optional(NavigationSnapshot),
+  facts: Schema.Array(ProjectMemoryFact),
+  /** More facts exist than were sent. */
+  factsTruncated: Schema.Boolean,
+  understanding: Schema.Array(ProjectUnderstandingItem),
+  status: ProjectMemoryStatus,
+  /** The playbook and guides. Optional so older servers still decode. */
+  docs: Schema.optional(Schema.Array(MemoryDoc)),
+  /** Drafts from finished runs waiting for the user's review. */
+  proposals: Schema.optional(Schema.Array(MemoryProposal)),
+  /** Current FAIL results, kept apart from the playbook and guides. */
+  openIssues: Schema.optional(Schema.Array(ProjectMemoryFact)),
+});
+export type ProjectMemorySnapshot = typeof ProjectMemorySnapshot.Type;
+/** A user edit; saved documents are confirmed, so agents never overwrite them. */
+export const MemoryDocSaveInput = Schema.Struct({
+  projectId: ProjectId,
+  kind: MemoryDocKind,
+  slug: MemorySlug,
+  title: MemoryText(300),
+  summary: Schema.String.check(Schema.isMaxLength(1000)),
+  environment: Schema.optional(Schema.NullOr(MemoryText(2048))),
+  routes: Schema.Array(MemoryText(2048)).check(Schema.isMaxLength(50)),
+  keywords: Schema.Array(MemoryText(100)).check(Schema.isMaxLength(50)),
+  body: Schema.String.check(Schema.isMaxLength(100_000)),
+});
+export const MemoryProposalApproveInput = Schema.Struct({
+  projectId: ProjectId,
+  proposalId: Schema.String,
+  /** The user's explicit go-ahead to change a confirmed document. */
+  replaceConfirmed: Schema.optional(Schema.Boolean),
+});
+export const MemoryProposalDismissInput = Schema.Struct({
+  projectId: ProjectId,
+  proposalId: Schema.String,
+});
+export const MemoryGetGuideInput = Schema.Struct({
+  slug: MemorySlug,
+  environment: Schema.optional(Schema.NullOr(MemoryText(2048))),
+});
+export const MemoryGetGuideResult = Schema.Struct({ guide: Schema.NullOr(MemoryDoc) });
+export const MemorySearchInput = Schema.Struct({
+  query: MemoryText(2000),
+  environment: Schema.optional(Schema.NullOr(MemoryText(2048))),
+});
+export const MemoryForScreenInput = Schema.Struct({
+  route: MemoryText(2048),
+  environment: Schema.optional(Schema.NullOr(MemoryText(2048))),
+});
+export const MemorySearchResult = Schema.Struct({
+  appliedEnvironment: Schema.optional(Schema.NullOr(Schema.String)),
+  matchedCount: Schema.optional(Schema.Int),
+  diagnosticNote: Schema.optional(Schema.String),
+  docs: Schema.Array(MemoryDoc),
+  facts: Schema.Array(ProjectMemoryFact),
+});
+export const MemoryForScreenResult = Schema.Struct({
+  appliedEnvironment: Schema.optional(Schema.NullOr(Schema.String)),
+  matchedCount: Schema.optional(Schema.Int),
+  diagnosticNote: Schema.optional(Schema.String),
+  guides: Schema.Array(MemoryDoc),
+  facts: Schema.Array(ProjectMemoryFact),
+  connections: Schema.Array(NavigationTransition),
+  openIssuesLabel: Schema.Literal("Open issues from recent runs"),
+  openIssues: Schema.Array(ProjectMemoryFact),
 });

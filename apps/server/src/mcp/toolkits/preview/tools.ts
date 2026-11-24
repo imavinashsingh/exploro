@@ -31,6 +31,7 @@ import * as ServerConfig from "../../../config.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as QaRecorder from "../../../qa/QaRecorder.ts";
 import * as QaSavedSecrets from "../../../qa/QaSavedSecrets.ts";
+import * as RouteTrigger from "../../../memory/RouteTrigger.ts";
 import * as SecretRequests from "../../../secrets/SecretRequests.ts";
 
 const dependencies = [
@@ -40,8 +41,10 @@ const dependencies = [
 ];
 // Tools that change the page log a replayable step for the thread's QA run.
 const loggingDependencies = [...dependencies, QaRecorder.QaRecorder];
+// Tools that land on a page also return that route's guides and open issues.
+const landingDependencies = [...loggingDependencies, RouteTrigger.RouteTrigger];
 const actDependencies = [
-  ...loggingDependencies,
+  ...landingDependencies,
   SecretRequests.SecretRequests,
   QaSavedSecrets.QaSavedSecrets,
 ];
@@ -50,7 +53,21 @@ const PreviewToolFailure = Schema.Union([PreviewAutomationError, OrchestratorMcp
 
 const presentationFields = { toolIcon: Schema.optional(ToolActivityIcon) };
 
+const memoryNoteFields = {
+  memoryNote: Schema.optional(
+    Schema.String.annotate({
+      description:
+        "Guides and open issues remembered for the page this tool landed on, once per screen.",
+    }),
+  ),
+};
+
 const PreviewActionResult = Schema.Struct(presentationFields);
+
+const PreviewLandingStatus = Schema.Struct({
+  ...PreviewAutomationStatus.fields,
+  ...memoryNoteFields,
+});
 
 const browserTool = <T extends Tool.Any>(tool: T): T =>
   tool
@@ -92,9 +109,9 @@ const PreviewOpenTool = browserTool(
       (fields) => ({ ...fields, target: Schema.optional(EnvironmentPortTarget) }),
       { unsafePreserveChecks: true },
     ),
-    success: PreviewAutomationStatus,
+    success: PreviewLandingStatus,
     failure: PreviewToolFailure,
-    dependencies: loggingDependencies,
+    dependencies: landingDependencies,
   })
     .annotate(Tool.Title, "Open browser preview")
     .annotate(Tool.Destructive, false),
@@ -116,9 +133,9 @@ const PreviewNavigateTool = safeBrowserTool(
     description:
       "Navigate the chosen tab. Pass `url` for a website, or `target:{kind:'environment-port',port}` for a dev server. Exactly one of `url` and `target`.",
     parameters: PreviewAutomationNavigateInput,
-    success: PreviewAutomationStatus,
+    success: PreviewLandingStatus,
     failure: PreviewToolFailure,
-    dependencies: loggingDependencies,
+    dependencies: landingDependencies,
   }).annotate(Tool.Title, "Navigate browser preview"),
 );
 
@@ -181,8 +198,12 @@ const PreviewActTool = browserTool(
       "Act on the chosen tab. Target with `locator='aria-ref=<ref>'` from `preview_snapshot`; `x` and `y` go together. click: `button`, `clickCount` 1 to 3. type: literal `text`, `request_secret`'s `secretRef`, or a saved password's `savedSecretId` from the project brief; `clear=true` replaces it. hover: shows menus or tooltips. select: `values` in one native <select>, by value or label; for a custom dropdown, click it open, then click the option. drag: `source` onto `target`. upload: absolute `paths` answer the file picker `preview_status` reports, [] cancels it, or a `locator` sets an <input type=file>. press: one `key` with `modifiers`, to the focused element; click a field first to focus it. scroll: the tab, or one container with a locator; positive deltas scroll down or right.",
     parameters: PreviewAutomationActInput,
     success: Schema.Union([
-      Schema.Struct({ ...PreviewAutomationSelectResult.fields, ...presentationFields }),
-      PreviewActionResult,
+      Schema.Struct({
+        ...PreviewAutomationSelectResult.fields,
+        ...presentationFields,
+        ...memoryNoteFields,
+      }),
+      Schema.Struct({ ...presentationFields, ...memoryNoteFields }),
     ]),
     failure: PreviewToolFailure,
     dependencies: actDependencies,

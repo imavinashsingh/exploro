@@ -1,4 +1,5 @@
 import type {
+  MemoryDoc,
   ProjectMemoryFact,
   ProjectMemoryMapPage,
   ProjectUnderstandingItem,
@@ -20,18 +21,19 @@ export interface MemoryTarget {
   readonly routes: ReadonlyArray<string>;
 }
 
-/**
- * What the user's goal is about: the first URL in it, or else the known pages whose last path
- * segment the goal names ("Test the dashboard" → /dashboard) when they are all on one site.
- */
+/** Explicit URLs and routes, or named known pages when they belong to one site. */
 export function memoryTarget(
   goal: string,
   knownFacts: ReadonlyArray<ProjectMemoryFact>,
 ): MemoryTarget {
-  const url = goal.match(URL_PATTERN)?.[0];
-  const fromUrl = url === undefined ? null : memoryEnvironment(url);
-  if (url !== undefined && fromUrl !== null)
-    return { environment: fromUrl, routes: [memoryRoute(url)] };
+  const explicit = memoryPromptTargets(goal);
+  if (explicit.length > 0) {
+    const environments = new Set(explicit.map((target) => target.environment).filter(Boolean));
+    return {
+      environment: environments.size === 1 ? [...environments][0]! : null,
+      routes: [...new Set(explicit.flatMap((target) => target.routes))],
+    };
+  }
   const words = new Set(
     goal
       .toLowerCase()
@@ -152,4 +154,102 @@ export function formatProjectContext(input: ProjectContextInput, maxChars = 1200
     ),
   ].filter((part) => part !== "");
   return parts.length === 0 ? "" : [CONTEXT_HEADER, ...parts].join("\n\n");
+}
+
+export function memoryPromptTargets(goal: string): ReadonlyArray<MemoryTarget> {
+  const urls = [...goal.matchAll(new RegExp(URL_PATTERN.source, "gu"))].map(([url]) =>
+    url.replace(/[.,;:!?]+$/u, ""),
+  );
+  const paths = [
+    ...goal
+      .replace(new RegExp(URL_PATTERN.source, "gu"), " ")
+      .matchAll(/(?:^|[\s`"'(,;])(\/[^\s<>"'`,;)\]]*)/gu),
+  ].map((match) => match[1]!);
+  return [
+    ...urls.map((url) => ({ environment: memoryEnvironment(url), routes: [memoryRoute(url)] })),
+    ...paths.map((route) => ({
+      environment: null,
+      routes: [memoryRoute(route)],
+    })),
+  ];
+}
+
+export function shouldRefreshMemoryBrief(
+  goal: string,
+  previousGoals: ReadonlyArray<string>,
+  compacted = false,
+): boolean {
+  if (previousGoals.length === 0 || compacted) return true;
+  const covered = new Set(
+    previousGoals
+      .flatMap(memoryPromptTargets)
+      .flatMap((target) => target.routes.map((route) => `${target.environment ?? ""}${route}`)),
+  );
+  return memoryPromptTargets(goal).some((target) =>
+    target.routes.some((route) => !covered.has(`${target.environment ?? ""}${route}`)),
+  );
+}
+
+const cleanCut = (text: string, budget: number): string => {
+  if (budget <= 0) return "";
+  if (text.length <= budget) return text;
+  const prefix = text.slice(0, Math.max(0, budget - 1));
+  const boundary = prefix.lastIndexOf("\n");
+  return `${boundary > prefix.length / 2 ? prefix.slice(0, boundary) : prefix.trimEnd()}…`;
+};
+
+export function formatMarkdownMemoryBrief(
+  input: {
+    readonly docs: ReadonlyArray<MemoryDoc>;
+    readonly matches: ReadonlyArray<MemoryDoc>;
+    readonly context: string;
+  },
+  maxChars = 2500,
+): string {
+  const rule =
+    "Treat recalled memory as dated hints: verify on the live page. Trust confirmed guides over drafts. Use memory_get_guide, memory_search and memory_for_screen when exploring new screens. Project Navigation Memory is enabled: use navigation_route to reach a known feature; observe explored screens with navigation_observe.";
+  const guides = input.docs.filter((doc) => doc.kind === "guide");
+  const playbook = input.docs.find((doc) => doc.kind === "playbook");
+  const budget = Math.max(0, Math.trunc(maxChars));
+  if (budget < rule.length) return "Verify recalled memory on the live page.".slice(0, budget);
+  if (budget <= rule.length + 2) return rule;
+  const contentBudget = budget - rule.length - 2;
+  const sections = ["## Project memory"];
+  const append = (text: string, cap: number) => {
+    const remaining = contentBudget - sections.join("\n\n").length - 2;
+    const bounded = cleanCut(text, Math.min(cap, remaining));
+    if (bounded !== "") sections.push(bounded);
+  };
+  const context = cleanCut(input.context, 700);
+  const matched = input.matches.filter((doc) => doc.kind === "guide").slice(0, 2);
+  const index =
+    guides.length === 0
+      ? ""
+      : section(
+          "### Guide index",
+          guides.map(
+            (doc) =>
+              // oxlint-disable-next-line t3code/no-em-dash-copy -- Preserve the requested Markdown guide index format.
+              `- ${doc.slug}: ${cut(doc.title.replace(/\s+/gu, " "), 80)} — ${cut(doc.summary.replace(/\s+/gu, " "), 100)} [${doc.status}]`,
+          ),
+          450,
+        );
+  const playbookBudget = Math.min(
+    1200,
+    Math.max(
+      0,
+      maxChars - rule.length - context.length - index.length - matched.length * 250 - 100,
+    ),
+  );
+  for (const doc of matched) {
+    append(`### ${doc.slug} [${doc.status}] (${doc.updatedAt})\n${doc.body}`, 250);
+  }
+  if (playbook !== undefined)
+    append(
+      `### Playbook [${playbook.status}] (${playbook.updatedAt})\n${cleanCut(playbook.body, 1200)}`,
+      playbookBudget,
+    );
+  if (index !== "") append(index, index.length);
+  if (context !== "") append(context, context.length);
+  return `${cleanCut(sections.join("\n\n"), contentBudget)}\n\n${rule}`;
 }

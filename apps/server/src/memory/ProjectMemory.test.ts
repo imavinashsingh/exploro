@@ -1,5 +1,4 @@
 import * as ProjectUnderstanding from "./ProjectUnderstanding.ts";
-import * as MemoryEmbedder from "./MemoryEmbedder.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
@@ -89,9 +88,7 @@ const withMemory = <A, E>(
               Layer.provideMerge(
                 ProjectNavigationMemory.layer.pipe(Layer.provide(NodeCrypto.layer)),
               ),
-              Layer.provideMerge(
-                ProjectUnderstanding.layer.pipe(Layer.provide(MemoryEmbedder.layerUnavailable)),
-              ),
+              Layer.provideMerge(ProjectUnderstanding.layer),
             ),
           ),
           Layer.provideMerge(Layer.fresh(SqlitePersistence.layerMemory)),

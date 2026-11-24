@@ -1,3 +1,4 @@
+import * as MarkdownMemoryStore from "./MarkdownMemoryStore.ts";
 import { ProjectId, QaSavedSecretId, type ProjectUnderstandingItem } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -35,6 +36,31 @@ const account = item("account", "Sign in as qa@shop.test, an applicant account."
 
 const layer = ProjectMemoryAccess.layer.pipe(
   Layer.provide(
+    Layer.mock(MarkdownMemoryStore.MarkdownMemoryStore)({
+      migrateLegacyUnderstandingIfEmpty: () =>
+        Effect.die("Active recall must not migrate legacy understanding"),
+      syncProject: () => Effect.void,
+      listDocs: () => Effect.succeed([]),
+      matchDocsByRoutes: () => Effect.succeed([]),
+      searchDocs: () =>
+        Effect.succeed([
+          {
+            docId: "checkout",
+            projectId: shop,
+            kind: "guide",
+            slug: "checkout",
+            title: "Checkout",
+            summary: "Cart",
+            body: "Checkout needs a nonempty cart.",
+            status: "confirmed",
+            routes: [],
+            keywords: [],
+            updatedAt: "2026-11-23",
+          },
+        ]),
+    }),
+  ),
+  Layer.provide(
     Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
       namedProjectsRoot: "/projects",
       isScratchProject: (projectId) => Effect.succeed(projectId === scratch),
@@ -59,14 +85,6 @@ const layer = ProjectMemoryAccess.layer.pipe(
   Layer.provide(
     Layer.mock(ProjectUnderstanding.ProjectUnderstanding)({
       contextItems: (projectId) => Effect.succeed(projectId === shop ? [account] : []),
-      recall: () =>
-        Effect.succeed({
-          mode: "text",
-          items: [
-            { item: account, via: "match" },
-            { item: item("workflow", "Checkout needs a nonempty cart."), via: "match" },
-          ],
-        }),
     }),
   ),
   Layer.provide(
@@ -102,13 +120,12 @@ it.effect("gives memory only to projects that have it on", () =>
       yield* access.firstTurnBrief(navigationOnly, "Reach profile"),
       "Project Navigation Memory is enabled",
     );
-    // The site, account and saved password reach a thread whose goal names none of them, once.
     const brief = yield* access.firstTurnBrief(shop, "Test the new application form");
     assert.include(brief, "- https://shop.test");
     assert.include(brief, '- "Shop password" for https://shop.test: qa-secret-0a');
-    assert.include(brief, '[account] "Sign in as qa@shop.test, an applicant account."');
+    assert.notInclude(brief, account.statement);
     assert.notInclude(brief, "qa-secret-0b");
-    assert.strictEqual(brief.split("qa@shop.test").length, 2);
+    assert.strictEqual(brief.split("qa@shop.test").length, 1);
     assert.include(brief, "Checkout needs a nonempty cart.");
     // With memory off, the user's own setup still comes, but nothing learned does.
     const offBrief = yield* access.firstTurnBrief(off, "Test the dashboard");

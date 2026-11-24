@@ -12505,5 +12505,60 @@
   "27d76249d09eb69f": "Guia de revisão pronto",
   "faa3bb26abb39c93": "O guia de revisão falhou",
   "b7df38b7d8792d78": "Abrir guia",
-  "9e91e9a77b664e4e": "Não foi possível iniciar um guia de revisão"
+  "9e91e9a77b664e4e": "Não foi possível iniciar um guia de revisão",
+  "7f9f1239cd187f14": "{count, plural, one {{count} proposta} other {{count} propostas}}",
+  "b7a4d3015a2fa508": "Guias · {count}",
+  "cc7c9dbd50d250a5": "confirmado",
+  "783101659683f517": "rascunho",
+  "556e87b379403824": "Problemas em aberto de execuções recentes · {count}",
+  "d2aba9b17b6df56c": "Ainda não há playbook nem guias. Aprove uma proposta ou escreva uma nas configurações.",
+  "55b2a09461611865": "Não são regras. Verifique de novo antes de relatar.",
+  "c3ea24ac809a5ed5": "Título",
+  "8caeeced121d6929": "Uma linha sobre o que isto cobre",
+  "e705d84c2eb2bda6": "Rotas às quais se aplica, uma por linha, como /checkout",
+  "122398bf85e299f5": "Markdown",
+  "37f9397b2b479651": "Playbook",
+  "f1fa6dd73b7dbed8": "Guia",
+  "96f92b7cf0d018c9": "Altera um documento confirmado",
+  "b8d0faab549c0c55": "Ocultar Markdown",
+  "4842f2e26ae92e04": "Mostrar Markdown",
+  "707a97ff73bcb1f4": "Já existe um guia com este nome. Edite esse guia ou escolha outro título.",
+  "aa1d477d59bb6267": "Os agentes leem isto antes de testar. Ao salvar, o documento fica confirmado e os agentes só podem sugerir mudanças.",
+  "415fe61d05c52e20": "Escrever o playbook",
+  "efa654d64d965f7a": "Novo guia",
+  "1de6c80486085850": "Ainda não há playbook nem guias. Aprove uma proposta ou escreva uma.",
+  "2c91db5495069972": "Nada para revisar. Testes concluídos sugerem aqui mudanças no playbook e nos guias.",
+  "5170d375ed691617": "Aprovar e alterar o confirmado",
+  "f1e5c1be1ac92361": "Aprovar",
+  "f9ad2e78730dda85": "Nenhum problema em aberto. Verificações que falharam em execuções concluídas aparecem aqui.",
+  "d98f1f8a9bb01a4a": "Falhas vistas em execuções recentes. Não são regras para o playbook ou os guias: verifique de novo antes de relatar.",
+  "d28967536b065ad3": "Não foi possível salvar o documento",
+  "b3941b7a51bbe339": "Não foi possível aprovar a proposta",
+  "772cd01743b540ab": "Não foi possível descartar a proposta",
+  "ab595d87fed78bd3": [
+    "Problemas em aberto · ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
+  "7fadf0ceed123f2e": [
+    "Playbook e guias · ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
+  "eb9fecc359dd79f2": [
+    "Para revisar · ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
+  "7415659b3d9f4b78": "Playbook do projeto",
+  "f5ee4d404eaa8f1b": "Como este projeto é testado"
 }

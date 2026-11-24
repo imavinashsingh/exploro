@@ -1,3 +1,4 @@
+import Migration0106 from "./Migrations/106_MarkdownMemory.ts";
 import Migration0105 from "./Migrations/105_IndexedProjectNavigation.ts";
 import * as Migrator from "effect/sql/Migrator";
 import * as Effect from "effect/Effect";
@@ -223,6 +224,7 @@ const migrationEntries = [
   [103, "ResetProjectMemory", Migration0103],
   [104, "ProjectMemoryStates", Migration0104],
   [105, "IndexedProjectNavigation", Migration0105],
+  [106, "MarkdownMemory", Migration0106],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

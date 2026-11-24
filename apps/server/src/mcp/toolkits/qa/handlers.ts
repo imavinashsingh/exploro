@@ -1,3 +1,4 @@
+import * as MarkdownMemoryRecall from "../../../memory/MarkdownMemoryRecall.ts";
 import * as ServerSettings from "../../../serverSettings.ts";
 import { memoryEnabled } from "../../../memory/ProjectMemoryAccess.ts";
 import * as NavigationCapture from "../../../memory/NavigationCapture.ts";
@@ -60,6 +61,28 @@ const EXPLORATION_NEXT =
   "When a step reaches the destination screen, call navigation_observe there with that action before testing it. That call saves the path for later runs.";
 
 export const layer = McpToolAccess.toLayer(QaToolkit, {
+  memory_get_guide: McpToolAccess.readsAsCaller(({ slug, environment }) =>
+    Effect.gen(function* () {
+      const { projectId } = yield* memoryScope;
+      return yield* (yield* MarkdownMemoryRecall.MarkdownMemoryRecall).getGuide(
+        projectId,
+        slug,
+        environment,
+      );
+    }),
+  ),
+  memory_search: McpToolAccess.readsAsCaller((input) =>
+    Effect.gen(function* () {
+      const { projectId } = yield* memoryScope;
+      return yield* (yield* MarkdownMemoryRecall.MarkdownMemoryRecall).search(projectId, input);
+    }),
+  ),
+  memory_for_screen: McpToolAccess.readsAsCaller((input) =>
+    Effect.gen(function* () {
+      const { projectId } = yield* memoryScope;
+      return yield* (yield* MarkdownMemoryRecall.MarkdownMemoryRecall).forScreen(projectId, input);
+    }),
+  ),
   navigation_observe: McpToolAccess.actsAsCaller((input) =>
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.requireThreadMcpCapability("memory");
@@ -218,7 +241,9 @@ export const layer = McpToolAccess.toLayer(QaToolkit, {
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.requireThreadMcpCapability("preview");
       const recorder = yield* QaRecorder.QaRecorder;
-      return { run: yield* recorder.finish(scope.thread.threadId) };
+      return {
+        run: yield* recorder.finish(scope.thread.threadId, "exploratory", { midTurn: true }),
+      };
     }),
   ),
 });

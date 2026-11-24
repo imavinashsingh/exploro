@@ -85,6 +85,7 @@ describe("V2 preview upgrade", () => {
         [103, "ResetProjectMemory"],
         [104, "ProjectMemoryStates"],
         [105, "IndexedProjectNavigation"],
+        [106, "MarkdownMemory"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -213,6 +214,7 @@ describe("V2 preview upgrade", () => {
         [103, "ResetProjectMemory"],
         [104, "ProjectMemoryStates"],
         [105, "IndexedProjectNavigation"],
+        [106, "MarkdownMemory"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );

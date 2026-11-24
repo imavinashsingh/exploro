@@ -149,6 +149,56 @@ it.effect(
     }).pipe(Effect.provide(layer)),
 );
 
+it.effect("connects a tab's first screen to the screen whose action opened it", () =>
+  Effect.gen(function* () {
+    const memory = yield* Navigation.ProjectNavigationMemory;
+    const observe = (
+      name: string,
+      tabId: string,
+      options: { action?: string; openerTabId?: string; runId?: string; stepIndex?: number } = {},
+    ) =>
+      memory.observe(project, {
+        state: state(name),
+        threadId: "thread",
+        runId: options.runId ?? "run",
+        tabId,
+        stepIndex: options.stepIndex ?? 0,
+        action: options.action,
+        openerTabId: options.openerTabId,
+      });
+    const orders = yield* observe("Orders", "tab-a");
+    // A manual switch to an unrelated tab, or an opener without an action, invents no edge.
+    yield* observe("Help", "tab-b", { action: "Read help" });
+    yield* observe("Reports", "tab-c", { openerTabId: "tab-a" });
+    // The opener must belong to the same run.
+    yield* observe("Archive", "tab-d", {
+      action: "Open archive",
+      openerTabId: "tab-a",
+      runId: "other",
+    });
+    assert.strictEqual((yield* memory.snapshot(project)).transitions.length, 0);
+    const invoice = yield* observe("Invoice", "tab-e", {
+      action: "Open invoice in a new tab",
+      openerTabId: "tab-a",
+    });
+    // Later screens in the new tab follow that tab's own history, not the opener's.
+    const pdf = yield* observe("Invoice PDF", "tab-e", {
+      action: "Download PDF",
+      openerTabId: "tab-a",
+      stepIndex: 1,
+    });
+    assert.deepStrictEqual(
+      (yield* memory.snapshot(project)).transitions
+        .map((edge) => [edge.from, edge.to, edge.action])
+        .toSorted(),
+      [
+        [invoice.id, pdf.id, "Download PDF"],
+        [orders.id, invoice.id, "Open invoice in a new tab"],
+      ].toSorted(),
+    );
+  }).pipe(Effect.provide(layer)),
+);
+
 it.effect("routes and accepts feedback beyond the snapshot observation and state caps", () =>
   Effect.gen(function* () {
     const memory = yield* Navigation.ProjectNavigationMemory;

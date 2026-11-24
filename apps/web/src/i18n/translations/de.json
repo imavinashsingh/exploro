@@ -12506,5 +12506,60 @@
   "27d76249d09eb69f": "Review-Leitfaden bereit",
   "faa3bb26abb39c93": "Review-Leitfaden fehlgeschlagen",
   "b7df38b7d8792d78": "Leitfaden öffnen",
-  "9e91e9a77b664e4e": "Review-Leitfaden konnte nicht gestartet werden"
+  "9e91e9a77b664e4e": "Review-Leitfaden konnte nicht gestartet werden",
+  "7f9f1239cd187f14": "{count, plural, one {{count} Vorschlag} other {{count} Vorschläge}}",
+  "b7a4d3015a2fa508": "Leitfäden · {count}",
+  "cc7c9dbd50d250a5": "bestätigt",
+  "783101659683f517": "Entwurf",
+  "556e87b379403824": "Offene Probleme aus letzten Läufen · {count}",
+  "d2aba9b17b6df56c": "Noch kein Playbook und keine Leitfäden. Nimm einen Vorschlag an oder schreibe einen in den Einstellungen.",
+  "55b2a09461611865": "Keine Regeln. Prüfe ein Problem erneut, bevor du es meldest.",
+  "c3ea24ac809a5ed5": "Titel",
+  "8caeeced121d6929": "Eine Zeile dazu, was das abdeckt",
+  "e705d84c2eb2bda6": "Routen, für die es gilt, eine pro Zeile, z. B. /checkout",
+  "122398bf85e299f5": "Markdown",
+  "37f9397b2b479651": "Playbook",
+  "f1fa6dd73b7dbed8": "Leitfaden",
+  "96f92b7cf0d018c9": "Ändert ein bestätigtes Dokument",
+  "b8d0faab549c0c55": "Markdown ausblenden",
+  "4842f2e26ae92e04": "Markdown anzeigen",
+  "707a97ff73bcb1f4": "Es gibt bereits einen Leitfaden mit diesem Namen. Bearbeite ihn oder wähle einen anderen Titel.",
+  "aa1d477d59bb6267": "Agenten lesen diese vor dem Testen. Beim Speichern wird ein Dokument bestätigt, sodass Agenten nur noch Änderungen vorschlagen können.",
+  "415fe61d05c52e20": "Playbook schreiben",
+  "efa654d64d965f7a": "Neuer Leitfaden",
+  "1de6c80486085850": "Noch kein Playbook und keine Leitfäden. Nimm einen Vorschlag an oder schreibe einen.",
+  "2c91db5495069972": "Nichts zu prüfen. Abgeschlossene Testläufe schlagen hier Änderungen an Playbook und Leitfäden vor.",
+  "5170d375ed691617": "Annehmen und Bestätigtes ändern",
+  "f1e5c1be1ac92361": "Annehmen",
+  "f9ad2e78730dda85": "Keine offenen Probleme. Fehlgeschlagene Prüfungen aus abgeschlossenen Läufen erscheinen hier.",
+  "d98f1f8a9bb01a4a": "In letzten Läufen gesehene Fehler. Sie sind keine Regeln für Playbook oder Leitfäden: Prüfe einen erneut, bevor du ihn meldest.",
+  "d28967536b065ad3": "Dokument konnte nicht gespeichert werden",
+  "b3941b7a51bbe339": "Vorschlag konnte nicht angenommen werden",
+  "772cd01743b540ab": "Vorschlag konnte nicht verworfen werden",
+  "ab595d87fed78bd3": [
+    "Offene Probleme · ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
+  "7fadf0ceed123f2e": [
+    "Playbook und Leitfäden · ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
+  "eb9fecc359dd79f2": [
+    "Zu prüfen · ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
+  "7415659b3d9f4b78": "Projekt-Playbook",
+  "f5ee4d404eaa8f1b": "Wie dieses Projekt getestet wird"
 }

@@ -1,3 +1,5 @@
+import { memoryRoute } from "./projectMemoryFacts.ts";
+import { makeMemoryEnvironmentResolver } from "./memoryEnvironment.ts";
 import * as Digest from "effect/crypto/Digest";
 import * as Hex from "effect/encoding/Hex";
 import * as DateTime from "effect/DateTime";
@@ -57,6 +59,8 @@ interface ObservationInput {
   readonly tabId: string;
   readonly stepIndex: number;
   readonly action?: string | undefined;
+  /** The tab whose action opened this one (a popup or `target=_blank` link). */
+  readonly openerTabId?: string | undefined;
 }
 
 export class ProjectNavigationMemory extends Context.Service<
@@ -66,6 +70,11 @@ export class ProjectNavigationMemory extends Context.Service<
     readonly subscribe: (
       projectId: ProjectId,
     ) => Stream.Stream<NavigationRevision, ProjectMemoryError>;
+    readonly outgoingForScreen: (
+      projectId: ProjectId,
+      route: string,
+      environment?: string,
+    ) => Effect.Effect<ReadonlyArray<NavigationTransition>, ProjectMemoryError>;
     readonly statesAtAddress: (
       projectId: ProjectId,
       environment: string,
@@ -294,6 +303,7 @@ const pageCursor = (id: string) => Buffer.from(JSON.stringify(id)).toString("bas
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  const resolveEnvironment = yield* makeMemoryEnvironmentResolver;
   const changes = yield* PubSub.unbounded<{ projectId: string; event: NavigationRevision }>();
   const pending = yield* Latch.make();
   const notifyCommitted = Effect.fn("ProjectNavigationMemory.notifyCommitted")(() =>
@@ -863,6 +873,25 @@ const make = Effect.gen(function* () {
   );
 
   return ProjectNavigationMemory.of({
+    outgoingForScreen: Effect.fn("ProjectNavigationMemory.outgoingForScreen")(function* (
+      projectId,
+      route,
+      environment,
+    ) {
+      const scope = yield* resolveEnvironment(projectId, environment);
+      const states = yield* sql<{
+        state_id: string;
+        path: string;
+      }>`SELECT state_id, path FROM project_navigation_states
+        WHERE project_id = ${projectId} AND (${scope.appliedEnvironment} IS NULL OR ${sql.in("environment", scope.environments)})`;
+      const ids = states
+        .filter((state) => memoryRoute(state.path) === memoryRoute(route))
+        .map((state) => state.state_id);
+      if (ids.length === 0) return [];
+      const rows = yield* sql<ConnectionRow>`SELECT * FROM project_navigation_connections
+        WHERE project_id = ${projectId} AND from_state_id IN ${sql.in(ids)} ORDER BY last_observed_at DESC, transition_id`;
+      return rows.map(connection);
+    }, Effect.mapError(failure)),
     notifyCommitted,
     subscribe: (projectId) =>
       Stream.unwrap(
@@ -928,12 +957,23 @@ const make = Effect.gen(function* () {
                     .filter((name) => name !== remembered.name)
                     .slice(0, 10),
                 };
-          const [previous] = yield* sql<{
+          const latestIn = (tabId: string) => sql<{
             stateId: string;
             stepIndex: number;
           }>`SELECT state_id AS stateId, step_index AS stepIndex
           FROM project_navigation_observations WHERE project_id = ${projectId} AND run_id = ${input.runId}
-          AND thread_id = ${input.threadId} AND tab_id = ${input.tabId} ORDER BY rowid DESC LIMIT 1`;
+          AND thread_id = ${input.threadId} AND tab_id = ${tabId} ORDER BY rowid DESC LIMIT 1`;
+          const [inTab] = yield* latestIn(input.tabId);
+          // A new tab's first screen continues from the screen whose action opened it. Tabs are
+          // separate timelines, so the step order check applies within one tab only.
+          const [opened] =
+            inTab === undefined &&
+            input.openerTabId !== undefined &&
+            input.openerTabId !== input.tabId &&
+            input.action !== undefined
+              ? yield* latestIn(input.openerTabId)
+              : [];
+          const previous = inTab ?? opened;
           const prior =
             previous === undefined
               ? undefined
@@ -945,7 +985,7 @@ const make = Effect.gen(function* () {
             source.id !== state.id &&
             previous !== undefined &&
             input.action !== undefined &&
-            input.stepIndex > previous.stepIndex
+            (opened !== undefined || input.stepIndex > previous.stepIndex)
               ? NavigationTransition.make({
                   id: yield* hash(navigationTransitionKey(source.id, state.id, input.action)),
                   from: source.id,

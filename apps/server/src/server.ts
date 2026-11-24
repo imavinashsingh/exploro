@@ -1,5 +1,8 @@
+import * as MarkdownMemoryStore from "./memory/MarkdownMemoryStore.ts";
+import * as MarkdownMemoryRecall from "./memory/MarkdownMemoryRecall.ts";
 import * as ProjectNavigationMemory from "./memory/ProjectNavigationMemory.ts";
 import * as NavigationCapture from "./memory/NavigationCapture.ts";
+import * as RouteTrigger from "./memory/RouteTrigger.ts";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import type { RelayManagedEndpointRuntimeConfig } from "@t3tools/contracts/relay";
 import * as Random from "effect/Random";
@@ -107,7 +110,6 @@ import * as PreviewAgentActivity from "./preview/PreviewAgentActivity.ts";
 import * as QaSavedSecrets from "./qa/QaSavedSecrets.ts";
 import * as QaSuites from "./qa/QaSuites.ts";
 import * as QaRecorder from "./qa/QaRecorder.ts";
-import * as MiniLmEmbedder from "./memory/MiniLmEmbedder.ts";
 import * as ProjectMemory from "./memory/ProjectMemory.ts";
 import * as ProjectMemoryControl from "./memory/ProjectMemoryControl.ts";
 import * as ProjectUnderstanding from "./memory/ProjectUnderstanding.ts";
@@ -906,16 +908,16 @@ const layerMakeRoutes = Layer.mergeAll(
         QaRecorder.layer.pipe(
           // The Memory screen shares the recorder's extraction queue.
           Layer.provideMerge(NavigationCapture.layer),
+          Layer.provideMerge(RouteTrigger.layer),
           Layer.provideMerge(ProjectMemoryControl.layer),
-          Layer.provideMerge(
-            UnderstandingExtraction.layer.pipe(Layer.provideMerge(MiniLmEmbedder.layer)),
-          ),
+          Layer.provideMerge(UnderstandingExtraction.layer),
           Layer.provideMerge(QaRuns.layer),
           Layer.provideMerge(
-            ProjectMemory.layer.pipe(
+            MarkdownMemoryRecall.layer.pipe(
+              Layer.provideMerge(MarkdownMemoryStore.layer),
+              Layer.provideMerge(ProjectMemory.layer),
               Layer.provideMerge(ProjectNavigationMemory.layer),
               Layer.provideMerge(ProjectUnderstanding.layer),
-              Layer.provide(MiniLmEmbedder.layer),
             ),
           ),
           Layer.provide(PreviewAgentActivity.layer),
