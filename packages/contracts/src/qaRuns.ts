@@ -187,6 +187,7 @@ export const QaDataRow = Schema.Struct({
 export type QaDataRow = typeof QaDataRow.Type;
 
 export const QaRun = Schema.Struct({
+  remember: Schema.optional(Schema.Boolean),
   runId: QaRunId,
   threadId: ThreadId,
   /** A regression run replays a saved suite without a model. */

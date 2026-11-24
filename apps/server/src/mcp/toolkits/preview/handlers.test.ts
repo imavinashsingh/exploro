@@ -30,6 +30,7 @@ import * as McpToolAccess from "../../McpToolAccess.ts";
 import { liveThreadsLayer } from "../../McpToolAccess.testkit.ts";
 import * as PreviewAutomationBroker from "../../PreviewAutomationBroker.ts";
 import * as QaRecorder from "../../../qa/QaRecorder.ts";
+import * as RouteTrigger from "../../../memory/RouteTrigger.ts";
 import * as QaSavedSecrets from "../../../qa/QaSavedSecrets.ts";
 import * as SecretRequests from "../../../secrets/SecretRequests.ts";
 import { layerStandard } from "./handlers.ts";
@@ -137,6 +138,7 @@ it.effect("preview_open navigates the opened tab to a dev server in one tool cal
         }),
         Layer.mock(SecretRequests.SecretRequests)({}),
         Layer.mock(QaSavedSecrets.QaSavedSecrets)({}),
+        Layer.mock(RouteTrigger.RouteTrigger)({ onPage: () => Effect.succeed(null) }),
       ).pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
     ),
   ),
@@ -264,6 +266,7 @@ it.effect("preview_act types a secretRef's value unseen and consumes it once", (
           stepPerformed: (_threadId, step) => Effect.sync(() => void loggedSteps.push(step)),
         }),
         secretRequestsLayer(),
+        Layer.mock(RouteTrigger.RouteTrigger)({ onPage: () => Effect.succeed(null) }),
         Layer.mock(QaSavedSecrets.QaSavedSecrets)({
           remember: (input) =>
             Effect.sync(() => {

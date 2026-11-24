@@ -210,9 +210,13 @@ export function formatMarkdownMemoryBrief(
     "Treat recalled memory as dated hints: verify on the live page. Trust confirmed guides over drafts. Use memory_get_guide, memory_search and memory_for_screen when exploring new screens. Project Navigation Memory is enabled: use navigation_route to reach a known feature; observe explored screens with navigation_observe.";
   const guides = input.docs.filter((doc) => doc.kind === "guide");
   const playbook = input.docs.find((doc) => doc.kind === "playbook");
+  const budget = Math.max(0, Math.trunc(maxChars));
+  if (budget < rule.length) return "Verify recalled memory on the live page.".slice(0, budget);
+  if (budget <= rule.length + 2) return rule;
+  const contentBudget = budget - rule.length - 2;
   const sections = ["## Project memory"];
   const append = (text: string, cap: number) => {
-    const remaining = maxChars - sections.join("\n\n").length - 2;
+    const remaining = contentBudget - sections.join("\n\n").length - 2;
     const bounded = cleanCut(text, Math.min(cap, remaining));
     if (bounded !== "") sections.push(bounded);
   };
@@ -237,16 +241,15 @@ export function formatMarkdownMemoryBrief(
       maxChars - rule.length - context.length - index.length - matched.length * 250 - 100,
     ),
   );
+  for (const doc of matched) {
+    append(`### ${doc.slug} [${doc.status}] (${doc.updatedAt})\n${doc.body}`, 250);
+  }
   if (playbook !== undefined)
     append(
       `### Playbook [${playbook.status}] (${playbook.updatedAt})\n${cleanCut(playbook.body, 1200)}`,
       playbookBudget,
     );
   if (index !== "") append(index, index.length);
-  for (const doc of matched) {
-    append(`### ${doc.slug} [${doc.status}] (${doc.updatedAt})\n${doc.body}`, 250);
-  }
   if (context !== "") append(context, context.length);
-  append(rule, rule.length);
-  return cleanCut(sections.join("\n\n"), maxChars);
+  return `${cleanCut(sections.join("\n\n"), contentBudget)}\n\n${rule}`;
 }

@@ -81,7 +81,12 @@ it.effect(
         const path = yield* Path.Path;
         const config = yield* ServerConfig.ServerConfig;
         const sql = yield* SqlClient.SqlClient;
-        yield* store.saveUserDoc(doc());
+        const savedDoc = yield* store.saveUserDoc(
+          doc("checkout", { environment: " HTTPS://DEV.DVAPPLY.COM:443/path " }),
+        );
+        expect(savedDoc.environment).toBe("https://dev.dvapply.com");
+        expect(yield* store.listDocs(projectId, "dev")).toEqual([savedDoc]);
+        expect(yield* store.listDocs(projectId, "staging")).toEqual([]);
         yield* store.saveDraftDoc(doc("other", { projectId: ProjectId.make("other") }));
         const conflict = yield* Effect.exit(
           store.saveDraftDoc(doc("checkout", { body: "overwrite" })),
@@ -94,7 +99,32 @@ it.effect(
           "checkout.md",
         );
         const before = yield* sql`SELECT sha256 FROM memory_docs WHERE project_id = ${projectId}`;
+        const originalMarkdown = yield* fs.readFileString(guidePath);
+        const invalidPath = path.join(path.dirname(guidePath), "invalid.md");
+        yield* fs.writeFileString(invalidPath, "invalid frontmatter");
+        expect(
+          Exit.isFailure(
+            yield* Effect.exit(
+              store.saveUserDoc(doc("checkout", { body: "Unindexed replacement" })),
+            ),
+          ),
+        ).toBe(true);
+        expect(yield* fs.readFileString(guidePath)).toBe(originalMarkdown);
+        expect((yield* store.listDocs(projectId))[0]?.body).toBe(savedDoc.body);
+        yield* fs.remove(invalidPath);
+        expect(
+          Store.parseMemoryMarkdown(
+            yield* fs.readFileString(guidePath),
+            projectId,
+            "guide",
+            "checkout",
+          ),
+        ).toEqual(savedDoc);
+        yield* sql`UPDATE memory_docs SET environment = ' DEV ' WHERE project_id = ${projectId}`;
         yield* store.syncProject(projectId);
+        expect((yield* store.listDocs(projectId, "dev"))[0]?.environment).toBe(
+          savedDoc.environment,
+        );
         expect(yield* sql`SELECT sha256 FROM memory_docs WHERE project_id = ${projectId}`).toEqual(
           before,
         );
@@ -106,6 +136,9 @@ it.effect(
         );
         yield* store.syncProject(projectId);
         expect((yield* store.searchDocs(projectId, "zebra"))[0]?.body).toBe("Inventory zebra");
+        expect(
+          yield* sql`SELECT sha256 FROM memory_docs WHERE project_id = ${projectId}`,
+        ).not.toEqual(before);
         expect(yield* store.searchDocs(projectId, "required")).toEqual([]);
         yield* fs.remove(guidePath);
         yield* store.syncProject(projectId);
@@ -142,6 +175,9 @@ it.effect(
           "---",
           "AND",
           "??",
+          "C++/C#",
+          "café 中文",
+          "NEAR(cart, 4)",
         ])
           yield* store.searchDocs(projectId, query);
         expect(yield* store.searchDocs(projectId, '"')).toEqual([]);
@@ -169,7 +205,7 @@ it.effect(
             ["https://shop.test/orders/99/details?x=1"],
             "https://shop.test/",
           )).map((item) => item.slug),
-        ).toEqual(["global", "prod"]);
+        ).toEqual(["prod", "global"]);
         expect(
           yield* store.matchDocsByRoutes(projectId, ["/orders-extra"], "https://shop.test"),
         ).toEqual([]);
@@ -201,4 +237,56 @@ it.effect("exports only confirmed legacy understanding once and leaves legacy ro
       expect((yield* store.listDocs(projectId))[0]?.body).toBe("User edit");
     }),
   ),
+);
+
+it.effect(
+  "queues scrubbed proposals and changes a confirmed document only with explicit consent",
+  () =>
+    withStore(
+      Effect.gen(function* () {
+        const store = yield* Store.MarkdownMemoryStore;
+        const draft = {
+          kind: "guide" as const,
+          slug: "checkout",
+          title: "Reach checkout",
+          summary: "Setup flow",
+          environment: "https://shop.test",
+          routes: ["/cart", "/checkout"],
+          body: "1. Add an item with api_key=abc123def456\n",
+          rationale: "Seen in run-1",
+        };
+        const [proposal] = yield* store.proposeDocs(projectId, "run-1", [draft]);
+        expect(proposal!.proposedMarkdown).not.toContain("abc123def456");
+        // A repeated finish replaces the pending draft rather than queueing another.
+        yield* store.proposeDocs(projectId, "run-1", [{ ...draft, body: "Updated\n" }]);
+        expect(yield* store.listProposals(projectId)).toHaveLength(1);
+
+        yield* store.saveUserDoc(doc("checkout", { status: "confirmed", body: "Mine.\n" }));
+        const refused = yield* Effect.exit(
+          store.resolveProposal({
+            projectId,
+            proposalId: proposal!.proposalId,
+            decision: "approve",
+          }),
+        );
+        expect(Exit.isFailure(refused)).toBe(true);
+        const [unchanged] = yield* store.listDocs(projectId);
+        expect(unchanged!.body).toBe("Mine.\n");
+
+        const approved = yield* store.resolveProposal({
+          projectId,
+          proposalId: proposal!.proposalId,
+          decision: "approve",
+          replaceConfirmed: true,
+        });
+        expect(approved.status).toBe("approved");
+        const [merged] = yield* store.listDocs(projectId);
+        expect(merged!.body).toContain("Mine.");
+        expect(merged!.body).toContain("Updated");
+        expect(merged!.routes).toEqual(["/checkout", "/cart"]);
+        // A decided proposal keeps its decision when the run is finished again.
+        yield* store.proposeDocs(projectId, "run-1", [draft]);
+        expect((yield* store.listProposals(projectId))[0]!.status).toBe("approved");
+      }),
+    ),
 );

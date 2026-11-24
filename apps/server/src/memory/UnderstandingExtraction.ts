@@ -22,7 +22,8 @@ import * as ThreadManagementService from "../orchestration-v2/ThreadManagementSe
 import * as QaRuns from "../qa/QaRuns.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
-import * as MemoryEmbedder from "./MemoryEmbedder.ts";
+import * as MarkdownMemoryStore from "./MarkdownMemoryStore.ts";
+import { synthesizeRunProposals, type RunFlowStep } from "./memoryProposals.ts";
 import * as ProjectMemory from "./ProjectMemory.ts";
 import * as ProjectUnderstanding from "./ProjectUnderstanding.ts";
 import { memoryEnvironment } from "./projectMemoryFacts.ts";
@@ -68,12 +69,12 @@ const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const memory = yield* ProjectMemory.ProjectMemory;
   const understanding = yield* ProjectUnderstanding.ProjectUnderstanding;
-  const embedder = yield* MemoryEmbedder.MemoryEmbedder;
   const textGeneration = yield* TextGeneration.TextGeneration;
   const threads = yield* ThreadManagementService.ThreadManagementService;
   const projects = yield* ProjectStore.ProjectStoreV2;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const qaRuns = yield* QaRuns.QaRuns;
+  const docs = yield* MarkdownMemoryStore.MarkdownMemoryStore;
   const queue = yield* Queue.unbounded<string>();
   const extractionLock = yield* Semaphore.make(1);
 
@@ -93,12 +94,87 @@ const make = Effect.gen(function* () {
       `,
     );
 
+  // The run's navigation edges in the order they were walked, across the tabs it opened.
+  const runFlow = Effect.fnUntraced(function* (
+    projectId: ProjectId,
+    threadId: ThreadId,
+    runId: string,
+  ) {
+    const rows = yield* sql<{
+      readonly transition: string;
+      readonly fromData: string | null;
+      readonly toData: string | null;
+    }>`
+      SELECT o.transition_json AS transition, f.data AS "fromData", t.data AS "toData"
+      FROM project_navigation_observations o
+      LEFT JOIN project_navigation_states f ON f.project_id = o.project_id
+        AND f.state_id = json_extract(o.transition_json, '$.from')
+      LEFT JOIN project_navigation_states t ON t.project_id = o.project_id AND t.state_id = o.state_id
+      WHERE o.project_id = ${projectId} AND o.run_id = ${runId} AND o.thread_id = ${threadId}
+        AND o.transition_json IS NOT NULL
+      ORDER BY o.rowid`;
+    const screen = (data: string | null) => {
+      const parsed: unknown = data === null ? null : JSON.parse(data);
+      return typeof parsed === "object" && parsed !== null && "name" in parsed && "path" in parsed
+        ? { name: String(parsed.name), path: String(parsed.path) }
+        : null;
+    };
+    return rows.flatMap((row): ReadonlyArray<RunFlowStep> => {
+      const edge: unknown = JSON.parse(row.transition);
+      const from = screen(row.fromData);
+      const to = screen(row.toData);
+      if (from === null || to === null || typeof edge !== "object" || edge === null) return [];
+      if (!("action" in edge) || typeof edge.action !== "string") return [];
+      return [
+        {
+          fromName: from.name,
+          fromPath: from.path,
+          action: edge.action,
+          toName: to.name,
+          toPath: to.path,
+        },
+      ];
+    });
+  });
+
+  // Drafts for review, never direct edits: a failure here must not stop understanding.
+  const propose = Effect.fnUntraced(
+    function* (
+      projectId: ProjectId,
+      run: QaRun,
+      userMessages: ReadonlyArray<string>,
+      secrets: ReadonlyArray<string>,
+    ) {
+      const drafts = synthesizeRunProposals({
+        run,
+        environment: run.site == null ? null : memoryEnvironment(run.site),
+        userMessages,
+        flow: yield* runFlow(projectId, run.threadId, run.runId),
+        secrets,
+      });
+      if (drafts.length > 0) yield* docs.proposeDocs(projectId, run.runId, drafts);
+    },
+    Effect.catchCause((cause) => Effect.logWarning("Memory proposals were not made", { cause })),
+  );
+
   const learn = Effect.fnUntraced(function* (
     projectId: ProjectId,
     threadId: ThreadId,
     runId: string,
   ) {
-    const facts = yield* memory.lookupFacts(projectId, { runId, limit: 100 });
+    const run = (yield* qaRuns.list(threadId)).find((candidate) => candidate.runId === runId);
+    if (
+      run === undefined ||
+      run.kind === "regression" ||
+      run.remember === false ||
+      run.finishedAt === null
+    )
+      return;
+    const facts = yield* memory.lookupFacts(projectId, {
+      runId,
+      excludeVerdicts: true,
+      limit: 100,
+    });
     const records = yield* threads.getThreadRecords(threadId, ["messages"], {
       messageRoles: ["user"],
     });
@@ -114,11 +190,11 @@ const make = Effect.gen(function* () {
     // The model never sees the user's passwords, so it cannot copy them into memory.
     const secrets = providedSecrets(typed);
     const userMessages = typed.map((text) => hideProvidedSecrets(text, secrets));
+    yield* propose(projectId, run, userMessages, secrets);
     if (facts.length === 0 && userMessages.length === 0) return;
     const project = yield* projects.get(projectId);
     if (Option.isNone(project)) return;
     // The site under test, not where a link led: facts from other sites never verify an item.
-    const run = (yield* qaRuns.list(threadId)).find((candidate) => candidate.runId === runId);
     const environment =
       (run?.site == null ? null : memoryEnvironment(run.site)) ?? facts[0]?.environment ?? null;
     const related = yield* understanding.recall(
@@ -245,7 +321,13 @@ const make = Effect.gen(function* () {
   return UnderstandingExtraction.of({
     enqueue: Effect.fn("UnderstandingExtraction.enqueue")(
       function* (run) {
-        if (run.projectId === null || run.finishedAt === null) return;
+        if (
+          run.projectId === null ||
+          run.finishedAt === null ||
+          run.kind === "regression" ||
+          run.remember === false
+        )
+          return;
         const updatedAt = yield* nowIso;
         const inserted = yield* sql`
           INSERT INTO project_memory_extractions (
@@ -286,10 +368,9 @@ const make = Effect.gen(function* () {
           WHERE project_id = ${projectId} AND status != 'done'
           ORDER BY updated_at DESC
         `;
-        const embedding = yield* embedder.status;
         return {
-          recall: embedding.unavailableReason === null ? "semantic" : "text",
-          recallNote: embedding.unavailableReason,
+          recall: "text",
+          recallNote: "Markdown and SQLite/FTS5 recall.",
           pendingExtractions: rows.filter((row) => row.status !== "failed").length,
           failedExtractions: rows
             .filter((row) => row.status === "failed")

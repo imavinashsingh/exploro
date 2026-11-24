@@ -327,21 +327,30 @@ export const MemoryProposal = Schema.Struct({
   createdAt: Schema.String,
 });
 export type MemoryProposal = typeof MemoryProposal.Type;
-export const MemoryGetGuideInput = Schema.Struct({ slug: MemorySlug });
+export const MemoryGetGuideInput = Schema.Struct({
+  slug: MemorySlug,
+  environment: Schema.optional(Schema.NullOr(MemoryText(2048))),
+});
 export const MemoryGetGuideResult = Schema.Struct({ guide: Schema.NullOr(MemoryDoc) });
 export const MemorySearchInput = Schema.Struct({
   query: MemoryText(2000),
-  environment: Schema.optional(MemoryText(2048)),
+  environment: Schema.optional(Schema.NullOr(MemoryText(2048))),
 });
 export const MemoryForScreenInput = Schema.Struct({
   route: MemoryText(2048),
-  environment: Schema.optional(MemoryText(2048)),
+  environment: Schema.optional(Schema.NullOr(MemoryText(2048))),
 });
 export const MemorySearchResult = Schema.Struct({
+  appliedEnvironment: Schema.optional(Schema.NullOr(Schema.String)),
+  matchedCount: Schema.optional(Schema.Int),
+  diagnosticNote: Schema.optional(Schema.String),
   docs: Schema.Array(MemoryDoc),
   facts: Schema.Array(ProjectMemoryFact),
 });
 export const MemoryForScreenResult = Schema.Struct({
+  appliedEnvironment: Schema.optional(Schema.NullOr(Schema.String)),
+  matchedCount: Schema.optional(Schema.Int),
+  diagnosticNote: Schema.optional(Schema.String),
   guides: Schema.Array(MemoryDoc),
   facts: Schema.Array(ProjectMemoryFact),
   connections: Schema.Array(NavigationTransition),

@@ -128,6 +128,7 @@ const make = Effect.gen(function* () {
                 ),
             ];
       for (const run of candidates) {
+        if (run.kind === "regression") continue;
         if (run.projectId !== null && run.projectId !== projectId) continue;
         const saved = yield* runs
           .rememberRun(threadId, run.runId, projectId, secrets)

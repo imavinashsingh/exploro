@@ -7,11 +7,11 @@ import {
   type ProjectUnderstandingKind,
 } from "@t3tools/contracts";
 
+import { budgetUserMessages } from "./memoryProposals.ts";
 import type { UnderstandingWrite } from "./ProjectUnderstanding.ts";
 
 const MAX_ITEMS = 20;
 const MAX_FACTS = 100;
-const MAX_USER_TEXT_CHARS = 8000;
 const MIN_QUOTE_CHARS = 8;
 
 export interface ExtractionInput {
@@ -34,17 +34,6 @@ export interface PlannedWrite extends Omit<UnderstandingWrite, "author"> {
 
 const quote = (text: string) => JSON.stringify(text);
 
-const recentUserText = (messages: ReadonlyArray<string>) => {
-  const kept: Array<string> = [];
-  let used = 0;
-  for (const message of messages.toReversed()) {
-    if (used + message.length > MAX_USER_TEXT_CHARS) break;
-    kept.unshift(message);
-    used += message.length;
-  }
-  return kept;
-};
-
 const factLine = (fact: ProjectMemoryFact) => {
   const detail = fact.detail === null ? "" : ` (${quote(fact.detail)})`;
   return `- [${fact.factId}] ${fact.kind} ${fact.stateName} [${fact.stateId}] ${fact.environment}${fact.route} ${quote(fact.key)} = ${quote(fact.value)}${detail}`;
@@ -59,7 +48,7 @@ export function buildExtractionPrompt(input: ExtractionInput): string {
       (item.citedFactIds.length === 0 ? "" : ` cites ${item.citedFactIds.join(", ")}`) +
       (item.dependsOn.length === 0 ? "" : `; depends on ${item.dependsOn.join(", ")}`),
   );
-  const userText = recentUserText(input.userMessages).map((message) => `- ${quote(message)}`);
+  const userText = budgetUserMessages(input.userMessages).map((message) => `- ${quote(message)}`);
   return [
     `You maintain the long-term understanding of one app under QA test: ${quote(input.projectTitle)}${input.site === null ? "" : ` at ${input.site}`}.`,
     "Read what the latest test run found and return new or revised understanding items.",

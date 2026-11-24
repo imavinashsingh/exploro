@@ -164,4 +164,23 @@ it("budgets playbook, guide index, two excerpts and setup within 2500 characters
   expect(brief).not.toContain("### guide-2");
   expect(brief).toContain("saved password: QA login");
   expect(brief).toContain("memory_for_screen");
+  for (const budget of [0, 1, 50, 100, 500, 1200, 2500]) {
+    const bounded = formatMarkdownMemoryBrief(
+      { docs, matches: docs, context: "setup".repeat(200) },
+      budget,
+    );
+    expect(bounded.length).toBeLessThanOrEqual(budget);
+    if (budget >= 50) expect(bounded).toMatch(/verify.*live page/iu);
+    if (budget >= 500) {
+      expect(bounded).toContain("verify on the live page");
+      expect(bounded).toContain("memory_for_screen");
+      expect(bounded.endsWith("navigation_observe.")).toBe(true);
+    }
+  }
+  const rule = brief.split("\n\n").at(-1)!;
+  for (const budget of [rule.length, rule.length + 1, rule.length + 2, rule.length + 3]) {
+    const bounded = formatMarkdownMemoryBrief({ docs, matches: docs, context: "setup" }, budget);
+    expect(bounded.length).toBeLessThanOrEqual(budget);
+    expect(bounded.endsWith(rule)).toBe(true);
+  }
 });

@@ -1,18 +1,21 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   DEFAULT_SERVER_SETTINGS,
   ProjectId,
   TextGenerationError,
   ThreadId,
+  QaSuiteId,
   type ProjectUnderstandingExtraction,
 } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
-import * as Context from "effect/Context";
+
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 import * as TestClock from "effect/testing/TestClock";
 import * as SqlClient from "effect/sql/SqlClient";
 
@@ -23,33 +26,27 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as QaRuns from "../qa/QaRuns.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
+import * as MarkdownMemoryStore from "./MarkdownMemoryStore.ts";
 import * as MemoryEmbedder from "./MemoryEmbedder.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProjectMemoryControl from "./ProjectMemoryControl.ts";
 import * as ProjectMemory from "./ProjectMemory.ts";
 import * as ProjectUnderstanding from "./ProjectUnderstanding.ts";
 import * as UnderstandingExtraction from "./UnderstandingExtraction.ts";
+import * as QaRecorder from "../qa/QaRecorder.ts";
+import * as PreviewAgentActivity from "../preview/PreviewAgentActivity.ts";
+import * as PreviewAutomationBroker from "../mcp/PreviewAutomationBroker.ts";
 
 const shop = ProjectId.make("shop");
 const blog = ProjectId.make("blog");
 const threadId = ThreadId.make("thread-understanding-1");
 const site = "https://shop.test";
 
-// Concepts stand in for meaning: texts sharing a concept are close, with or without shared words.
-const CONCEPTS = [/sign|login|session|auth/i, /pay|checkout|card|order/i, /search|filter/i];
-const conceptEmbedder = Layer.succeed(
+const forbiddenEmbedder = Layer.succeed(
   MemoryEmbedder.MemoryEmbedder,
   MemoryEmbedder.MemoryEmbedder.of({
-    status: Effect.succeed({ model: "concepts", unavailableReason: null }),
-    embed: Effect.fn("TestEmbedder.embed")((texts: ReadonlyArray<string>) =>
-      Effect.succeed(
-        texts.map((text) => {
-          const vector = Float32Array.from(CONCEPTS, (concept) => (concept.test(text) ? 1 : 0));
-          const length = Math.hypot(...vector) || 1;
-          return vector.map((value) => value / length);
-        }),
-      ),
-    ),
+    status: Effect.die("Memory must not inspect the embedder"),
+    embed: () => Effect.die("Memory must not run embeddings or WASM"),
   }),
 );
 
@@ -66,12 +63,16 @@ const withUnderstanding = <A, E>(
     | ProjectMemoryControl.ProjectMemoryControl
     | ProjectUnderstanding.ProjectUnderstanding
     | UnderstandingExtraction.UnderstandingExtraction
+    | QaRecorder.QaRecorder
+    | MarkdownMemoryStore.MarkdownMemoryStore
+    | SqlClient.SqlClient
     | FileSystem.FileSystem
   >,
   options: {
     readonly active?: boolean;
     readonly scratch?: boolean;
     readonly memoryOff?: boolean;
+    readonly runStatus?: "completed" | "interrupted" | "failed";
     readonly embedder?: Layer.Layer<MemoryEmbedder.MemoryEmbedder>;
     readonly generate?: Generate;
     readonly userMessages?: ReadonlyArray<
@@ -84,7 +85,11 @@ const withUnderstanding = <A, E>(
     const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "exploro-understanding-" });
     const records = {
       thread: { projectId: shop, deletedAt: null },
-      runs: options.active ? [{ status: "running" }] : [],
+      runs: options.active
+        ? [{ status: "running" }]
+        : options.runStatus
+          ? [{ status: options.runStatus }]
+          : [],
       runtimeRequests: [],
       messages: (options.userMessages ?? []).map((message) =>
         typeof message === "string"
@@ -114,18 +119,23 @@ const withUnderstanding = <A, E>(
     }).pipe(
       Effect.provide(
         ProjectMemoryControl.layer.pipe(
+          Layer.provideMerge(QaRecorder.layer),
+          Layer.provide(PreviewAgentActivity.layer),
           Layer.provideMerge(UnderstandingExtraction.layer),
+          Layer.provideMerge(MarkdownMemoryStore.layer.pipe(Layer.provide(NodeCrypto.layer))),
           Layer.provideMerge(QaRuns.layer),
           Layer.provideMerge(
             ProjectMemory.layer.pipe(Layer.provideMerge(ProjectUnderstanding.layer)),
           ),
-          Layer.provideMerge(options.embedder ?? MemoryEmbedder.layerUnavailable),
+          Layer.provideMerge(options.embedder ?? forbiddenEmbedder),
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(TextGeneration.TextGeneration)({
                 generateProjectUnderstanding: options.generate ?? noItems,
               }),
+              Layer.mock(PreviewAutomationBroker.PreviewAutomationBroker)({}),
               Layer.mock(ThreadManagementService.ThreadManagementService)({
+                getThreadShell: () => Effect.succeed({ projectId: shop } as never),
                 // Only the fields extraction reads.
                 getThreadRecords: () => Effect.succeed(records as never),
               }),
@@ -139,7 +149,9 @@ const withUnderstanding = <A, E>(
               Layer.mock(ServerSettings.ServerSettingsService)({
                 getSettings: Effect.succeed({
                   ...DEFAULT_SERVER_SETTINGS,
-                  projectSettingsOverrides: { [shop]: { qaMemoryEnabled: !options.memoryOff } },
+                  projectSettingsOverrides: {
+                    [shop]: { qaMemoryEnabled: !options.memoryOff, qaSiteOrigins: [site] },
+                  },
                 }),
               }),
             ),
@@ -189,6 +201,16 @@ const finishedRun = (
     const facts = yield* (yield* ProjectMemory.ProjectMemory).lookupFacts(projectId, {
       runId: run.runId,
     });
+    for (const fact of facts) {
+      yield* (yield* ProjectMemory.ProjectMemory).putFact(projectId, {
+        stateId: fact.stateId,
+        kind: "validation",
+        key: fact.key,
+        value: `Observed screen behavior: ${fact.key}`,
+        evidence: fact.evidence,
+        author: "agent",
+      });
+    }
     return { run, facts };
   });
 
@@ -206,6 +228,127 @@ const write = (
 });
 
 it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
+  it.effect("keeps MiniLM and WASM dependencies out of server and memory runtime wiring", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      for (const file of [
+        "../server.ts",
+        "../orchestration-v2/runtimeLayer.ts",
+        "./ProjectUnderstanding.ts",
+        "./UnderstandingExtraction.ts",
+        "./ProjectMemoryAccess.ts",
+        "./MarkdownMemoryRecall.ts",
+      ]) {
+        const source = yield* fs.readFileString(
+          yield* path.fromFileUrl(new URL(file, import.meta.url)),
+        );
+        assert.notMatch(source, /MiniLmEmbedder|MemoryEmbedder|onnxruntime|\.embed\(/u);
+      }
+    }),
+  );
+  it.effect.each(["completed", "interrupted", "failed"] as const)(
+    "remembers only completed turns automatically: %s",
+    (runStatus) =>
+      withUnderstanding(
+        Effect.gen(function* () {
+          const runs = yield* QaRuns.QaRuns;
+          const memory = yield* ProjectMemory.ProjectMemory;
+          yield* runs.recordEvidence(
+            threadId,
+            { scenario: "Login", verdict: "PASS", note: "Observed" },
+            {
+              stateId: site + "/login",
+              url: site + "/login",
+              title: "Login",
+              png: new Uint8Array([1]),
+              consoleEntries: [],
+              networkEntries: [],
+              actionTimeline: [],
+            },
+          );
+          const extraction = yield* UnderstandingExtraction.UnderstandingExtraction;
+          const docs = yield* MarkdownMemoryStore.MarkdownMemoryStore;
+          const run = yield* (yield* QaRecorder.QaRecorder).finish(threadId);
+          assert.strictEqual(run?.remember, runStatus === "completed");
+          assert.strictEqual(
+            (yield* memory.lookupFacts(shop, { kind: "result" })).length,
+            runStatus === "completed" ? 1 : 0,
+          );
+          yield* extraction.extract(run!.runId);
+          // An interrupted run the user did not save queues no proposals either.
+          assert.strictEqual(
+            (yield* docs.listProposals(shop)).length,
+            runStatus === "completed" ? 1 : 0,
+          );
+          if (runStatus !== "completed") {
+            yield* (yield* ProjectMemoryControl.ProjectMemoryControl).saveThread(threadId);
+            assert.strictEqual((yield* memory.lookupFacts(shop, { kind: "result" })).length, 1);
+            yield* extraction.extract(run!.runId);
+            assert.strictEqual((yield* docs.listProposals(shop)).length, 1);
+          }
+        }),
+        { runStatus, userMessages: ["Test login", "Use the EUR store"] },
+      ),
+  );
+  it.effect(
+    "proposes reviewable drafts from steers and setup flows, never FAIL results or secrets",
+    () =>
+      withUnderstanding(
+        Effect.gen(function* () {
+          const extraction = yield* UnderstandingExtraction.UnderstandingExtraction;
+          const docs = yield* MarkdownMemoryStore.MarkdownMemoryStore;
+          const sql = yield* SqlClient.SqlClient;
+          const { run } = yield* finishedRun(shop, [
+            { scenario: "Pay button does nothing", verdict: "FAIL", path: "/checkout" },
+          ]);
+          const steps = [
+            ["/login", "/dashboard", "Sign in"],
+            ["/dashboard", "/checkout", "Open checkout"],
+          ] as const;
+          for (const [index, [from, to, action]] of steps.entries()) {
+            const edge = {
+              id: `edge-${index}`,
+              from: site + from,
+              to: site + to,
+              action,
+              conditions: {},
+              runId: run.runId,
+              threadId,
+              observedAt: "2026-11-24T00:00:00Z",
+              available: true,
+            };
+            yield* sql`INSERT INTO project_navigation_observations
+              (observation_id, project_id, thread_id, run_id, tab_id, state_id, step_index, transition_json, observed_at)
+              VALUES (${`obs-${index}`}, ${shop}, ${threadId}, ${run.runId}, 'tab', ${site + to}, ${index}, ${JSON.stringify(edge)}, '2026-11-24')`;
+          }
+          yield* extraction.enqueue(run);
+          yield* extraction.extract(run.runId);
+          const proposals = yield* docs.listProposals(shop);
+          assert.deepStrictEqual(
+            proposals.map((proposal) => [proposal.targetDocId, proposal.status]).toSorted(),
+            [
+              ["shop:guide:reach-checkout", "pending"],
+              ["shop:playbook:playbook", "pending"],
+            ],
+          );
+          const text = JSON.stringify(proposals);
+          assert.include(text, "Coupons need a signed-in cart");
+          assert.include(text, "Open checkout");
+          for (const leaked of ["abc123def456", "s3cret_pw", "Pay button does nothing"])
+            assert.notInclude(text, leaked);
+          // Nothing becomes memory until the user approves it.
+          assert.deepStrictEqual(yield* docs.listDocs(shop), []);
+        }),
+        {
+          userMessages: [
+            "Test checkout",
+            "The password is s3cret_pw.",
+            "Coupons need a signed-in cart; api_key=abc123def456",
+          ],
+        },
+      ),
+  );
   it.effect.each([{ active: true }, { scratch: true }, { memoryOff: true }])(
     "refuses to save an unavailable thread: %j",
     (options) =>
@@ -445,58 +588,21 @@ it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
     ),
   );
 
-  it.effect("ranks items by meaning and words together when a model is loaded", () =>
+  it.effect("uses FTS5 for save and recall even with a loaded embedder", () =>
     withUnderstanding(
       Effect.gen(function* () {
         const understanding = yield* ProjectUnderstanding.ProjectUnderstanding;
         yield* understanding.saveItems(
           shop,
-          [
-            write({ ref: "a", statement: "Checkout needs a saved card" }),
-            write({ ref: "b", statement: "Filters reset when the page reloads" }),
-          ],
+          [write({ statement: "Checkout needs a saved card" })],
           { environment: site },
         );
-        const recall = yield* understanding.recall(shop, "test the payment flow");
-        assert.strictEqual(recall.mode, "semantic");
+        const recall = yield* understanding.recall(shop, "checkout");
+        assert.strictEqual(recall.mode, "text");
         assert.strictEqual(recall.items[0]?.item.statement, "Checkout needs a saved card");
       }),
-      { embedder: conceptEmbedder },
     ),
   );
-
-  it.effect("embeds items saved before a model was loaded when recall first needs them", () => {
-    let loaded = false;
-    const lateEmbedder = Layer.effect(
-      MemoryEmbedder.MemoryEmbedder,
-      Effect.map(Layer.build(conceptEmbedder), (context) => {
-        const concepts = Context.get(context, MemoryEmbedder.MemoryEmbedder);
-        return MemoryEmbedder.MemoryEmbedder.of({
-          status: Effect.suspend(() =>
-            loaded ? concepts.status : Effect.succeed({ model: null, unavailableReason: "off" }),
-          ),
-          embed: (texts) => (loaded ? concepts.embed(texts) : Effect.succeed(null)),
-        });
-      }),
-    );
-    return withUnderstanding(
-      Effect.gen(function* () {
-        const understanding = yield* ProjectUnderstanding.ProjectUnderstanding;
-        yield* understanding.saveItems(
-          shop,
-          [write({ ref: "a", statement: "Checkout needs a saved card" })],
-          { environment: site },
-        );
-        loaded = true;
-        const recall = yield* understanding.recall(shop, "test the payment flow");
-        assert.deepStrictEqual(
-          recall.items.map(({ item }) => item.statement),
-          ["Checkout needs a saved card"],
-        );
-      }),
-      { embedder: lateEmbedder },
-    );
-  });
 
   it.effect("extracts items after a run, citing facts and only verbatim user quotes", () =>
     withUnderstanding(
@@ -548,7 +654,7 @@ it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
           // The model never sees a password the user gave, so it cannot learn it.
           if (input.prompt.includes("s3cret_pw")) return Effect.die("the prompt has the password");
           const factId =
-            /\[([^\]]+)\] result .* https:\/\/shop\.test\/login/.exec(input.prompt)?.[1] ?? "";
+            /\[([^\]]+)\] validation .* https:\/\/shop\.test\/login/.exec(input.prompt)?.[1] ?? "";
           const output: ProjectUnderstandingExtraction = {
             items: [
               {
@@ -633,70 +739,30 @@ it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
   );
 
   it.effect(
-    "replaces an earlier fact that a run restates in other words, until that run goes",
+    "excludes regression and remember-false runs from extraction and explicit regression saves",
     () =>
       withUnderstanding(
         Effect.gen(function* () {
           const extraction = yield* UnderstandingExtraction.UnderstandingExtraction;
-          const memory = yield* ProjectMemory.ProjectMemory;
-          const first = yield* finishedRun(shop, [
-            { scenario: "Locked out user is rejected", verdict: "PASS", path: "/login" },
-          ]);
-          const second = yield* finishedRun(
-            shop,
-            [{ scenario: "locked_out_user cannot sign in", verdict: "FAIL", path: "/login" }],
-            ThreadId.make("thread-understanding-second"),
-          );
-          yield* extraction.enqueue(second.run);
-          yield* extraction.extract(second.run.runId);
-          const current = () =>
-            memory
-              .lookupFacts(shop, { kind: "result" })
-              .pipe(Effect.map((facts) => facts.map((fact) => [fact.key, fact.supersededBy])));
-          assert.deepStrictEqual(yield* current(), [["locked_out_user cannot sign in", null]]);
-          assert.strictEqual(
-            (yield* memory.lookupFacts(shop, { status: "superseded" }))[0]?.supersededBy,
-            second.facts[0]?.factId,
-          );
-
-          const rule = yield* memory.putFact(shop, {
-            stateId: site + "/login",
-            kind: "result",
-            key: "Locked out users must be refused",
-            value: "PASS",
-            evidence: [],
-            author: "user",
+          const control = yield* ProjectMemoryControl.ProjectMemoryControl;
+          const runs = yield* QaRuns.QaRuns;
+          yield* runs.startRegressionRun(threadId, {
+            suiteId: QaSuiteId.make("suite"),
+            site,
+            dataRow: null,
           });
-          assert.strictEqual(
-            yield* memory.supersedeFacts(shop, [
-              { factId: rule!.factId, byFactId: second.facts[0]!.factId },
-              { factId: second.facts[0]!.factId, byFactId: first.facts[0]!.factId },
-            ]),
-            0,
+          const run = (yield* (yield* QaRecorder.QaRecorder).finish(threadId, "regression"))!;
+          assert.strictEqual(run.remember, false);
+          for (const excluded of [run, { ...run, kind: "exploratory" as const, remember: false }]) {
+            yield* extraction.enqueue(excluded);
+            assert.strictEqual((yield* extraction.status(shop)).pendingExtractions, 0);
+          }
+          assert.isTrue(
+            Exit.isFailure(yield* Effect.exit(runs.rememberRun(threadId, run.runId, shop))),
           );
-
-          yield* memory.forgetRun(second.run.runId);
-          assert.deepStrictEqual((yield* current()).toSorted(), [
-            ["Locked out user is rejected", null],
-            ["Locked out users must be refused", null],
-          ]);
+          yield* control.saveThread(threadId);
+          assert.strictEqual((yield* extraction.status(shop)).pendingExtractions, 0);
         }),
-        {
-          generate: (input) => {
-            const id = (key: string) =>
-              new RegExp(`\\[([^\\]]+)\\] result .* "${key}"`).exec(input.prompt)?.[1] ?? "";
-            const earlier = id("Locked out user is rejected");
-            const latest = id("locked_out_user cannot sign in");
-            return Effect.succeed({
-              items: [],
-              replacedFacts: [
-                { factId: earlier, byFactId: latest },
-                // Not an earlier fact the model was shown.
-                { factId: latest, byFactId: latest },
-              ],
-            });
-          },
-        },
       ),
   );
 

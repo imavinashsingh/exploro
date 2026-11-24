@@ -1,18 +1,18 @@
 import {
-  qaSiteOrigin,
   type ProjectMemoryEvidenceRef,
   type ProjectMemoryFactInput,
   type QaRun,
 } from "@t3tools/contracts";
 
 import { redactText, redactUrl } from "../qa/qaEvidence.ts";
+import { memoryEnvironmentOrigin } from "./memoryEnvironment.ts";
 
 const ID_SEGMENT =
   /^(\d+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{12,}|(?=[^/]*\d)[A-Za-z0-9_-]{20,})$/i;
 
 /** The origin a fact belongs to, from a URL or an origin; null for anything else. */
 export function memoryEnvironment(urlOrOrigin: string): string | null {
-  return qaSiteOrigin(urlOrOrigin.trim());
+  return memoryEnvironmentOrigin(urlOrOrigin);
 }
 
 /** A URL's or path's route: the path without query or fragment, with ids as `:id`. */

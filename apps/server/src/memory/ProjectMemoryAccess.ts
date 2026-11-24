@@ -1,4 +1,3 @@
-import * as ProjectUnderstanding from "./ProjectUnderstanding.ts";
 import { type ProjectId, type ServerSettings, type ThreadId } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Context from "effect/Context";
@@ -15,6 +14,7 @@ import {
 } from "./memoryBrief.ts";
 import * as MarkdownMemoryStore from "./MarkdownMemoryStore.ts";
 import * as ProjectMemory from "./ProjectMemory.ts";
+import { memoryEnvironmentMatches, normalizeMemoryEnvironment } from "./memoryEnvironment.ts";
 
 /** How agent turns reach project memory. Both calls succeed, so memory never blocks a turn. */
 export class ProjectMemoryAccess extends Context.Service<
@@ -39,19 +39,17 @@ const make = Effect.gen(function* () {
   const serverSettings = yield* ServerSettingsService.ServerSettingsService;
   const memory = yield* ProjectMemory.ProjectMemory;
   const markdown = yield* MarkdownMemoryStore.MarkdownMemoryStore;
-  const understanding = yield* ProjectUnderstanding.ProjectUnderstanding;
   const savedSecrets = yield* QaSavedSecrets.QaSavedSecrets;
 
   // Sites and saved passwords are the user's setup, so they come even with memory off.
   const projectContext = Effect.fn("ProjectMemoryAccess.projectContext")(
-    function* (projectId: ProjectId, withMemory: boolean) {
+    function* (projectId: ProjectId) {
       const settings = yield* serverSettings.getSettings;
       const sites = resolveProjectSettings(settings, projectId).settings.qaSiteOrigins;
       const savedPasswords = (yield* savedSecrets.list).filter(
         (saved) => saved.projectId === projectId,
       );
-      const items = withMemory ? yield* understanding.contextItems(projectId) : [];
-      return formatProjectContext({ sites, savedPasswords, items }, 700);
+      return formatProjectContext({ sites, savedPasswords, items: [] }, 700);
     },
     Effect.catchCause((cause) =>
       Effect.logWarning("Project context was not built", { cause }).pipe(Effect.as("")),
@@ -72,13 +70,20 @@ const make = Effect.gen(function* () {
       function* (projectId, goal, threadId) {
         if (yield* folders.isScratchProject(projectId)) return "";
         const withMemory = yield* hasMemory(projectId);
-        const context = yield* projectContext(projectId, withMemory);
+        const context = yield* projectContext(projectId);
         if (!withMemory) return context;
         return yield* Effect.gen(function* () {
-          yield* markdown.migrateLegacyUnderstandingIfEmpty(projectId);
           yield* markdown.syncProject(projectId);
-          const docs = yield* markdown.listDocs(projectId);
           const targets = memoryPromptTargets(goal);
+          const scopes = targets.flatMap((target) => {
+            const environment = normalizeMemoryEnvironment(target.environment);
+            return environment === null ? [] : [environment];
+          });
+          const docs = (yield* markdown.listDocs(projectId)).filter(
+            (doc) =>
+              scopes.length === 0 ||
+              scopes.some((scope) => memoryEnvironmentMatches(scope, doc.environment)),
+          );
           const routeMatches = yield* Effect.forEach(targets, (target) =>
             markdown.matchDocsByRoutes(projectId, target.routes, target.environment ?? undefined),
           );
@@ -99,7 +104,17 @@ const make = Effect.gen(function* () {
           );
           const matches = [
             ...new Map(
-              [...routeMatches.flat(), ...searches.flat()].map((doc) => [doc.docId, doc]),
+              [
+                ...routeMatches.flatMap((docs) => docs.slice(0, 1)),
+                ...routeMatches.flat(),
+                ...searches.flat(),
+              ]
+                .filter(
+                  (doc) =>
+                    scopes.length === 0 ||
+                    scopes.some((scope) => memoryEnvironmentMatches(scope, doc.environment)),
+                )
+                .map((doc) => [doc.docId, doc]),
             ).values(),
           ];
           const brief = formatMarkdownMemoryBrief({ docs, matches, context });

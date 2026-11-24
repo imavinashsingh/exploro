@@ -199,7 +199,12 @@ const make = Effect.gen(function* () {
       Effect.orElseSucceed(() => []),
     );
     const projectId = yield* projectOf(threadId);
+    const completed = yield* threads.getThreadRecords(threadId, ["runs"]).pipe(
+      Effect.map((records) => records.runs.at(-1)?.status === "completed"),
+      Effect.orElseSucceed(() => false),
+    );
     const remember =
+      completed &&
       projectId !== null &&
       (yield* serverSettings.getSettings.pipe(
         Effect.map((settings) => memoryEnabled(settings, projectId)),
@@ -207,7 +212,7 @@ const make = Effect.gen(function* () {
       ));
     const run = yield* qaRuns.finishRun(threadId, { projectId, secrets, remember });
     if (run !== null) {
-      yield* learnSite(run);
+      if (completed) yield* learnSite(run);
       if (!remember) return run;
       yield* extraction
         .enqueue(run)

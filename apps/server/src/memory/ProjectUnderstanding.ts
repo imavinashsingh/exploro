@@ -16,8 +16,6 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 
-import * as MemoryEmbedder from "./MemoryEmbedder.ts";
-
 export interface UnderstandingWrite {
   /** Names this write so other writes in the batch can depend on it. */
   readonly ref: string;
@@ -122,23 +120,17 @@ const VersionRow = Schema.Struct({
   changedAt: Schema.String,
 });
 const decodeVersionRows = Schema.decodeUnknownEffect(Schema.Array(VersionRow));
-const EmbeddingRow = Schema.Struct({ itemId: Schema.String, embedding: Schema.Uint8Array });
-const decodeEmbeddingRows = Schema.decodeUnknownEffect(Schema.Array(EmbeddingRow));
 
 const isProjectMemoryError = Schema.is(ProjectMemoryError);
 const failure = (message: string) => (cause: unknown) =>
   isProjectMemoryError(cause) ? cause : new ProjectMemoryError({ message, cause });
 
-const RRF_K = 60;
-// Below this, a statement shares little meaning with the query; MiniLM puts unrelated text near 0.1.
-const MIN_SIMILARITY = 0.3;
 const STOP_WORDS = new Set(
   "a an and are as at be by can do for from has have in is it of on or so that the then this to was when with you your test tests testing check".split(
     " ",
   ),
 );
 const CANDIDATES = 50;
-const BACKFILL_LIMIT = 64;
 const tombstoneRef = (statement: string) => statement.trim().toLowerCase().replace(/\s+/gu, " ");
 const MAX_STATEMENT_CHARS = 300;
 
@@ -150,32 +142,9 @@ function textSearchQuery(text: string): string | null {
   return words.length === 0 ? null : words.map((word) => `"${word}"`).join(" OR ");
 }
 
-/** Reciprocal rank fusion: each list adds 1 / (k + rank) for the ids it ranks. */
-function fuseRankings(rankings: ReadonlyArray<ReadonlyArray<string>>): Array<string> {
-  const scores = new Map<string, number>();
-  for (const ranking of rankings) {
-    ranking.forEach((id, index) => scores.set(id, (scores.get(id) ?? 0) + 1 / (RRF_K + index + 1)));
-  }
-  return [...scores.entries()].sort((left, right) => right[1] - left[1]).map(([id]) => id);
-}
-
-const cosine = (left: Float32Array, right: Float32Array) => {
-  let dot = 0;
-  for (let index = 0; index < left.length && index < right.length; index += 1) {
-    dot += (left[index] ?? 0) * (right[index] ?? 0);
-  }
-  return dot;
-};
-
-const toBlob = (vector: Float32Array) =>
-  new Uint8Array(vector.buffer, vector.byteOffset, vector.byteLength).slice();
-const fromBlob = (blob: Uint8Array) =>
-  new Float32Array(blob.slice().buffer, 0, Math.floor(blob.byteLength / 4));
-
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const random = yield* SecureRandom.SecureRandom;
-  const embedder = yield* MemoryEmbedder.MemoryEmbedder;
 
   const nowIso = Effect.map(Clock.currentTimeMillis, (millis) =>
     DateTime.formatIso(DateTime.makeUnsafe(millis)),
@@ -324,16 +293,12 @@ const make = Effect.gen(function* () {
               JSON.stringify(write.dependsOn.toSorted()))
         );
       });
-      const vectors = yield* embedder.embed(changed.map((write) => write.statement));
-      const model = vectors === null ? null : (yield* embedder.status).model;
 
       yield* sql.withTransaction(
         Effect.forEach(
           changed,
-          (write, index) =>
+          (write) =>
             Effect.gen(function* () {
-              const vector = vectors?.[index];
-              const embedding = vector === undefined ? null : toBlob(vector);
               const version = (existing.get(write.itemId)?.version ?? 0) + 1;
               yield* sql`
                 INSERT INTO project_memory_understanding (
@@ -341,7 +306,7 @@ const make = Effect.gen(function* () {
                   embedding_model, created_at, updated_at, version
                 ) VALUES (
                   ${write.itemId}, ${projectId}, ${write.kind}, ${write.statement},
-                  ${write.status}, ${write.author}, ${embedding}, ${model}, ${changedAt},
+                  ${write.status}, ${write.author}, NULL, NULL, ${changedAt},
                   ${changedAt}, ${version}
                 )
                 ON CONFLICT (item_id) DO UPDATE SET
@@ -413,42 +378,6 @@ const make = Effect.gen(function* () {
     return rows.map((row) => row.itemId);
   });
 
-  const semanticMatches = Effect.fnUntraced(function* (projectId: ProjectId, query: string) {
-    const vectors = yield* embedder.embed([query]);
-    const target = vectors?.[0];
-    if (target === undefined) return null;
-    const { model } = yield* embedder.status;
-    // Items saved before this model loaded have no vector, or one from another model.
-    const unembedded = yield* sql<{ readonly itemId: string; readonly statement: string }>`
-      SELECT item_id AS "itemId", statement FROM project_memory_understanding
-      WHERE project_id = ${projectId} AND (embedding IS NULL OR embedding_model IS NOT ${model})
-      LIMIT ${BACKFILL_LIMIT}
-    `;
-    const backfilled =
-      unembedded.length === 0
-        ? []
-        : ((yield* embedder.embed(unembedded.map((row) => row.statement))) ?? []);
-    yield* Effect.forEach(
-      backfilled,
-      (vector, index) => sql`
-        UPDATE project_memory_understanding
-        SET embedding = ${toBlob(vector)}, embedding_model = ${model}
-        WHERE item_id = ${unembedded[index]!.itemId}
-      `,
-      { discard: true },
-    );
-    const rows = yield* sql`
-      SELECT item_id AS "itemId", embedding FROM project_memory_understanding
-      WHERE project_id = ${projectId} AND embedding IS NOT NULL AND embedding_model IS ${model}
-    `.pipe(Effect.flatMap(decodeEmbeddingRows));
-    return rows
-      .map((row) => ({ itemId: row.itemId, score: cosine(target, fromBlob(row.embedding)) }))
-      .filter((row) => row.score >= MIN_SIMILARITY)
-      .sort((left, right) => right.score - left.score)
-      .slice(0, CANDIDATES)
-      .map((row) => row.itemId);
-  });
-
   return ProjectUnderstanding.of({
     saveItems,
     getItems: Effect.fn("ProjectUnderstanding.getItems")(
@@ -517,9 +446,8 @@ const make = Effect.gen(function* () {
     recall: Effect.fn("ProjectUnderstanding.recall")(
       function* (projectId, query, options) {
         const limit = options?.limit ?? 8;
-        const semantic = yield* semanticMatches(projectId, query);
         const text = yield* textMatches(projectId, query);
-        const matched = fuseRankings(semantic === null ? [text] : [semantic, text]).slice(0, limit);
+        const matched = text.slice(0, limit);
         const all = new Map((yield* loadItems(projectId)).map((item) => [item.itemId, item]));
         const recalled = new Map<string, RecalledUnderstanding>();
         for (const itemId of matched) {
@@ -536,7 +464,7 @@ const make = Effect.gen(function* () {
           queue.push(...item.dependsOn);
         }
         return {
-          mode: semantic === null ? "text" : "semantic",
+          mode: "text",
           items: [...recalled.values()],
         } satisfies UnderstandingRecall;
       },

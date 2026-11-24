@@ -172,9 +172,6 @@ const make = Effect.fnUntraced(function* (folders?: ReadonlyArray<string>) {
   });
 });
 
-/** Recall by meaning with the model bundled beside the server; text search when it is absent. */
-export const layer = Layer.effect(MemoryEmbedder, make());
-
 /** The same embedder looking for the model only in `folders`. */
 export const layerFrom = (folders: ReadonlyArray<string>) =>
   Layer.effect(MemoryEmbedder, make(folders));

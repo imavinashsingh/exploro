@@ -1,6 +1,7 @@
 import * as MarkdownMemoryRecall from "../memory/MarkdownMemoryRecall.ts";
 import { ProjectId, ProjectMemoryError } from "@t3tools/contracts";
 import * as NavigationCapture from "../memory/NavigationCapture.ts";
+import * as RouteTrigger from "../memory/RouteTrigger.ts";
 import * as ProjectMemory from "../memory/ProjectMemory.ts";
 import * as ProjectUnderstanding from "../memory/ProjectUnderstanding.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
@@ -135,9 +136,17 @@ const layerTest = McpHttpServer.layerPreviewToolkit.pipe(
               updatedAt: "2026-11-23",
             },
           }),
-        search: () => Effect.succeed({ docs: [], facts: [] }),
+        search: (_, input) =>
+          Effect.succeed({
+            docs: [],
+            facts: [],
+            appliedEnvironment: input.environment ?? null,
+            matchedCount: 0,
+          }),
         forScreen: () =>
           Effect.succeed({
+            appliedEnvironment: null,
+            matchedCount: 0,
             guides: [],
             facts: [],
             connections: [],
@@ -159,6 +168,7 @@ const layerTest = McpHttpServer.layerPreviewToolkit.pipe(
         browserOpened: () => Effect.void,
         stepPerformed: () => Effect.void,
       }),
+      Layer.mock(RouteTrigger.RouteTrigger)({ onPage: () => Effect.succeed(null) }),
     ),
   ),
   Layer.provideMerge(PreviewAutomationBroker.layer),
@@ -2246,13 +2256,29 @@ it.effect(
       expect(guide.structuredContent).toMatchObject({
         guide: { projectId: "project:mcp-test", slug: "checkout", body: "Require cart" },
       });
+      for (const environment of ["dev", "https://dev.dvapply.com/path", null]) {
+        expect(
+          (yield* call("memory_get_guide", { slug: "checkout", environment })).isError,
+        ).not.toBe(true);
+        expect((yield* call("memory_search", { query: "cart", environment })).isError).not.toBe(
+          true,
+        );
+        expect(
+          (yield* call("memory_for_screen", { route: "/checkout", environment })).isError,
+        ).not.toBe(true);
+      }
       expect(
         (yield* call("memory_search", { query: "cart", environment: "https://shop.test" }))
           .structuredContent,
-      ).toEqual({ docs: [], facts: [] });
+      ).toEqual({ docs: [], facts: [], appliedEnvironment: "https://shop.test", matchedCount: 0 });
       expect(
         (yield* call("memory_for_screen", { route: "/checkout" })).structuredContent,
-      ).toMatchObject({ openIssuesLabel: "Open issues from recent runs", openIssues: [] });
+      ).toMatchObject({
+        openIssuesLabel: "Open issues from recent runs",
+        openIssues: [],
+        appliedEnvironment: null,
+        matchedCount: 0,
+      });
       for (const [name, args] of [
         ["memory_get_guide", { slug: "checkout" }],
         ["memory_search", { query: "cart" }],

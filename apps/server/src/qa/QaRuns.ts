@@ -463,6 +463,7 @@ const make = Effect.gen(function* () {
     const reportHtmlPath = path.join(open.dir, "report.html");
     const finished: QaRun = {
       ...open,
+      remember: remember && kind !== "regression",
       projectId,
       finishedAt,
       videoUnavailableReason:
@@ -497,7 +498,7 @@ const make = Effect.gen(function* () {
     );
     const saved = yield* save(finished);
     // Memory is secondary: a failed write must not lose the finished report.
-    if (remember) {
+    if (saved.remember) {
       yield* memory
         .recordRun(saved, secrets)
         .pipe(
@@ -621,16 +622,21 @@ const make = Effect.gen(function* () {
           if (run === undefined || (run.projectId !== null && run.projectId !== projectId)) {
             return yield* new QaRunError({ message: "This run does not belong to the project." });
           }
+          if (run.kind === "regression") {
+            return yield* new QaRunError({ message: "Regression runs cannot be saved to memory." });
+          }
           const saved =
             run.finishedAt === null
               ? yield* finishRunUnlocked(threadId, projectId, secrets, false)
-              : yield* save({ ...run, projectId });
+              : yield* save({ ...run, projectId, remember: true });
           if (saved === null)
             return yield* new QaRunError({ message: "The run is no longer available." });
+          const remembered =
+            saved.remember === true ? saved : yield* save({ ...saved, remember: true });
           yield* memory
-            .recordRun(saved, secrets)
+            .recordRun(remembered, secrets)
             .pipe(Effect.mapError(failure("Could not save the run to memory.")));
-          return saved;
+          return remembered;
         }),
       );
     }),

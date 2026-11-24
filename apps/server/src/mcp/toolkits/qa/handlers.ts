@@ -61,10 +61,14 @@ const EXPLORATION_NEXT =
   "When a step reaches the destination screen, call navigation_observe there with that action before testing it. That call saves the path for later runs.";
 
 export const layer = McpToolAccess.toLayer(QaToolkit, {
-  memory_get_guide: McpToolAccess.readsAsCaller(({ slug }) =>
+  memory_get_guide: McpToolAccess.readsAsCaller(({ slug, environment }) =>
     Effect.gen(function* () {
       const { projectId } = yield* memoryScope;
-      return yield* (yield* MarkdownMemoryRecall.MarkdownMemoryRecall).getGuide(projectId, slug);
+      return yield* (yield* MarkdownMemoryRecall.MarkdownMemoryRecall).getGuide(
+        projectId,
+        slug,
+        environment,
+      );
     }),
   ),
   memory_search: McpToolAccess.readsAsCaller((input) =>

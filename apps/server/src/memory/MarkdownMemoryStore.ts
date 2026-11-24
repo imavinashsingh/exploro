@@ -1,8 +1,10 @@
 import * as Digest from "effect/crypto/Digest";
 import * as Hex from "effect/encoding/Hex";
 import { parse, stringify } from "yaml";
-import { MemoryDoc, ProjectMemoryError, type ProjectId } from "@t3tools/contracts";
+import { MemoryDoc, MemoryProposal, ProjectMemoryError, type ProjectId } from "@t3tools/contracts";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -12,6 +14,12 @@ import * as Semaphore from "effect/Semaphore";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as ServerConfig from "../config.ts";
 import { memoryEnvironment, memoryRoute } from "./projectMemoryFacts.ts";
+import { scrubSecrets, type ProposalDraft } from "./memoryProposals.ts";
+import {
+  normalizeMemoryEnvironment,
+  makeMemoryEnvironmentResolver,
+  memoryEnvironmentMatches,
+} from "./memoryEnvironment.ts";
 
 const decodeDoc = Schema.decodeUnknownSync(MemoryDoc);
 const validateDoc = Schema.decodeSync(MemoryDoc);
@@ -19,8 +27,10 @@ const decodeDocEffect = Schema.decodeEffect(MemoryDoc);
 const isMemoryError = Schema.is(ProjectMemoryError);
 const encodeStrings = Schema.encodeEffect(Schema.fromJsonString(Schema.Array(Schema.String)));
 
-type MemoryDocInput = Omit<MemoryDoc, "docId" | "status">;
-type SearchOptions = { readonly environment?: string; readonly limit?: number };
+type MemoryDocInput = Omit<MemoryDoc, "docId" | "status" | "environment"> & {
+  readonly environment?: string | null | undefined;
+};
+type SearchOptions = { readonly environment?: string | null; readonly limit?: number };
 
 export class MarkdownMemoryStore extends Context.Service<
   MarkdownMemoryStore,
@@ -28,7 +38,7 @@ export class MarkdownMemoryStore extends Context.Service<
     readonly syncProject: (projectId: ProjectId) => Effect.Effect<void, ProjectMemoryError>;
     readonly listDocs: (
       projectId: ProjectId,
-      environment?: string,
+      environment?: string | null,
     ) => Effect.Effect<ReadonlyArray<MemoryDoc>, ProjectMemoryError>;
     readonly saveUserDoc: (input: MemoryDocInput) => Effect.Effect<MemoryDoc, ProjectMemoryError>;
     readonly saveDraftDoc: (input: MemoryDocInput) => Effect.Effect<MemoryDoc, ProjectMemoryError>;
@@ -40,8 +50,27 @@ export class MarkdownMemoryStore extends Context.Service<
     readonly matchDocsByRoutes: (
       projectId: ProjectId,
       routes: ReadonlyArray<string>,
-      environment?: string,
+      environment?: string | null,
     ) => Effect.Effect<ReadonlyArray<MemoryDoc>, ProjectMemoryError>;
+    /** Queues a run's drafts for review; pending ones from the same run and target are replaced. */
+    readonly proposeDocs: (
+      projectId: ProjectId,
+      sourceRunId: string,
+      drafts: ReadonlyArray<ProposalDraft>,
+    ) => Effect.Effect<ReadonlyArray<MemoryProposal>, ProjectMemoryError>;
+    readonly listProposals: (
+      projectId: ProjectId,
+    ) => Effect.Effect<ReadonlyArray<MemoryProposal>, ProjectMemoryError>;
+    /**
+     * Approving adds the proposal to its document as the user's own edit. A confirmed document
+     * changes only with `replaceConfirmed`, the user's explicit go-ahead.
+     */
+    readonly resolveProposal: (input: {
+      readonly projectId: ProjectId;
+      readonly proposalId: string;
+      readonly decision: "approve" | "dismiss";
+      readonly replaceConfirmed?: boolean;
+    }) => Effect.Effect<MemoryProposal, ProjectMemoryError>;
     readonly migrateLegacyUnderstandingIfEmpty: (
       projectId: ProjectId,
     ) => Effect.Effect<void, ProjectMemoryError>;
@@ -65,23 +94,22 @@ export function parseMemoryMarkdown(
   const metadata: unknown = parse(match[1]!, { maxAliasCount: 0, uniqueKeys: true });
   if (metadata === null || typeof metadata !== "object" || Array.isArray(metadata))
     throw new Error("Invalid memory frontmatter");
-  const doc = decodeDoc({
+  const environment = "environment" in metadata ? metadata.environment : undefined;
+  return decodeDoc({
     summary: "",
     routes: [],
     keywords: [],
     ...metadata,
+    environment:
+      typeof environment === "string" || environment == null
+        ? (normalizeMemoryEnvironment(environment) ?? undefined)
+        : environment,
     docId: `${projectId}:${kind}:${slug}`,
     projectId,
     kind,
     slug,
     body: match[2]!,
   });
-  return {
-    ...doc,
-    ...(doc.environment === undefined
-      ? {}
-      : { environment: memoryEnvironment(doc.environment) ?? doc.environment }),
-  };
 }
 
 export function serializeMemoryMarkdown(doc: MemoryDoc): string {
@@ -119,6 +147,32 @@ interface DocRow {
   readonly updated_at: string;
   readonly sha256: string;
 }
+interface ProposalRow {
+  readonly proposal_id: string;
+  readonly project_id: string;
+  readonly target_doc_id: string;
+  readonly kind: string;
+  readonly title: string;
+  readonly proposed_markdown: string;
+  readonly rationale: string;
+  readonly source_run_id: string | null;
+  readonly status: string;
+  readonly created_at: string;
+}
+const decodeProposal = Schema.decodeUnknownSync(MemoryProposal);
+const fromProposalRow = (row: ProposalRow): MemoryProposal =>
+  decodeProposal({
+    proposalId: row.proposal_id,
+    projectId: row.project_id,
+    targetDocId: row.target_doc_id,
+    kind: row.kind,
+    title: row.title,
+    proposedMarkdown: row.proposed_markdown,
+    rationale: row.rationale,
+    ...(row.source_run_id === null ? {} : { sourceRunId: row.source_run_id }),
+    status: row.status,
+    createdAt: row.created_at,
+  });
 const fromRow = (row: DocRow): MemoryDoc =>
   decodeDoc({
     docId: row.doc_id,
@@ -144,6 +198,7 @@ const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const config = yield* ServerConfig.ServerConfig;
   const sql = yield* SqlClient.SqlClient;
+  const resolveEnvironment = yield* makeMemoryEnvironmentResolver;
   const lock = yield* Semaphore.make(1);
   const digest = yield* Digest.Digest;
   const directory = (projectId: ProjectId) =>
@@ -188,10 +243,12 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const indexed =
           yield* sql<DocRow>`SELECT * FROM memory_docs WHERE project_id = ${projectId}`;
-        const hashes = new Map(indexed.map((row) => [row.doc_id, row.sha256]));
+        const indexedById = new Map(indexed.map((row) => [row.doc_id, row]));
         const present = new Set(scanned.map(({ doc }) => doc.docId));
         for (const { doc, hash } of scanned) {
-          if (hashes.get(doc.docId) === hash) continue;
+          const previous = indexedById.get(doc.docId);
+          if (previous?.sha256 === hash && previous.environment === (doc.environment ?? null))
+            continue;
           const routesJson = yield* encodeStrings(doc.routes);
           const keywordsJson = yield* encodeStrings(doc.keywords);
           yield* sql`INSERT INTO memory_docs (doc_id, project_id, kind, slug, title, summary, environment, status, routes_json, keywords_json, body, updated_at, sha256)
@@ -213,12 +270,11 @@ const make = Effect.gen(function* () {
   );
   const listDocs = Effect.fn("MarkdownMemoryStore.listDocs")(function* (
     projectId: ProjectId,
-    environment?: string,
+    environment?: string | null,
   ) {
-    const origin =
-      environment === undefined ? null : (memoryEnvironment(environment) ?? environment);
+    const scope = yield* resolveEnvironment(projectId, environment);
     const rows = yield* sql<DocRow>`SELECT * FROM memory_docs WHERE project_id = ${projectId}
-      AND (${origin} IS NULL OR environment IS NULL OR environment = ${origin}) ORDER BY kind, slug`;
+      AND (${scope.appliedEnvironment} IS NULL OR environment IS NULL OR ${sql.in("environment", scope.environments)}) ORDER BY kind, slug`;
     return yield* Effect.try({ try: () => rows.map(fromRow), catch: failure });
   }, Effect.mapError(failure));
   const save = Effect.fn("MarkdownMemoryStore.save")(function* (
@@ -227,12 +283,17 @@ const make = Effect.gen(function* () {
   ) {
     const doc = yield* decodeDocEffect({
       ...input,
+      // Memory files are shared and committed; credentials belong in the project's saved secrets.
+      title: scrubSecrets(input.title),
+      summary: scrubSecrets(input.summary),
+      body: scrubSecrets(input.body),
+      environment: normalizeMemoryEnvironment(input.environment) ?? undefined,
       status,
       docId: `${input.projectId}:${input.kind}:${input.slug}`,
     });
     const target = yield* Effect.try({ try: () => filePath(doc), catch: failure });
-    if (status === "draft" && (yield* fs.exists(target))) {
-      const existing = yield* fs.readFileString(target);
+    const existing = (yield* fs.exists(target)) ? yield* fs.readFileString(target) : null;
+    if (status === "draft" && existing !== null) {
       const confirmed = yield* Effect.try({
         try: () =>
           parseMemoryMarkdown(existing, doc.projectId, doc.kind, doc.slug).status === "confirmed",
@@ -246,13 +307,30 @@ const make = Effect.gen(function* () {
     yield* fs.makeDirectory(path.dirname(target), { recursive: true });
     const markdown = yield* Effect.try({ try: () => serializeMemoryMarkdown(doc), catch: failure });
     const temp = yield* fs.makeTempFile({ directory: path.dirname(target), prefix: ".memory-" });
-    yield* fs
-      .writeFileString(temp, markdown)
-      .pipe(
-        Effect.andThen(fs.rename(temp, target)),
-        Effect.ensuring(fs.remove(temp).pipe(Effect.ignore)),
-      );
-    yield* sync(doc.projectId);
+    let replaced = false;
+    yield* fs.writeFileString(temp, markdown).pipe(
+      Effect.andThen(fs.rename(temp, target)),
+      Effect.tap(() =>
+        Effect.sync(() => {
+          replaced = true;
+        }),
+      ),
+      Effect.andThen(sync(doc.projectId)),
+      Effect.catchCause((cause) =>
+        Effect.gen(function* () {
+          if (replaced) {
+            if (existing === null) yield* fs.remove(target);
+            else {
+              yield* fs.writeFileString(temp, existing);
+              yield* fs.rename(temp, target);
+            }
+          }
+          return yield* Effect.failCause(cause);
+        }),
+      ),
+      Effect.ensuring(fs.remove(temp).pipe(Effect.ignore)),
+      Effect.uninterruptible,
+    );
     return doc;
   }, Effect.mapError(failure));
   const migrateLegacyUnderstandingIfEmpty = Effect.fn(
@@ -286,7 +364,110 @@ const make = Effect.gen(function* () {
     yield* fs.writeFileString(target, markdown, { flag: "wx" });
     yield* sync(projectId);
   }, Effect.mapError(failure));
+  const nowIso = Effect.map(Clock.currentTimeMillis, (millis) =>
+    DateTime.formatIso(DateTime.makeUnsafe(millis)),
+  );
+  const readProposals = (projectId: ProjectId, proposalId?: string) =>
+    sql<ProposalRow>`SELECT * FROM memory_proposals WHERE project_id = ${projectId}
+      AND (${proposalId ?? null} IS NULL OR proposal_id = ${proposalId ?? null})
+      ORDER BY created_at DESC, proposal_id`.pipe(Effect.map((rows) => rows.map(fromProposalRow)));
+  const proposeDocs = Effect.fn("MarkdownMemoryStore.proposeDocs")(function* (
+    projectId: ProjectId,
+    sourceRunId: string,
+    drafts: ReadonlyArray<ProposalDraft>,
+  ) {
+    const createdAt = yield* nowIso;
+    for (const draft of drafts) {
+      const slug = yield* Effect.try({ try: () => validateMemorySlug(draft.slug), catch: failure });
+      const doc = yield* decodeDocEffect({
+        docId: `${projectId}:${draft.kind}:${slug}`,
+        projectId,
+        kind: draft.kind,
+        slug,
+        title: scrubSecrets(draft.title),
+        summary: scrubSecrets(draft.summary),
+        ...(draft.environment === null
+          ? {}
+          : { environment: normalizeMemoryEnvironment(draft.environment) ?? undefined }),
+        status: "draft",
+        routes: draft.routes,
+        keywords: [],
+        body: scrubSecrets(draft.body),
+        updatedAt: createdAt,
+      });
+      const proposalId = `${sourceRunId}:${doc.docId}`;
+      // A follow-up turn finishes the run again; a reviewed proposal keeps its decision.
+      yield* sql`INSERT INTO memory_proposals (proposal_id, project_id, target_doc_id, kind, title, proposed_markdown, rationale, source_run_id, status, created_at)
+        VALUES (${proposalId}, ${projectId}, ${doc.docId}, ${doc.kind}, ${doc.title}, ${serializeMemoryMarkdown(doc)}, ${scrubSecrets(draft.rationale)}, ${sourceRunId}, 'pending', ${createdAt})
+        ON CONFLICT (proposal_id) DO UPDATE SET title = excluded.title, proposed_markdown = excluded.proposed_markdown,
+          rationale = excluded.rationale, created_at = excluded.created_at
+        WHERE memory_proposals.status = 'pending'`;
+    }
+    return (yield* readProposals(projectId)).filter(
+      (proposal) => proposal.sourceRunId === sourceRunId,
+    );
+  }, Effect.mapError(failure));
+  const resolveProposal = Effect.fn("MarkdownMemoryStore.resolveProposal")(function* (input: {
+    readonly projectId: ProjectId;
+    readonly proposalId: string;
+    readonly decision: "approve" | "dismiss";
+    readonly replaceConfirmed?: boolean;
+  }) {
+    const [proposal] = yield* readProposals(input.projectId, input.proposalId);
+    if (proposal === undefined || proposal.status !== "pending")
+      return yield* new ProjectMemoryError({ message: "That proposal is no longer pending." });
+    if (input.decision === "approve") {
+      const slug = proposal.targetDocId.split(":").at(-1)!;
+      const proposed = yield* Effect.try({
+        try: () =>
+          parseMemoryMarkdown(proposal.proposedMarkdown, input.projectId, proposal.kind, slug),
+        catch: failure,
+      });
+      const target = yield* Effect.try({ try: () => filePath(proposed), catch: failure });
+      const existing = (yield* fs.exists(target))
+        ? yield* fs.readFileString(target).pipe(
+            Effect.flatMap((markdown) =>
+              Effect.try({
+                try: () => parseMemoryMarkdown(markdown, input.projectId, proposal.kind, slug),
+                catch: failure,
+              }),
+            ),
+          )
+        : null;
+      if (existing?.status === "confirmed" && input.replaceConfirmed !== true)
+        return yield* new ProjectMemoryError({
+          message: `"${existing.title}" is confirmed. Approve again with replaceConfirmed to add this proposal to it.`,
+        });
+      const { docId: _docId, status: _status, ...fields } = proposed;
+      yield* save(
+        existing === null
+          ? { ...fields, updatedAt: yield* nowIso }
+          : {
+              ...existing,
+              routes: [...new Set([...existing.routes, ...proposed.routes])],
+              body: `${existing.body.trimEnd()}
+
+${proposed.body}`,
+              updatedAt: yield* nowIso,
+            },
+        "confirmed",
+      );
+    }
+    yield* sql`UPDATE memory_proposals SET status = ${input.decision === "approve" ? "approved" : "dismissed"}
+      WHERE project_id = ${input.projectId} AND proposal_id = ${input.proposalId}`;
+    return (yield* readProposals(input.projectId, input.proposalId))[0]!;
+  }, Effect.mapError(failure));
   return MarkdownMemoryStore.of({
+    proposeDocs: Effect.fn("MarkdownMemoryStore.proposeDocsLocked")(
+      (projectId, sourceRunId, drafts) =>
+        proposeDocs(projectId, sourceRunId, drafts).pipe(lock.withPermit),
+    ),
+    listProposals: Effect.fn("MarkdownMemoryStore.listProposals")((projectId) =>
+      readProposals(projectId).pipe(Effect.mapError(failure)),
+    ),
+    resolveProposal: Effect.fn("MarkdownMemoryStore.resolveProposalLocked")((input) =>
+      resolveProposal(input).pipe(lock.withPermit),
+    ),
     syncProject,
     listDocs,
     saveUserDoc: Effect.fn("MarkdownMemoryStore.saveUserDoc")((input) =>
@@ -305,34 +486,40 @@ const make = Effect.gen(function* () {
     ) {
       const match = sanitizeMemoryQuery(query);
       if (match === "") return [];
-      const origin =
-        options.environment === undefined
-          ? null
-          : (memoryEnvironment(options.environment) ?? options.environment);
+      const scope = yield* resolveEnvironment(projectId, options.environment);
       const limit = Math.min(100, Math.max(1, Math.trunc(options.limit ?? 10) || 10));
       const rows =
         yield* sql<DocRow>`SELECT d.* FROM memory_docs_fts JOIN memory_docs d ON d.doc_id = memory_docs_fts.doc_id
         WHERE memory_docs_fts MATCH ${match} AND d.project_id = ${projectId} AND memory_docs_fts.project_id = ${projectId}
-        AND (${origin} IS NULL OR d.environment IS NULL OR d.environment = ${origin})
+        AND (${scope.appliedEnvironment} IS NULL OR d.environment IS NULL OR ${sql.in("d.environment", scope.environments)})
         ORDER BY bm25(memory_docs_fts, 0, 0, 5.0, 4.0, 1.0) * CASE d.status WHEN 'confirmed' THEN 1.5 ELSE 1.0 END, d.doc_id LIMIT ${limit}`;
       return yield* Effect.try({ try: () => rows.map(fromRow), catch: failure });
     }, Effect.mapError(failure)),
     matchDocsByRoutes: Effect.fn("MarkdownMemoryStore.matchDocsByRoutes")(
       function* (projectId, routes, environment) {
         const docs = yield* listDocs(projectId, environment);
+        const specificity = (doc: MemoryDoc) =>
+          Math.max(
+            ...doc.routes
+              .filter((saved) => routes.some((route) => memoryRouteMatches(saved, route)))
+              .map((saved) => memoryRoute(saved).length),
+          );
         return docs
           .filter((doc) =>
             doc.routes.some((saved) =>
               routes.some(
                 (route) =>
-                  (memoryEnvironment(route) === null ||
-                    doc.environment === undefined ||
-                    memoryEnvironment(route) === doc.environment) &&
+                  memoryEnvironmentMatches(memoryEnvironment(route), doc.environment) &&
                   memoryRouteMatches(saved, route),
               ),
             ),
           )
-          .toSorted((a, b) => Number(b.status === "confirmed") - Number(a.status === "confirmed"));
+          .toSorted(
+            (a, b) =>
+              specificity(b) - specificity(a) ||
+              Number(b.environment !== undefined) - Number(a.environment !== undefined) ||
+              Number(b.status === "confirmed") - Number(a.status === "confirmed"),
+          );
       },
     ),
   });
