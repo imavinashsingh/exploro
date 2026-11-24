@@ -100,18 +100,22 @@ it.effect(
         );
         const before = yield* sql`SELECT sha256 FROM memory_docs WHERE project_id = ${projectId}`;
         const originalMarkdown = yield* fs.readFileString(guidePath);
+        // Hand-edited files that do not parse are skipped; they never block other docs or saves.
         const invalidPath = path.join(path.dirname(guidePath), "invalid.md");
+        const badNamePath = path.join(path.dirname(guidePath), "Bad Name.md");
         yield* fs.writeFileString(invalidPath, "invalid frontmatter");
-        expect(
-          Exit.isFailure(
-            yield* Effect.exit(
-              store.saveUserDoc(doc("checkout", { body: "Unindexed replacement" })),
-            ),
-          ),
-        ).toBe(true);
-        expect(yield* fs.readFileString(guidePath)).toBe(originalMarkdown);
-        expect((yield* store.listDocs(projectId))[0]?.body).toBe(savedDoc.body);
+        yield* fs.writeFileString(badNamePath, Store.serializeMemoryMarkdown(doc("bad")));
+        yield* store.saveUserDoc(doc("checkout", { body: "Replacement\n" }));
+        expect((yield* store.listDocs(projectId)).map((item) => item.body)).toEqual([
+          "Replacement\n",
+        ]);
+        // A guide that stops parsing keeps its last good index row until it is fixed.
+        yield* fs.writeFileString(guidePath, "broken");
+        yield* store.syncProject(projectId);
+        expect((yield* store.listDocs(projectId))[0]?.body).toBe("Replacement\n");
+        yield* fs.writeFileString(guidePath, originalMarkdown);
         yield* fs.remove(invalidPath);
+        yield* fs.remove(badNamePath);
         expect(
           Store.parseMemoryMarkdown(
             yield* fs.readFileString(guidePath),
@@ -235,6 +239,19 @@ it.effect("exports only confirmed legacy understanding once and leaves legacy ro
       yield* store.saveUserDoc(doc("playbook", { kind: "playbook", body: "User edit" }));
       yield* store.migrateLegacyUnderstandingIfEmpty(projectId);
       expect((yield* store.listDocs(projectId))[0]?.body).toBe("User edit");
+      // A playbook the user deletes is not brought back from the legacy rows.
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const config = yield* ServerConfig.ServerConfig;
+      yield* fs.remove(
+        path.join(
+          ServerConfig.projectMemoryDirectory(config.stateDir, projectId, path.join),
+          "playbook.md",
+        ),
+      );
+      yield* store.migrateLegacyUnderstandingIfEmpty(projectId);
+      yield* store.syncProject(projectId);
+      expect(yield* store.listDocs(projectId)).toEqual([]);
     }),
   ),
 );

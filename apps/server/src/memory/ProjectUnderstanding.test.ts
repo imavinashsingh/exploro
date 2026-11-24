@@ -63,6 +63,8 @@ const withUnderstanding = <A, E>(
     readonly scratch?: boolean;
     readonly memoryOff?: boolean;
     readonly runStatus?: "completed" | "interrupted" | "failed";
+    /** The thread's turns, which a test may change as the turn ends. */
+    readonly runs?: Array<{ status: string }>;
     readonly generate?: Generate;
     readonly userMessages?: ReadonlyArray<
       string | { readonly text: string; readonly creationSource: string }
@@ -74,11 +76,13 @@ const withUnderstanding = <A, E>(
     const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "exploro-understanding-" });
     const records = {
       thread: { projectId: shop, deletedAt: null },
-      runs: options.active
-        ? [{ status: "running" }]
-        : options.runStatus
-          ? [{ status: options.runStatus }]
-          : [],
+      runs: options.runs
+        ? options.runs
+        : options.active
+          ? [{ status: "running" }]
+          : options.runStatus
+            ? [{ status: options.runStatus }]
+            : [],
       runtimeRequests: [],
       messages: (options.userMessages ?? []).map((message) =>
         typeof message === "string"
@@ -259,6 +263,57 @@ it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
         }),
         { runStatus, userMessages: ["Test login", "Use the EUR store"] },
       ),
+  );
+  it.effect.each(["completed", "interrupted"] as const)(
+    "remembers a run qa_report_finish closed mid-turn once the turn ends: %s",
+    (endStatus) => {
+      const runs = [{ status: "running" }];
+      return withUnderstanding(
+        Effect.gen(function* () {
+          const qaRuns = yield* QaRuns.QaRuns;
+          const memory = yield* ProjectMemory.ProjectMemory;
+          const recorder = yield* QaRecorder.QaRecorder;
+          yield* qaRuns.recordEvidence(
+            threadId,
+            { scenario: "Login", verdict: "PASS", note: "Observed" },
+            {
+              stateId: site + "/login",
+              url: site + "/login",
+              title: "Login",
+              png: new Uint8Array([1]),
+              consoleEntries: [],
+              networkEntries: [],
+              actionTimeline: [],
+            },
+          );
+          const closed = yield* recorder.finish(threadId, "exploratory", { midTurn: true });
+          assert.strictEqual(closed?.finishedAt === null, false);
+          assert.strictEqual((yield* memory.lookupFacts(shop, { kind: "result" })).length, 0);
+          runs[0]!.status = endStatus;
+          yield* recorder.finish(threadId);
+          const saved = (yield* qaRuns.list(threadId)).find((run) => run.runId === closed!.runId);
+          assert.strictEqual(saved?.remember, endStatus === "completed");
+          assert.strictEqual(
+            (yield* memory.lookupFacts(shop, { kind: "result" })).length,
+            endStatus === "completed" ? 1 : 0,
+          );
+        }),
+        { runs, userMessages: ["Test login"] },
+      );
+    },
+  );
+  it.effect("brings confirmed legacy understanding into the playbook from the Memory screen", () =>
+    withUnderstanding(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`INSERT INTO project_memory_understanding (item_id, project_id, kind, statement, status, author, created_at, updated_at) VALUES ('legacy-1', ${shop}, 'workflow', 'Use the EUR store', 'confirmed', 'user', '2026-11-23', '2026-11-23')`;
+        const snapshot = yield* (yield* ProjectMemoryControl.ProjectMemoryControl).snapshot(shop);
+        assert.deepStrictEqual(
+          snapshot.docs?.map((doc) => [doc.kind, doc.body]),
+          [["playbook", "- Use the EUR store"]],
+        );
+      }),
+    ),
   );
   it.effect(
     "proposes reviewable drafts from steers and setup flows, never FAIL results or secrets",

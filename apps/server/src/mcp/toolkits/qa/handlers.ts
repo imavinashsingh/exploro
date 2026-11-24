@@ -241,7 +241,9 @@ export const layer = McpToolAccess.toLayer(QaToolkit, {
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.requireThreadMcpCapability("preview");
       const recorder = yield* QaRecorder.QaRecorder;
-      return { run: yield* recorder.finish(scope.thread.threadId) };
+      return {
+        run: yield* recorder.finish(scope.thread.threadId, "exploratory", { midTurn: true }),
+      };
     }),
   ),
 });

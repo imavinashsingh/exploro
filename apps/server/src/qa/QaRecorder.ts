@@ -55,10 +55,14 @@ export class QaRecorder extends Context.Service<
     ) => Effect.Effect<void>;
     /** Logs a step the agent took, with the user's passwords written as placeholders. */
     readonly stepPerformed: (threadId: ThreadId, step: QaReplayStep) => Effect.Effect<void>;
-    /** Finishes the thread's open run of this kind (default exploratory). */
+    /**
+     * Finishes the thread's open run of this kind (default exploratory). `midTurn` writes the
+     * reports now and leaves memory to the end of the turn, which knows whether it completed.
+     */
     readonly finish: (
       threadId: ThreadId,
       kind?: QaRun["kind"],
+      options?: { readonly midTurn?: boolean },
     ) => Effect.Effect<QaRun | null, QaRunError>;
   }
 >()("t3/qa/QaRecorder") {}
@@ -180,9 +184,14 @@ const make = Effect.gen(function* () {
     Effect.catch((error) => Effect.logWarning("QA project site was not saved", { error })),
   );
 
+  // Runs `qa_report_finish` closed during a turn. In memory only: a restart ends the turn anyway,
+  // and the user can still save such a run from the Memory screen.
+  const awaitingTurnEnd = new Map<ThreadId, ReadonlyArray<string>>();
+
   const finish = Effect.fn("QaRecorder.finish")(function* (
     threadId: ThreadId,
     kind: QaRun["kind"] = "exploratory",
+    options: { readonly midTurn?: boolean } = {},
   ) {
     const open = yield* qaRuns.openRun(threadId);
     // An agent's turn ending must not stop a replay's video or close its run.
@@ -199,6 +208,13 @@ const make = Effect.gen(function* () {
       Effect.orElseSucceed(() => []),
     );
     const projectId = yield* projectOf(threadId);
+    if (options.midTurn === true) {
+      // The turn is still running, so its outcome decides memory once it ends.
+      const run = yield* qaRuns.finishRun(threadId, { projectId, secrets, remember: false });
+      if (run !== null)
+        awaitingTurnEnd.set(threadId, [...(awaitingTurnEnd.get(threadId) ?? []), run.runId]);
+      return run;
+    }
     const completed = yield* threads.getThreadRecords(threadId, ["runs"]).pipe(
       Effect.map((records) => records.runs.at(-1)?.status === "completed"),
       Effect.orElseSucceed(() => false),
@@ -210,17 +226,38 @@ const make = Effect.gen(function* () {
         Effect.map((settings) => memoryEnabled(settings, projectId)),
         Effect.orElseSucceed(() => true),
       ));
-    const run = yield* qaRuns.finishRun(threadId, { projectId, secrets, remember });
-    if (run !== null) {
-      if (completed) yield* learnSite(run);
-      if (!remember) return run;
-      yield* extraction
+    const queue = (run: QaRun) =>
+      extraction
         .enqueue(run)
         .pipe(
           Effect.catch((error) => Effect.logWarning("Run was not queued for memory", { error })),
         );
+    const run = yield* qaRuns.finishRun(threadId, { projectId, secrets, remember });
+    if (run !== null) {
+      if (completed) yield* learnSite(run);
+      if (remember) yield* queue(run);
     }
-    return run;
+    const deferred = awaitingTurnEnd.get(threadId) ?? [];
+    awaitingTurnEnd.delete(threadId);
+    let last: QaRun | null = null;
+    for (const runId of deferred) {
+      if (!remember || projectId === null) {
+        const finished = (yield* qaRuns.list(threadId)).find((saved) => saved.runId === runId);
+        if (completed && finished !== undefined) yield* learnSite(finished);
+        continue;
+      }
+      const remembered = yield* qaRuns.rememberRun(threadId, runId, projectId, secrets).pipe(
+        Effect.tap(learnSite),
+        Effect.tap(queue),
+        Effect.catch((error) =>
+          Effect.logWarning("Finished run was not saved to memory", { error }).pipe(
+            Effect.as(null),
+          ),
+        ),
+      );
+      last = remembered ?? last;
+    }
+    return run ?? last;
   });
 
   const turns = yield* activity.changes;

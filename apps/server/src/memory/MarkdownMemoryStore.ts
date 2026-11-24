@@ -220,13 +220,13 @@ const make = Effect.gen(function* () {
     if (yield* fs.exists(guides)) {
       for (const name of yield* fs.readDirectory(guides)) {
         if (!name.endsWith(".md")) continue;
-        const slug = name.slice(0, -3);
-        yield* Effect.try({ try: () => validateMemorySlug(slug), catch: failure });
-        files.push({ path: path.join(guides, name), kind: "guide", slug });
+        files.push({ path: path.join(guides, name), kind: "guide", slug: name.slice(0, -3) });
       }
     }
-    // Parse before the transaction so an invalid file cannot cause a partial index or pruning.
-    const scanned = yield* Effect.forEach(files, (file) =>
+    // Files are hand-edited: one bad file is skipped, and keeps its last good index row, rather
+    // than taking every other guide, every save and the Memory screen down with it.
+    const kept = new Set<string>();
+    const scanned = (yield* Effect.forEach(files, (file) =>
       Effect.gen(function* () {
         const markdown = yield* fs.readFileString(file.path);
         const doc = yield* Effect.try({
@@ -236,15 +236,23 @@ const make = Effect.gen(function* () {
         const hash = Hex.encode(
           yield* digest.digest(Digest.sha256, new TextEncoder().encode(markdown)),
         );
-        return { doc, hash };
-      }),
-    );
+        return [{ doc, hash }];
+      }).pipe(
+        Effect.catch((error) => {
+          kept.add(`${projectId}:${file.kind}:${file.slug}`);
+          return Effect.logWarning("Skipped an invalid memory file", {
+            path: file.path,
+            error,
+          }).pipe(Effect.as([]));
+        }),
+      ),
+    )).flat();
     yield* sql.withTransaction(
       Effect.gen(function* () {
         const indexed =
           yield* sql<DocRow>`SELECT * FROM memory_docs WHERE project_id = ${projectId}`;
         const indexedById = new Map(indexed.map((row) => [row.doc_id, row]));
-        const present = new Set(scanned.map(({ doc }) => doc.docId));
+        const present = new Set([...kept, ...scanned.map(({ doc }) => doc.docId)]);
         for (const { doc, hash } of scanned) {
           const previous = indexedById.get(doc.docId);
           if (previous?.sha256 === hash && previous.environment === (doc.environment ?? null))
@@ -340,7 +348,13 @@ const make = Effect.gen(function* () {
       try: () => filePath({ projectId, kind: "playbook", slug: "playbook" }),
       catch: failure,
     });
-    if (yield* fs.exists(target)) return;
+    // Once exported, a playbook the user later deletes stays deleted.
+    const marker = path.join(path.dirname(target), ".legacy-understanding-exported");
+    if (yield* fs.exists(marker)) return;
+    const done = fs
+      .makeDirectory(path.dirname(target), { recursive: true })
+      .pipe(Effect.andThen(fs.writeFileString(marker, "")));
+    if (yield* fs.exists(target)) return yield* done;
     const rows = yield* sql<{
       statement: string;
       updated_at: string;
@@ -362,6 +376,7 @@ const make = Effect.gen(function* () {
     yield* fs.makeDirectory(path.dirname(target), { recursive: true });
     // Exclusive creation also preserves a playbook created externally during migration.
     yield* fs.writeFileString(target, markdown, { flag: "wx" });
+    yield* done;
     yield* sync(projectId);
   }, Effect.mapError(failure));
   const nowIso = Effect.map(Clock.currentTimeMillis, (millis) =>

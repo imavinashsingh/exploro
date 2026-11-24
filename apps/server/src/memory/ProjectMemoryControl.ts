@@ -203,7 +203,14 @@ const make = Effect.gen(function* () {
         understanding: yield* understanding.getItems(projectId),
         status: yield* extraction.status(projectId),
         // Edits made to the files outside Exploro show up here too.
-        docs: yield* docs.syncProject(projectId).pipe(Effect.andThen(docs.listDocs(projectId))),
+        // Active recall never migrates; the Memory screen brings confirmed legacy items over once.
+        docs: yield* docs.migrateLegacyUnderstandingIfEmpty(projectId).pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("Legacy understanding was not exported", { error }),
+          ),
+          Effect.andThen(docs.syncProject(projectId)),
+          Effect.andThen(docs.listDocs(projectId)),
+        ),
         proposals: (yield* docs.listProposals(projectId)).filter(
           (proposal) => proposal.status === "pending",
         ),
