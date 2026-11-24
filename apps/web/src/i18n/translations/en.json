@@ -12515,5 +12515,60 @@
   "27d76249d09eb69f": "Review guide ready",
   "faa3bb26abb39c93": "Review guide failed",
   "b7df38b7d8792d78": "Open guide",
-  "9e91e9a77b664e4e": "Could not start a review guide"
+  "9e91e9a77b664e4e": "Could not start a review guide",
+  "7f9f1239cd187f14": "{count, plural, one {{count} proposal} other {{count} proposals}}",
+  "b7a4d3015a2fa508": "Guides · {count}",
+  "cc7c9dbd50d250a5": "confirmed",
+  "783101659683f517": "draft",
+  "556e87b379403824": "Open issues from recent runs · {count}",
+  "d2aba9b17b6df56c": "No playbook or guides yet. Approve a proposal or write one in settings.",
+  "55b2a09461611865": "Not rules. Re-check one before reporting it.",
+  "c3ea24ac809a5ed5": "Title",
+  "8caeeced121d6929": "One line on what this covers",
+  "e705d84c2eb2bda6": "Routes it applies to, one per line, such as /checkout",
+  "122398bf85e299f5": "Markdown",
+  "37f9397b2b479651": "Playbook",
+  "f1fa6dd73b7dbed8": "Guide",
+  "96f92b7cf0d018c9": "Changes a confirmed document",
+  "b8d0faab549c0c55": "Hide Markdown",
+  "4842f2e26ae92e04": "Show Markdown",
+  "707a97ff73bcb1f4": "A guide with this name exists. Edit that guide or choose another title.",
+  "aa1d477d59bb6267": "Agents read these before testing. Saving makes a document confirmed, so agents can only suggest changes to it.",
+  "415fe61d05c52e20": "Write the playbook",
+  "efa654d64d965f7a": "New guide",
+  "1de6c80486085850": "No playbook or guides yet. Approve a proposal or write one.",
+  "2c91db5495069972": "Nothing to review. Finished test runs suggest playbook and guide changes here.",
+  "5170d375ed691617": "Approve and change confirmed",
+  "f1e5c1be1ac92361": "Approve",
+  "f9ad2e78730dda85": "No open issues. Failed checks from finished runs show up here.",
+  "d98f1f8a9bb01a4a": "Failures seen in recent runs. They are not rules for the playbook or guides: re-check one before reporting it.",
+  "d28967536b065ad3": "Could not save the document",
+  "b3941b7a51bbe339": "Could not approve the proposal",
+  "772cd01743b540ab": "Could not dismiss the proposal",
+  "ab595d87fed78bd3": [
+    "Open issues · ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
+  "7fadf0ceed123f2e": [
+    "Playbook and guides · ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
+  "eb9fecc359dd79f2": [
+    "To review · ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
+  "7415659b3d9f4b78": "Project playbook",
+  "f5ee4d404eaa8f1b": "How this project is tested"
 }

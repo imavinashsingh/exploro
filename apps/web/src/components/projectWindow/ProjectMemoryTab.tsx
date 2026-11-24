@@ -1,4 +1,5 @@
 import {
+  memoryDocsInOrder,
   memoryStatusLine,
   understandingBadge,
   understandingByKind,
@@ -78,7 +79,9 @@ export function ProjectMemoryTab(props: {
 }) {
   const gt = useGT();
   const messages = useMessages();
-  const [view, setView] = useState<"understanding" | "facts" | "navigation">("understanding");
+  const [view, setView] = useState<"understanding" | "guides" | "facts" | "navigation">(
+    "understanding",
+  );
   const project = useProject(
     props.projectId === null ? null : scopeProjectRef(props.environmentId, props.projectId),
   );
@@ -124,30 +127,49 @@ export function ProjectMemoryTab(props: {
   const needsReview = (data?.understanding ?? []).filter(
     (item) => understandingBadge(item) === "needs review",
   ).length;
-  const empty = data !== undefined && currentFacts.length === 0 && groups.length === 0;
+  const docs = memoryDocsInOrder(data?.docs ?? []);
+  const openIssues = data?.openIssues ?? [];
+  const toReview = data?.proposals?.length ?? 0;
+  const empty =
+    data !== undefined && currentFacts.length === 0 && groups.length === 0 && docs.length === 0;
 
   return (
     <div className="flex flex-col gap-3 p-3">
       <div className="flex items-center justify-between gap-2 text-xs">
         <span className={cn(TONE_CLASS[status.tone])}>{status.text}</span>
-        {needsReview > 0 ? (
-          <Badge size="sm" variant="warning">
-            {gt("{count} to review", { count: needsReview })}
-          </Badge>
-        ) : null}
+        <span className="flex items-center gap-1">
+          {toReview > 0 ? (
+            <Badge size="sm" variant="info">
+              {gt("{count, plural, one {{count} proposal} other {{count} proposals}}", {
+                count: toReview,
+              })}
+            </Badge>
+          ) : null}
+          {needsReview > 0 ? (
+            <Badge size="sm" variant="warning">
+              {gt("{count} to review", { count: needsReview })}
+            </Badge>
+          ) : null}
+        </span>
       </div>
       <ToggleGroup
         aria-label={gt("Memory view")}
         className="w-full *:flex-1"
         value={[view]}
         onValueChange={(next) => {
-          if (next[0] === "understanding" || next[0] === "facts" || next[0] === "navigation")
+          if (
+            next[0] === "understanding" ||
+            next[0] === "guides" ||
+            next[0] === "facts" ||
+            next[0] === "navigation"
+          )
             setView(next[0]);
         }}
       >
         <Toggle value="understanding">
           {gt("What we learned · {count}", { count: data?.understanding.length ?? 0 })}
         </Toggle>
+        <Toggle value="guides">{gt("Guides · {count}", { count: docs.length })}</Toggle>
         <Toggle value="facts">{gt("Page facts · {count}", { count: currentFacts.length })}</Toggle>
         <Toggle value="navigation">
           {gt("Navigation · {count}", {
@@ -165,6 +187,34 @@ export function ProjectMemoryTab(props: {
             Nothing learned yet. Save a finished test to memory and what it found shows up here.
           </T>
         </p>
+      ) : view === "guides" ? (
+        docs.length === 0 ? (
+          <p className="m-0 px-3 py-4 text-center text-xs text-muted-foreground">
+            <T>No playbook or guides yet. Approve a proposal or write one in settings.</T>
+          </p>
+        ) : (
+          docs.map((doc) => (
+            <article
+              key={doc.docId}
+              className="flex flex-col gap-1.5 rounded-lg border border-border/65 px-3 py-2"
+            >
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <h4 className="m-0 text-sm font-medium">{doc.title}</h4>
+                <Badge size="sm" variant={doc.status === "confirmed" ? "success" : "outline"}>
+                  {doc.status === "confirmed" ? gt("confirmed") : gt("draft")}
+                </Badge>
+              </div>
+              {doc.routes.length > 0 ? (
+                <p className="m-0 font-mono text-2xs text-muted-foreground">
+                  {doc.routes.join(", ")}
+                </p>
+              ) : null}
+              <pre className="m-0 max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-xs">
+                {doc.body}
+              </pre>
+            </article>
+          ))
+        )
       ) : view === "understanding" ? (
         groups.length === 0 ? (
           <p className="m-0 px-3 py-4 text-center text-xs text-muted-foreground">
@@ -204,42 +254,67 @@ export function ProjectMemoryTab(props: {
             </section>
           ))
         )
-      ) : pages.length === 0 ? (
-        <p className="m-0 px-3 py-4 text-center text-xs text-muted-foreground">
-          <T>No page facts yet. Finished test runs add them.</T>
-        </p>
       ) : (
-        pages.map((page) => (
-          <section
-            key={page.key}
-            className="flex flex-col overflow-hidden rounded-lg border border-border/65"
-          >
-            <header className="flex items-baseline justify-between gap-2 bg-muted/40 px-3 py-1.5">
-              <h4 className="m-0 truncate font-mono text-xs font-medium">
-                {page.stateName} · {page.route}
+        <>
+          {openIssues.length > 0 ? (
+            <section className="flex flex-col gap-1 rounded-lg border border-destructive/40 px-3 py-2">
+              <h4 className="m-0 text-xs font-medium text-destructive">
+                {gt("Open issues from recent runs · {count}", { count: openIssues.length })}
               </h4>
-              <span className="truncate text-2xs text-muted-foreground">{page.environment}</span>
-            </header>
-            <dl className="m-0 flex flex-col">
-              {page.facts.map((fact) => (
-                <div
-                  key={fact.factId}
-                  className="grid grid-cols-[minmax(0,10rem)_minmax(0,1fr)] gap-x-3 border-t border-border/65 px-3 py-1.5 text-sm first:border-t-0"
-                >
-                  <dt className="m-0 break-words text-muted-foreground">{fact.key}</dt>
-                  <dd className="m-0 flex flex-col gap-0.5 break-words">
-                    <span>{fact.value}</span>
-                    {fact.mayBeOutdated ? (
-                      <span className="text-2xs text-warning-foreground">
-                        {gt("May be outdated")}
-                      </span>
-                    ) : null}
-                  </dd>
-                </div>
+              <p className="m-0 text-2xs text-muted-foreground">
+                <T>Not rules. Re-check one before reporting it.</T>
+              </p>
+              {openIssues.slice(0, 20).map((fact) => (
+                <p key={fact.factId} className="m-0 break-words text-sm">
+                  {fact.key}
+                  <span className="text-2xs text-muted-foreground">
+                    {" "}
+                    · {fact.stateName} · {fact.route}
+                  </span>
+                </p>
               ))}
-            </dl>
-          </section>
-        ))
+            </section>
+          ) : null}
+          {pages.length === 0 ? (
+            <p className="m-0 px-3 py-4 text-center text-xs text-muted-foreground">
+              <T>No page facts yet. Finished test runs add them.</T>
+            </p>
+          ) : (
+            pages.map((page) => (
+              <section
+                key={page.key}
+                className="flex flex-col overflow-hidden rounded-lg border border-border/65"
+              >
+                <header className="flex items-baseline justify-between gap-2 bg-muted/40 px-3 py-1.5">
+                  <h4 className="m-0 truncate font-mono text-xs font-medium">
+                    {page.stateName} · {page.route}
+                  </h4>
+                  <span className="truncate text-2xs text-muted-foreground">
+                    {page.environment}
+                  </span>
+                </header>
+                <dl className="m-0 flex flex-col">
+                  {page.facts.map((fact) => (
+                    <div
+                      key={fact.factId}
+                      className="grid grid-cols-[minmax(0,10rem)_minmax(0,1fr)] gap-x-3 border-t border-border/65 px-3 py-1.5 text-sm first:border-t-0"
+                    >
+                      <dt className="m-0 break-words text-muted-foreground">{fact.key}</dt>
+                      <dd className="m-0 flex flex-col gap-0.5 break-words">
+                        <span>{fact.value}</span>
+                        {fact.mayBeOutdated ? (
+                          <span className="text-2xs text-warning-foreground">
+                            {gt("May be outdated")}
+                          </span>
+                        ) : null}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </section>
+            ))
+          )}
+        </>
       )}
       <p className="m-0 text-xs text-muted-foreground">
         <T>To edit or remove what is remembered, open the project's settings and choose Memory.</T>

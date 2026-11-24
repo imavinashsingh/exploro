@@ -12501,5 +12501,60 @@
   "27d76249d09eb69f": "Guía de revisión lista",
   "faa3bb26abb39c93": "Falló la guía de revisión",
   "b7df38b7d8792d78": "Abrir guía",
-  "9e91e9a77b664e4e": "No se pudo iniciar una guía de revisión"
+  "9e91e9a77b664e4e": "No se pudo iniciar una guía de revisión",
+  "7f9f1239cd187f14": "{count, plural, one {{count} propuesta} other {{count} propuestas}}",
+  "b7a4d3015a2fa508": "Guías · {count}",
+  "cc7c9dbd50d250a5": "confirmado",
+  "783101659683f517": "borrador",
+  "556e87b379403824": "Problemas abiertos de ejecuciones recientes · {count}",
+  "d2aba9b17b6df56c": "Aún no hay playbook ni guías. Aprueba una propuesta o escribe una en la configuración.",
+  "55b2a09461611865": "No son reglas. Vuelve a comprobar uno antes de informarlo.",
+  "c3ea24ac809a5ed5": "Título",
+  "8caeeced121d6929": "Una línea sobre lo que cubre",
+  "e705d84c2eb2bda6": "Rutas a las que se aplica, una por línea, como /checkout",
+  "122398bf85e299f5": "Markdown",
+  "37f9397b2b479651": "Playbook",
+  "f1fa6dd73b7dbed8": "Guía",
+  "96f92b7cf0d018c9": "Cambia un documento confirmado",
+  "b8d0faab549c0c55": "Ocultar Markdown",
+  "4842f2e26ae92e04": "Mostrar Markdown",
+  "707a97ff73bcb1f4": "Ya existe una guía con este nombre. Edita esa guía o elige otro título.",
+  "aa1d477d59bb6267": "Los agentes leen esto antes de probar. Al guardar, el documento queda confirmado y los agentes solo pueden sugerir cambios.",
+  "415fe61d05c52e20": "Escribir el playbook",
+  "efa654d64d965f7a": "Nueva guía",
+  "1de6c80486085850": "Aún no hay playbook ni guías. Aprueba una propuesta o escribe una.",
+  "2c91db5495069972": "Nada que revisar. Las pruebas terminadas sugieren aquí cambios en el playbook y las guías.",
+  "5170d375ed691617": "Aprobar y cambiar lo confirmado",
+  "f1e5c1be1ac92361": "Aprobar",
+  "f9ad2e78730dda85": "No hay problemas abiertos. Las comprobaciones fallidas de ejecuciones terminadas aparecen aquí.",
+  "d98f1f8a9bb01a4a": "Fallos vistos en ejecuciones recientes. No son reglas para el playbook ni las guías: vuelve a comprobar uno antes de informarlo.",
+  "d28967536b065ad3": "No se pudo guardar el documento",
+  "b3941b7a51bbe339": "No se pudo aprobar la propuesta",
+  "772cd01743b540ab": "No se pudo descartar la propuesta",
+  "ab595d87fed78bd3": [
+    "Problemas abiertos · ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
+  "7fadf0ceed123f2e": [
+    "Playbook y guías · ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
+  "eb9fecc359dd79f2": [
+    "Por revisar · ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
+  "7415659b3d9f4b78": "Playbook del proyecto",
+  "f5ee4d404eaa8f1b": "Cómo se prueba este proyecto"
 }

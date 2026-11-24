@@ -1938,6 +1938,18 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:project-memory:retry-extraction",
       tag: WS_METHODS.projectMemoryRetryExtraction,
     }),
+    saveMemoryDoc: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:project-memory:save-doc",
+      tag: WS_METHODS.projectMemorySaveDoc,
+    }),
+    approveMemoryProposal: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:project-memory:approve-proposal",
+      tag: WS_METHODS.projectMemoryApproveProposal,
+    }),
+    dismissMemoryProposal: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:project-memory:dismiss-proposal",
+      tag: WS_METHODS.projectMemoryDismissProposal,
+    }),
     deleteQaRun: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:qa-run:delete",
       tag: WS_METHODS.qaRunsDelete,

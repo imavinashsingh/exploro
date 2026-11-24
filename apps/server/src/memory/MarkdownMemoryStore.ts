@@ -69,7 +69,7 @@ export class MarkdownMemoryStore extends Context.Service<
       readonly projectId: ProjectId;
       readonly proposalId: string;
       readonly decision: "approve" | "dismiss";
-      readonly replaceConfirmed?: boolean;
+      readonly replaceConfirmed?: boolean | undefined;
     }) => Effect.Effect<MemoryProposal, ProjectMemoryError>;
     readonly migrateLegacyUnderstandingIfEmpty: (
       projectId: ProjectId,
@@ -411,7 +411,7 @@ const make = Effect.gen(function* () {
     readonly projectId: ProjectId;
     readonly proposalId: string;
     readonly decision: "approve" | "dismiss";
-    readonly replaceConfirmed?: boolean;
+    readonly replaceConfirmed?: boolean | undefined;
   }) {
     const [proposal] = yield* readProposals(input.projectId, input.proposalId);
     if (proposal === undefined || proposal.status !== "pending")

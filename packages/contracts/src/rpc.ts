@@ -15,6 +15,11 @@ import {
   NavigationRoutePreview,
 } from "./projectNavigation.ts";
 import {
+  MemoryDoc,
+  MemoryDocSaveInput,
+  MemoryProposal,
+  MemoryProposalApproveInput,
+  MemoryProposalDismissInput,
   ProjectMemoryError,
   ProjectMemoryFactDeleteInput,
   ProjectMemoryMap,
@@ -648,6 +653,9 @@ export const WS_METHODS = {
   projectMemoryUpdateItem: "projectMemory.updateItem",
   projectMemoryDeleteItem: "projectMemory.deleteItem",
   projectMemoryRetryExtraction: "projectMemory.retryExtraction",
+  projectMemorySaveDoc: "projectMemory.saveDoc",
+  projectMemoryApproveProposal: "projectMemory.approveProposal",
+  projectMemoryDismissProposal: "projectMemory.dismissProposal",
   qaRunsSubscribe: "qaRuns.subscribe",
   qaRunsDelete: "qaRuns.delete",
   qaSuitesSubscribe: "qaSuites.subscribe",
@@ -2321,6 +2329,21 @@ const WsProjectMemoryRetryExtractionRpc = Rpc.make(WS_METHODS.projectMemoryRetry
   payload: ProjectMemoryRetryInput,
   error: memoryError,
 });
+const WsProjectMemorySaveDocRpc = Rpc.make(WS_METHODS.projectMemorySaveDoc, {
+  payload: MemoryDocSaveInput,
+  success: MemoryDoc,
+  error: memoryError,
+});
+const WsProjectMemoryApproveProposalRpc = Rpc.make(WS_METHODS.projectMemoryApproveProposal, {
+  payload: MemoryProposalApproveInput,
+  success: MemoryProposal,
+  error: memoryError,
+});
+const WsProjectMemoryDismissProposalRpc = Rpc.make(WS_METHODS.projectMemoryDismissProposal, {
+  payload: MemoryProposalDismissInput,
+  success: MemoryProposal,
+  error: memoryError,
+});
 
 const WsQaRunsSubscribeRpc = Rpc.make(WS_METHODS.qaRunsSubscribe, {
   payload: QaRunsSubscribeInput,
@@ -2565,6 +2588,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectMemoryUpdateItemRpc,
   WsProjectMemoryDeleteItemRpc,
   WsProjectMemoryRetryExtractionRpc,
+  WsProjectMemorySaveDocRpc,
+  WsProjectMemoryApproveProposalRpc,
+  WsProjectMemoryDismissProposalRpc,
   WsQaRunsSubscribeRpc,
   WsQaRunsDeleteRpc,
   WsQaSuitesSubscribeRpc,

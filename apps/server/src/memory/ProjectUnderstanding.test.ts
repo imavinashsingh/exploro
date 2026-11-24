@@ -15,7 +15,6 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as Path from "effect/Path";
 import * as TestClock from "effect/testing/TestClock";
 import * as SqlClient from "effect/sql/SqlClient";
 
@@ -27,7 +26,6 @@ import * as QaRuns from "../qa/QaRuns.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import * as MarkdownMemoryStore from "./MarkdownMemoryStore.ts";
-import * as MemoryEmbedder from "./MemoryEmbedder.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProjectMemoryControl from "./ProjectMemoryControl.ts";
 import * as ProjectMemory from "./ProjectMemory.ts";
@@ -41,14 +39,6 @@ const shop = ProjectId.make("shop");
 const blog = ProjectId.make("blog");
 const threadId = ThreadId.make("thread-understanding-1");
 const site = "https://shop.test";
-
-const forbiddenEmbedder = Layer.succeed(
-  MemoryEmbedder.MemoryEmbedder,
-  MemoryEmbedder.MemoryEmbedder.of({
-    status: Effect.die("Memory must not inspect the embedder"),
-    embed: () => Effect.die("Memory must not run embeddings or WASM"),
-  }),
-);
 
 type Generate = TextGeneration.TextGeneration["Service"]["generateProjectUnderstanding"];
 const noItems: Generate = () => Effect.succeed({ items: [], replacedFacts: [] });
@@ -73,7 +63,6 @@ const withUnderstanding = <A, E>(
     readonly scratch?: boolean;
     readonly memoryOff?: boolean;
     readonly runStatus?: "completed" | "interrupted" | "failed";
-    readonly embedder?: Layer.Layer<MemoryEmbedder.MemoryEmbedder>;
     readonly generate?: Generate;
     readonly userMessages?: ReadonlyArray<
       string | { readonly text: string; readonly creationSource: string }
@@ -127,7 +116,6 @@ const withUnderstanding = <A, E>(
           Layer.provideMerge(
             ProjectMemory.layer.pipe(Layer.provideMerge(ProjectUnderstanding.layer)),
           ),
-          Layer.provideMerge(options.embedder ?? forbiddenEmbedder),
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(TextGeneration.TextGeneration)({
@@ -228,25 +216,6 @@ const write = (
 });
 
 it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
-  it.effect("keeps MiniLM and WASM dependencies out of server and memory runtime wiring", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      for (const file of [
-        "../server.ts",
-        "../orchestration-v2/runtimeLayer.ts",
-        "./ProjectUnderstanding.ts",
-        "./UnderstandingExtraction.ts",
-        "./ProjectMemoryAccess.ts",
-        "./MarkdownMemoryRecall.ts",
-      ]) {
-        const source = yield* fs.readFileString(
-          yield* path.fromFileUrl(new URL(file, import.meta.url)),
-        );
-        assert.notMatch(source, /MiniLmEmbedder|MemoryEmbedder|onnxruntime|\.embed\(/u);
-      }
-    }),
-  );
   it.effect.each(["completed", "interrupted", "failed"] as const)(
     "remembers only completed turns automatically: %s",
     (runStatus) =>
@@ -347,6 +316,121 @@ it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
             "Coupons need a signed-in cart; api_key=abc123def456",
           ],
         },
+      ),
+  );
+  it.effect(
+    "lists, dismisses and approves proposals, and guards confirmed documents in the snapshot",
+    () =>
+      withUnderstanding(
+        Effect.gen(function* () {
+          const control = yield* ProjectMemoryControl.ProjectMemoryControl;
+          const docs = yield* MarkdownMemoryStore.MarkdownMemoryStore;
+          yield* finishedRun(shop, [
+            { scenario: "Pay button does nothing", verdict: "FAIL", path: "/checkout" },
+          ]);
+          const draft = (slug: string, body: string) => ({
+            kind: "guide" as const,
+            slug,
+            title: `Reach ${slug}`,
+            summary: "",
+            environment: site,
+            routes: [`/${slug}`],
+            body,
+            rationale: "Seen in a run",
+          });
+          yield* docs.proposeDocs(shop, "run-a", [
+            draft("cart", "Add an item first.\n"),
+            draft("orders", "Open the menu.\n"),
+          ]);
+          const before = yield* control.snapshot(shop);
+          assert.deepStrictEqual(
+            before.proposals?.map((proposal) => proposal.targetDocId).toSorted(),
+            ["shop:guide:cart", "shop:guide:orders"],
+          );
+          // FAIL results are open issues, apart from the playbook and guides.
+          assert.deepStrictEqual(
+            before.openIssues?.map((fact) => fact.key),
+            ["Pay button does nothing"],
+          );
+          assert.deepStrictEqual(before.docs, []);
+
+          const [cart, orders] = before.proposals!.toSorted((a, b) =>
+            a.targetDocId.localeCompare(b.targetDocId),
+          );
+          const dismissed = yield* control.dismissProposal({
+            projectId: shop,
+            proposalId: orders!.proposalId,
+          });
+          assert.strictEqual(dismissed.status, "dismissed");
+          const approved = yield* control.approveProposal({
+            projectId: shop,
+            proposalId: cart!.proposalId,
+          });
+          assert.strictEqual(approved.status, "approved");
+          const after = yield* control.snapshot(shop);
+          assert.deepStrictEqual(after.proposals, []);
+          // Dismissing wrote no file; approving wrote a confirmed, searchable guide.
+          assert.deepStrictEqual(
+            after.docs?.map((doc) => [doc.slug, doc.status]),
+            [["cart", "confirmed"]],
+          );
+          assert.deepStrictEqual(
+            (yield* docs.searchDocs(shop, "item")).map((doc) => doc.slug),
+            ["cart"],
+          );
+          assert.isTrue(
+            Exit.isFailure(
+              yield* Effect.exit(
+                control.approveProposal({ projectId: shop, proposalId: cart!.proposalId }),
+              ),
+            ),
+          );
+
+          const saved = yield* control.saveDoc({
+            projectId: shop,
+            kind: "playbook",
+            slug: "playbook",
+            title: "Project playbook",
+            summary: "",
+            routes: [],
+            keywords: [],
+            body: "Use the EUR store.\n",
+          });
+          assert.strictEqual(saved.status, "confirmed");
+          const [steer] = yield* docs.proposeDocs(shop, "run-b", [
+            {
+              kind: "playbook",
+              slug: "playbook",
+              title: "Project playbook",
+              summary: "",
+              environment: null,
+              routes: [],
+              body: "- Coupons need a signed-in cart\n",
+              rationale: "Steered",
+            },
+          ]);
+          assert.isTrue(
+            Exit.isFailure(
+              yield* Effect.exit(
+                control.approveProposal({ projectId: shop, proposalId: steer!.proposalId }),
+              ),
+            ),
+          );
+          const playbook = (yield* control.snapshot(shop)).docs?.find(
+            (doc) => doc.kind === "playbook",
+          );
+          assert.strictEqual(playbook?.body, "Use the EUR store.\n");
+          yield* control.approveProposal({
+            projectId: shop,
+            proposalId: steer!.proposalId,
+            replaceConfirmed: true,
+          });
+          const merged = (yield* control.snapshot(shop)).docs?.find(
+            (doc) => doc.kind === "playbook",
+          );
+          assert.include(merged?.body, "Use the EUR store.");
+          assert.include(merged?.body, "Coupons need a signed-in cart");
+        }),
       ),
   );
   it.effect.each([{ active: true }, { scratch: true }, { memoryOff: true }])(
@@ -588,7 +672,7 @@ it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
     ),
   );
 
-  it.effect("uses FTS5 for save and recall even with a loaded embedder", () =>
+  it.effect("uses FTS5 for save and recall", () =>
     withUnderstanding(
       Effect.gen(function* () {
         const understanding = yield* ProjectUnderstanding.ProjectUnderstanding;

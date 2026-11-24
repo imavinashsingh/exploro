@@ -2,13 +2,17 @@ import * as ProjectNavigationMemory from "./ProjectNavigationMemory.ts";
 import * as Option from "effect/Option";
 import {
   ProjectMemoryError,
+  type MemoryDoc,
+  type MemoryProposal,
   type ProjectId,
   type ThreadId,
   type ProjectMemorySnapshot,
   type ProjectUnderstandingItem,
   type ProjectUnderstandingVersion,
 } from "@t3tools/contracts";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
@@ -17,6 +21,7 @@ import { threadHasUnfinishedWork } from "../orchestration-v2/Orchestrator.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as QaRuns from "../qa/QaRuns.ts";
+import * as MarkdownMemoryStore from "./MarkdownMemoryStore.ts";
 import { memoryEnabled } from "./ProjectMemoryAccess.ts";
 import { memoryEnvironment } from "./projectMemoryFacts.ts";
 import { providedSecrets } from "./providedSecrets.ts";
@@ -25,6 +30,7 @@ import * as ProjectUnderstanding from "./ProjectUnderstanding.ts";
 import * as UnderstandingExtraction from "./UnderstandingExtraction.ts";
 
 const SNAPSHOT_FACT_LIMIT = 2000;
+const SNAPSHOT_ISSUE_LIMIT = 200;
 
 /** What the user does with a project's memory from the Memory screen. */
 export class ProjectMemoryControl extends Context.Service<
@@ -62,8 +68,33 @@ export class ProjectMemoryControl extends Context.Service<
       projectId: ProjectId,
       runId: string,
     ) => Effect.Effect<void, ProjectMemoryError>;
+    /** The user's own playbook or guide; it is saved confirmed. */
+    readonly saveDoc: (input: {
+      readonly projectId: ProjectId;
+      readonly kind: MemoryDoc["kind"];
+      readonly slug: string;
+      readonly title: string;
+      readonly summary: string;
+      readonly environment?: string | null | undefined;
+      readonly routes: ReadonlyArray<string>;
+      readonly keywords: ReadonlyArray<string>;
+      readonly body: string;
+    }) => Effect.Effect<MemoryDoc, ProjectMemoryError>;
+    readonly approveProposal: (input: {
+      readonly projectId: ProjectId;
+      readonly proposalId: string;
+      readonly replaceConfirmed?: boolean | undefined;
+    }) => Effect.Effect<MemoryProposal, ProjectMemoryError>;
+    readonly dismissProposal: (input: {
+      readonly projectId: ProjectId;
+      readonly proposalId: string;
+    }) => Effect.Effect<MemoryProposal, ProjectMemoryError>;
   }
 >()("t3/memory/ProjectMemoryControl") {}
+
+const nowIso = Effect.map(Clock.currentTimeMillis, (millis) =>
+  DateTime.formatIso(DateTime.makeUnsafe(millis)),
+);
 
 const make = Effect.gen(function* () {
   const memory = yield* ProjectMemory.ProjectMemory;
@@ -75,6 +106,7 @@ const make = Effect.gen(function* () {
   const folders = yield* ManagedProjectFolders.ManagedProjectFolders;
   const settings = yield* ServerSettings.ServerSettingsService;
   const runs = yield* QaRuns.QaRuns;
+  const docs = yield* MarkdownMemoryStore.MarkdownMemoryStore;
 
   return ProjectMemoryControl.of({
     saveThread: Effect.fn("ProjectMemoryControl.saveThread")(function* (threadId) {
@@ -170,6 +202,15 @@ const make = Effect.gen(function* () {
         factsTruncated: facts.length > SNAPSHOT_FACT_LIMIT,
         understanding: yield* understanding.getItems(projectId),
         status: yield* extraction.status(projectId),
+        // Edits made to the files outside Exploro show up here too.
+        docs: yield* docs.syncProject(projectId).pipe(Effect.andThen(docs.listDocs(projectId))),
+        proposals: (yield* docs.listProposals(projectId)).filter(
+          (proposal) => proposal.status === "pending",
+        ),
+        openIssues: yield* memory.lookupFacts(projectId, {
+          openFailures: true,
+          limit: SNAPSHOT_ISSUE_LIMIT,
+        }),
       };
     }),
     deleteFact: memory.deleteFact,
@@ -199,6 +240,15 @@ const make = Effect.gen(function* () {
     }),
     deleteItem: understanding.deleteItem,
     retryExtraction: extraction.retry,
+    saveDoc: Effect.fn("ProjectMemoryControl.saveDoc")(function* (input) {
+      return yield* docs.saveUserDoc({ ...input, updatedAt: yield* nowIso });
+    }),
+    approveProposal: Effect.fn("ProjectMemoryControl.approveProposal")(function* (input) {
+      return yield* docs.resolveProposal({ ...input, decision: "approve" });
+    }),
+    dismissProposal: Effect.fn("ProjectMemoryControl.dismissProposal")(function* (input) {
+      return yield* docs.resolveProposal({ ...input, decision: "dismiss" });
+    }),
   });
 });
 

@@ -24,7 +24,6 @@ import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as PreviewAutomationBroker from "../mcp/PreviewAutomationBroker.ts";
-import * as MemoryEmbedder from "../memory/MemoryEmbedder.ts";
 import * as ProjectMemory from "../memory/ProjectMemory.ts";
 import * as ProjectUnderstanding from "../memory/ProjectUnderstanding.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
@@ -157,13 +156,7 @@ const layer = (options: {
     const fs = yield* FileSystem.FileSystem;
     const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "exploro-qa-suites-" });
     const qaRuns = QaRuns.layer.pipe(
-      Layer.provide(
-        ProjectMemory.layer.pipe(
-          Layer.provide(
-            ProjectUnderstanding.layer.pipe(Layer.provide(MemoryEmbedder.layerUnavailable)),
-          ),
-        ),
-      ),
+      Layer.provide(ProjectMemory.layer.pipe(Layer.provide(ProjectUnderstanding.layer))),
       Layer.provide(Layer.fresh(SqlitePersistence.layerMemory)),
     );
     const recorder = Layer.effect(

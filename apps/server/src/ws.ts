@@ -2363,6 +2363,9 @@ export const layerWsRpc = (
           memoryControl.deleteItem(input.projectId, input.itemId),
         [WS_METHODS.projectMemoryRetryExtraction]: (input) =>
           memoryControl.retryExtraction(input.projectId, input.runId),
+        [WS_METHODS.projectMemorySaveDoc]: (input) => memoryControl.saveDoc(input),
+        [WS_METHODS.projectMemoryApproveProposal]: (input) => memoryControl.approveProposal(input),
+        [WS_METHODS.projectMemoryDismissProposal]: (input) => memoryControl.dismissProposal(input),
         [WS_METHODS.qaRunsSubscribe]: (input) =>
           Stream.unwrap(
             Effect.annotateCurrentSpan({ "thread.id": input.threadId }).pipe(

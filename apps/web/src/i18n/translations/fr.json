@@ -12506,5 +12506,60 @@
   "27d76249d09eb69f": "Guide de revue prêt",
   "faa3bb26abb39c93": "Échec du guide de revue",
   "b7df38b7d8792d78": "Ouvrir le guide",
-  "9e91e9a77b664e4e": "Impossible de démarrer un guide de revue"
+  "9e91e9a77b664e4e": "Impossible de démarrer un guide de revue",
+  "7f9f1239cd187f14": "{count, plural, one {{count} proposition} other {{count} propositions}}",
+  "b7a4d3015a2fa508": "Guides · {count}",
+  "cc7c9dbd50d250a5": "confirmé",
+  "783101659683f517": "brouillon",
+  "556e87b379403824": "Problèmes ouverts des derniers tests · {count}",
+  "d2aba9b17b6df56c": "Pas encore de playbook ni de guides. Approuvez une proposition ou rédigez-en un dans les réglages.",
+  "55b2a09461611865": "Ce ne sont pas des règles. Revérifiez un problème avant de le signaler.",
+  "c3ea24ac809a5ed5": "Titre",
+  "8caeeced121d6929": "Une ligne sur ce que cela couvre",
+  "e705d84c2eb2bda6": "Routes concernées, une par ligne, par exemple /checkout",
+  "122398bf85e299f5": "Markdown",
+  "37f9397b2b479651": "Playbook",
+  "f1fa6dd73b7dbed8": "Guide",
+  "96f92b7cf0d018c9": "Modifie un document confirmé",
+  "b8d0faab549c0c55": "Masquer le Markdown",
+  "4842f2e26ae92e04": "Afficher le Markdown",
+  "707a97ff73bcb1f4": "Un guide porte déjà ce nom. Modifiez ce guide ou choisissez un autre titre.",
+  "aa1d477d59bb6267": "Les agents les lisent avant de tester. L'enregistrement confirme le document : les agents ne peuvent plus que suggérer des modifications.",
+  "415fe61d05c52e20": "Rédiger le playbook",
+  "efa654d64d965f7a": "Nouveau guide",
+  "1de6c80486085850": "Pas encore de playbook ni de guides. Approuvez une proposition ou rédigez-en un.",
+  "2c91db5495069972": "Rien à examiner. Les tests terminés proposent ici des modifications du playbook et des guides.",
+  "5170d375ed691617": "Approuver et modifier le confirmé",
+  "f1e5c1be1ac92361": "Approuver",
+  "f9ad2e78730dda85": "Aucun problème ouvert. Les vérifications échouées des tests terminés apparaissent ici.",
+  "d98f1f8a9bb01a4a": "Échecs observés lors des derniers tests. Ce ne sont pas des règles pour le playbook ou les guides : revérifiez-en un avant de le signaler.",
+  "d28967536b065ad3": "Impossible d'enregistrer le document",
+  "b3941b7a51bbe339": "Impossible d'approuver la proposition",
+  "772cd01743b540ab": "Impossible d'ignorer la proposition",
+  "ab595d87fed78bd3": [
+    "Problèmes ouverts · ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
+  "7fadf0ceed123f2e": [
+    "Playbook et guides · ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
+  "eb9fecc359dd79f2": [
+    "À examiner · ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
+  "7415659b3d9f4b78": "Playbook du projet",
+  "f5ee4d404eaa8f1b": "Comment ce projet est testé"
 }

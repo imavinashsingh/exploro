@@ -250,16 +250,6 @@ export const ProjectMemoryStatus = Schema.Struct({
 });
 export type ProjectMemoryStatus = typeof ProjectMemoryStatus.Type;
 
-/** Everything the Memory screen shows: every version of every fact, newest first. */
-export const ProjectMemorySnapshot = Schema.Struct({
-  navigation: Schema.optional(NavigationSnapshot),
-  facts: Schema.Array(ProjectMemoryFact),
-  /** More facts exist than were sent. */
-  factsTruncated: Schema.Boolean,
-  understanding: Schema.Array(ProjectUnderstandingItem),
-  status: ProjectMemoryStatus,
-});
-export type ProjectMemorySnapshot = typeof ProjectMemorySnapshot.Type;
 export const ProjectMemorySnapshotInput = Schema.Struct({ projectId: ProjectId });
 
 export const ProjectMemoryFactDeleteInput = Schema.Struct({
@@ -327,6 +317,44 @@ export const MemoryProposal = Schema.Struct({
   createdAt: Schema.String,
 });
 export type MemoryProposal = typeof MemoryProposal.Type;
+/** Everything the Memory screen shows: every version of every fact, newest first. */
+export const ProjectMemorySnapshot = Schema.Struct({
+  navigation: Schema.optional(NavigationSnapshot),
+  facts: Schema.Array(ProjectMemoryFact),
+  /** More facts exist than were sent. */
+  factsTruncated: Schema.Boolean,
+  understanding: Schema.Array(ProjectUnderstandingItem),
+  status: ProjectMemoryStatus,
+  /** The playbook and guides. Optional so older servers still decode. */
+  docs: Schema.optional(Schema.Array(MemoryDoc)),
+  /** Drafts from finished runs waiting for the user's review. */
+  proposals: Schema.optional(Schema.Array(MemoryProposal)),
+  /** Current FAIL results, kept apart from the playbook and guides. */
+  openIssues: Schema.optional(Schema.Array(ProjectMemoryFact)),
+});
+export type ProjectMemorySnapshot = typeof ProjectMemorySnapshot.Type;
+/** A user edit; saved documents are confirmed, so agents never overwrite them. */
+export const MemoryDocSaveInput = Schema.Struct({
+  projectId: ProjectId,
+  kind: MemoryDocKind,
+  slug: MemorySlug,
+  title: MemoryText(300),
+  summary: Schema.String.check(Schema.isMaxLength(1000)),
+  environment: Schema.optional(Schema.NullOr(MemoryText(2048))),
+  routes: Schema.Array(MemoryText(2048)).check(Schema.isMaxLength(50)),
+  keywords: Schema.Array(MemoryText(100)).check(Schema.isMaxLength(50)),
+  body: Schema.String.check(Schema.isMaxLength(100_000)),
+});
+export const MemoryProposalApproveInput = Schema.Struct({
+  projectId: ProjectId,
+  proposalId: Schema.String,
+  /** The user's explicit go-ahead to change a confirmed document. */
+  replaceConfirmed: Schema.optional(Schema.Boolean),
+});
+export const MemoryProposalDismissInput = Schema.Struct({
+  projectId: ProjectId,
+  proposalId: Schema.String,
+});
 export const MemoryGetGuideInput = Schema.Struct({
   slug: MemorySlug,
   environment: Schema.optional(Schema.NullOr(MemoryText(2048))),
