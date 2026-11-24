@@ -29,6 +29,8 @@ import { threadProvidedSecrets, threadProvidedSecretsInOrder } from "../memory/p
 import { hideSecrets } from "./qaReplay.ts";
 import * as QaRuns from "./QaRuns.ts";
 
+const TURN_END_WAIT_MS = 30_000;
+
 const errorReason = (error: unknown) =>
   typeof error === "object" &&
   error !== null &&
@@ -215,10 +217,13 @@ const make = Effect.gen(function* () {
         awaitingTurnEnd.set(threadId, [...(awaitingTurnEnd.get(threadId) ?? []), run.runId]);
       return run;
     }
-    const completed = yield* threads.getThreadRecords(threadId, ["runs"]).pipe(
-      Effect.map((records) => records.runs.at(-1)?.status === "completed"),
-      Effect.orElseSucceed(() => false),
-    );
+    // The turn's end reaches us a few milliseconds before its status commits, so wait for it.
+    const completed =
+      projectId !== null &&
+      (yield* threads.waitForThread({ projectId, threadId, timeoutMs: TURN_END_WAIT_MS }).pipe(
+        Effect.map((ended) => !ended.timedOut && ended.run?.status === "completed"),
+        Effect.orElseSucceed(() => false),
+      ));
     const remember =
       completed &&
       projectId !== null &&

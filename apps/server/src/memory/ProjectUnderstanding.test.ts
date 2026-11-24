@@ -63,8 +63,8 @@ const withUnderstanding = <A, E>(
     readonly scratch?: boolean;
     readonly memoryOff?: boolean;
     readonly runStatus?: "completed" | "interrupted" | "failed";
-    /** The thread's turns, which a test may change as the turn ends. */
-    readonly runs?: Array<{ status: string }>;
+    /** How the running turn ends: its status commits only after the turn-end signal. */
+    readonly turnEndsAs?: "completed" | "interrupted";
     readonly generate?: Generate;
     readonly userMessages?: ReadonlyArray<
       string | { readonly text: string; readonly creationSource: string }
@@ -76,9 +76,8 @@ const withUnderstanding = <A, E>(
     const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "exploro-understanding-" });
     const records = {
       thread: { projectId: shop, deletedAt: null },
-      runs: options.runs
-        ? options.runs
-        : options.active
+      runs:
+        options.active || options.turnEndsAs
           ? [{ status: "running" }]
           : options.runStatus
             ? [{ status: options.runStatus }]
@@ -130,6 +129,12 @@ const withUnderstanding = <A, E>(
                 getThreadShell: () => Effect.succeed({ projectId: shop } as never),
                 // Only the fields extraction reads.
                 getThreadRecords: () => Effect.succeed(records as never),
+                waitForThread: () =>
+                  Effect.succeed({
+                    threadId,
+                    run: { status: options.turnEndsAs ?? records.runs.at(-1)?.status } as never,
+                    timedOut: false,
+                  }),
               }),
               Layer.mock(ProjectStore.ProjectStoreV2)({
                 get: () => Effect.succeedSome({ title: "Shop", workspaceRoot: baseDir } as never),
@@ -266,9 +271,8 @@ it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
   );
   it.effect.each(["completed", "interrupted"] as const)(
     "remembers a run qa_report_finish closed mid-turn once the turn ends: %s",
-    (endStatus) => {
-      const runs = [{ status: "running" }];
-      return withUnderstanding(
+    (endStatus) =>
+      withUnderstanding(
         Effect.gen(function* () {
           const qaRuns = yield* QaRuns.QaRuns;
           const memory = yield* ProjectMemory.ProjectMemory;
@@ -289,7 +293,7 @@ it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
           const closed = yield* recorder.finish(threadId, "exploratory", { midTurn: true });
           assert.strictEqual(closed?.finishedAt === null, false);
           assert.strictEqual((yield* memory.lookupFacts(shop, { kind: "result" })).length, 0);
-          runs[0]!.status = endStatus;
+          // As in the app, the turn-end signal arrives while the turn still reads as running.
           yield* recorder.finish(threadId);
           const saved = (yield* qaRuns.list(threadId)).find((run) => run.runId === closed!.runId);
           assert.strictEqual(saved?.remember, endStatus === "completed");
@@ -298,9 +302,8 @@ it.layer(NodeServices.layer)("ProjectUnderstanding", (it) => {
             endStatus === "completed" ? 1 : 0,
           );
         }),
-        { runs, userMessages: ["Test login"] },
-      );
-    },
+        { turnEndsAs: endStatus, userMessages: ["Test login"] },
+      ),
   );
   it.effect("brings confirmed legacy understanding into the playbook from the Memory screen", () =>
     withUnderstanding(
