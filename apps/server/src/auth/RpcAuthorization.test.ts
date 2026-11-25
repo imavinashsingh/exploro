@@ -38,19 +38,6 @@ describe("RPC authorization scopes", () => {
     expect(new Set(Object.keys(RPC_REQUIRED_SCOPES))).toEqual(new Set(WsRpcGroup.requests.keys()));
   });
 
-  it("allows navigation explorer reads with the snapshot read scope", () => {
-    for (const method of [
-      WS_METHODS.projectNavigationSubscribe,
-      WS_METHODS.projectNavigationOverview,
-      WS_METHODS.projectNavigationChildren,
-      WS_METHODS.projectNavigationNeighborhood,
-      WS_METHODS.projectNavigationSearch,
-      WS_METHODS.projectNavigationDetails,
-      WS_METHODS.projectNavigationRoutePreview,
-    ])
-      expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationReadScope);
-  });
-
   it("keeps webhook delivery logs, which hold request bodies, behind operate scope", () => {
     for (const method of [
       WS_METHODS.scheduledTasksListWebhookDeliveries,

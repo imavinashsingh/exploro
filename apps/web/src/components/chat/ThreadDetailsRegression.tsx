@@ -103,7 +103,7 @@ export function ThreadDetailsRegression(props: {
 }) {
   const gt = useGT();
   const qa = useProjectQa(props.environmentId, props.projectId, props.threadId);
-  if (qa.suites.length === 0 && qa.savedSecrets.length === 0) return null;
+  if (qa.suites.length === 0) return null;
   const running = qa.batches.some((batch) =>
     batch.jobs.some((job) => job.status === "queued" || job.status === "running"),
   );

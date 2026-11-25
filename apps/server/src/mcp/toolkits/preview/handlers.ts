@@ -1,5 +1,4 @@
 import * as Effect from "effect/Effect";
-import * as Option from "effect/Option";
 import * as Record from "effect/Record";
 import * as Schema from "effect/Schema";
 import {
@@ -17,9 +16,7 @@ import {
   type PreviewAutomationStatus,
   type PreviewAutomationDurableTarget,
   type PreviewTabId,
-  type ProjectId,
   type QaReplayStep,
-  type QaSavedSecretId,
   type SecretRef,
 } from "@t3tools/contracts";
 
@@ -29,8 +26,7 @@ import * as PreviewAutomationBroker from "../../PreviewAutomationBroker.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as QaRecorder from "../../../qa/QaRecorder.ts";
 import * as SecretRequests from "../../../secrets/SecretRequests.ts";
-import * as QaSavedSecrets from "../../../qa/QaSavedSecrets.ts";
-import { actStep, savedSecretPlaceholder, waitStep } from "../../../qa/qaReplay.ts";
+import { actStep, waitStep } from "../../../qa/qaReplay.ts";
 import { claimPreviewRecording } from "./recordingClaim.ts";
 import { PreviewSnapshotToolkit, PreviewStandardToolkit, PreviewToolkit } from "./tools.ts";
 
@@ -140,87 +136,27 @@ const decodeActInput = Record.map(PreviewAutomationActInputs, (schema) =>
 const invalidAct = (message: string) =>
   new OrchestratorMcpFailure({ code: "invalid_request", message });
 
-/** Swaps a `secretRef` or `savedSecretId` for its value, here, so the agent never sees it. */
+/** Swaps a `secretRef` for its value, here, so the agent never sees it. */
 const withSecretText = Effect.fn("PreviewToolkit.withSecretText")(function* (
   action: string,
-  input: {
-    readonly text?: string | undefined;
-    readonly secretRef?: SecretRef | undefined;
-    readonly savedSecretId?: QaSavedSecretId | undefined;
-  },
+  input: { readonly text?: string | undefined; readonly secretRef?: SecretRef | undefined },
 ) {
-  const { secretRef, savedSecretId, ...rest } = input;
-  const source =
-    savedSecretId !== undefined
-      ? { saved: savedSecretId }
-      : secretRef !== undefined
-        ? { ref: secretRef }
-        : null;
-  if (source === null) return { input: rest, typedSecret: null };
-  if (action !== "type")
-    return yield* invalidAct("`secretRef` and `savedSecretId` work only with action `type`.");
-  if ([rest.text, secretRef, savedSecretId].filter((value) => value !== undefined).length > 1)
-    return yield* invalidAct("Pass one of `text`, `secretRef` or `savedSecretId`.");
+  const { secretRef, ...rest } = input;
+  if (secretRef === undefined) return { input: rest, typedSecret: false };
+  if (action !== "type") return yield* invalidAct("`secretRef` works only with action `type`.");
+  if (rest.text !== undefined) return yield* invalidAct("Pass one of `text` or `secretRef`.");
   const scope = yield* McpInvocationContext.requireThreadMcpCapability("preview");
   const thread = yield* (yield* ThreadManagementService.ThreadManagementService)
     .getThreadShell(scope.thread.threadId)
     .pipe(Effect.mapError(() => invalidAct("Could not read this thread's project.")));
   if (thread === null) return yield* invalidAct("This thread has no project for its secrets.");
-  if ("saved" in source) {
-    const saved = yield* (yield* QaSavedSecrets.QaSavedSecrets)
-      .read(thread.projectId, source.saved)
-      .pipe(Effect.mapError((error) => invalidAct(error.message)));
-    if (Option.isNone(saved))
-      return yield* invalidAct(
-        "No saved password with that id in this project. Ask with request_secret instead.",
-      );
-    return {
-      input: { ...rest, text: saved.value },
-      typedSecret: { kind: "saved" as const, secretId: source.saved },
-    };
-  }
-  const { value, remember } = yield* (yield* SecretRequests.SecretRequests)
-    .consumeDetailed({ ref: source.ref, projectId: thread.projectId })
+  const value = yield* (yield* SecretRequests.SecretRequests)
+    .consume({ ref: secretRef, projectId: thread.projectId })
     .pipe(Effect.mapError((error) => invalidAct(error.message)));
-  return {
-    input: { ...rest, text: value },
-    typedSecret: { kind: "requested" as const, projectId: thread.projectId, value, remember },
-  };
+  return { input: { ...rest, text: value }, typedSecret: true };
 });
 
 const ONE_USE_STEP = "A one-use secret was typed, so a replay cannot type it again.";
-
-type TypedSecret =
-  | { readonly kind: "saved"; readonly secretId: QaSavedSecretId }
-  | {
-      readonly kind: "requested";
-      readonly projectId: ProjectId;
-      readonly value: string;
-      readonly remember: SecretRequests.RememberRequest | undefined;
-    };
-
-/** The QA step for a typed secret: a saved placeholder when the value is in the project's vault. */
-const secretStep = Effect.fn("PreviewToolkit.secretStep")(function* (
-  typed: TypedSecret,
-  decoded: Readonly<Record<string, unknown>>,
-  target: PreviewAutomationDurableTarget | null,
-) {
-  if (typed.kind === "saved")
-    return actStep("type", { ...decoded, text: savedSecretPlaceholder(typed.secretId) }, target);
-  const unreplayable: QaReplayStep = { kind: "unreplayable", action: "type", reason: ONE_USE_STEP };
-  if (typed.remember === undefined) return unreplayable;
-  const secretId = yield* (yield* QaSavedSecrets.QaSavedSecrets)
-    .remember({ projectId: typed.projectId, ...typed.remember, value: typed.value })
-    .pipe(
-      Effect.tapError((error) =>
-        Effect.logWarning("A typed secret could not be remembered", { error: error.message }),
-      ),
-      Effect.option,
-    );
-  return Option.isNone(secretId)
-    ? unreplayable
-    : actStep("type", { ...decoded, text: savedSecretPlaceholder(secretId.value) }, target);
-});
 
 const handlers = {
   preview_dialog: McpToolAccess.actsAsCaller((input) =>
@@ -308,9 +244,9 @@ const handlers = {
       );
       const { target, result } = takeRecordedTarget(raw);
       yield* logStep(
-        typedSecret === null
-          ? actStep(action, decoded, target)
-          : yield* secretStep(typedSecret, decoded, target),
+        typedSecret
+          ? { kind: "unreplayable", action: "type", reason: ONE_USE_STEP }
+          : actStep(action, decoded, target),
       );
       return result;
     }),

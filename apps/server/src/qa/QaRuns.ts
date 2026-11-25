@@ -32,7 +32,6 @@ import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 
 import * as ServerConfig from "../config.ts";
-import * as ProjectMemory from "../memory/ProjectMemory.ts";
 import {
   QA_MAX_SCENARIOS_PER_RUN,
   QA_MAX_SCREENSHOT_BYTES,
@@ -57,7 +56,6 @@ export interface QaReplayVisual {
 
 /** What the browser showed when the agent recorded a verdict. */
 export interface QaPageCapture {
-  readonly stateId?: string;
   readonly url: string | null;
   readonly title: string | null;
   readonly png: Uint8Array | null;
@@ -125,20 +123,10 @@ export class QaRuns extends Context.Service<
       threadId: ThreadId,
       input: {
         readonly projectId: ProjectId | null;
-        /** Passwords the user gave in the thread, kept out of memory. */
-        readonly secrets?: ReadonlyArray<string>;
-        /** False when the user turned the project's memory off. */
-        readonly remember?: boolean;
         /** Only an open run of this kind finishes. Default exploratory. */
         readonly kind?: QaRun["kind"];
       },
     ) => Effect.Effect<QaRun | null, QaRunError>;
-    readonly rememberRun: (
-      threadId: ThreadId,
-      runId: string,
-      projectId: ProjectId,
-      secrets?: ReadonlyArray<string>,
-    ) => Effect.Effect<QaRun, QaRunError>;
     readonly list: (threadId: ThreadId) => Effect.Effect<ReadonlyArray<QaRun>, QaRunError>;
     readonly subscribe: (threadId: ThreadId) => Stream.Stream<QaRunsSnapshot, QaRunError>;
     readonly deleteRun: (input: QaRunDeleteInput) => Effect.Effect<QaRunDeleteResult, QaRunError>;
@@ -162,7 +150,6 @@ const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const random = yield* SecureRandom.SecureRandom;
-  const memory = yield* ProjectMemory.ProjectMemory;
   const changes = yield* PubSub.unbounded<ThreadId>();
   const lock = yield* Semaphore.make(1);
   const cache = new Map<ThreadId, ReadonlyArray<QaRun>>();
@@ -396,7 +383,6 @@ const make = Effect.gen(function* () {
       ...(input.actual === undefined ? {} : { actual: input.actual }),
       ...(input.severity === undefined ? {} : { severity: input.severity }),
       steps: [...stepsFor(input, page.actionTimeline, since)],
-      stateId: page.stateId ?? null,
       pageUrl: page.url,
       pageTitle: page.title,
       recordedAt,
@@ -451,8 +437,6 @@ const make = Effect.gen(function* () {
   const finishRunUnlocked = Effect.fnUntraced(function* (
     threadId: ThreadId,
     projectId: ProjectId | null,
-    secrets: ReadonlyArray<string> = [],
-    remember = true,
     kind: QaRun["kind"] = "exploratory",
   ) {
     const open = findOpen(yield* load(threadId));
@@ -495,27 +479,13 @@ const make = Effect.gen(function* () {
       ),
       Effect.mapError(failure("Could not write the QA report.")),
     );
-    const saved = yield* save(finished);
-    // Memory is secondary: a failed write must not lose the finished report.
-    if (remember) {
-      yield* memory
-        .recordRun(saved, secrets)
-        .pipe(
-          Effect.catch((error) =>
-            Effect.logWarning("QA results were not saved to memory", { error }),
-          ),
-        );
-    }
-    return saved;
+    return yield* save(finished);
   });
 
   const deleteRunUnlocked = Effect.fnUntraced(function* (input: QaRunDeleteInput) {
     const runs = yield* load(input.threadId);
     const run = runs.find((candidate) => candidate.runId === input.runId);
     if (!run) return yield* new QaRunError({ message: "That QA run no longer exists." });
-    yield* memory
-      .forgetRun(run.runId)
-      .pipe(Effect.mapError(failure("Could not delete the run's facts from project memory.")));
     yield* fileSystem
       .remove(path.join(threadDir(input.threadId), input.runId), { recursive: true })
       .pipe(Effect.mapError(failure("Could not delete the QA run.")));
@@ -605,34 +575,7 @@ const make = Effect.gen(function* () {
       );
     }),
     finishRun: Effect.fn("QaRuns.finishRun")(function* (threadId, input) {
-      return yield* lock.withPermit(
-        finishRunUnlocked(threadId, input.projectId, input.secrets, input.remember, input.kind),
-      );
-    }),
-    rememberRun: Effect.fn("QaRuns.rememberRun")(function* (
-      threadId,
-      runId,
-      projectId,
-      secrets = [],
-    ) {
-      return yield* lock.withPermit(
-        Effect.gen(function* () {
-          const run = (yield* load(threadId)).find((candidate) => candidate.runId === runId);
-          if (run === undefined || (run.projectId !== null && run.projectId !== projectId)) {
-            return yield* new QaRunError({ message: "This run does not belong to the project." });
-          }
-          const saved =
-            run.finishedAt === null
-              ? yield* finishRunUnlocked(threadId, projectId, secrets, false)
-              : yield* save({ ...run, projectId });
-          if (saved === null)
-            return yield* new QaRunError({ message: "The run is no longer available." });
-          yield* memory
-            .recordRun(saved, secrets)
-            .pipe(Effect.mapError(failure("Could not save the run to memory.")));
-          return saved;
-        }),
-      );
+      return yield* lock.withPermit(finishRunUnlocked(threadId, input.projectId, input.kind));
     }),
     list,
     subscribe: (threadId) =>
@@ -640,14 +583,7 @@ const make = Effect.gen(function* () {
         Effect.gen(function* () {
           // Subscribe before reading so a change in between is not lost.
           const subscription = yield* PubSub.subscribe(changes);
-          const snapshot = Effect.gen(function* () {
-            return {
-              runs: yield* list(threadId),
-              memoryBriefUsage: yield* memory
-                .briefUsage(threadId)
-                .pipe(Effect.orElseSucceed(() => null)),
-            };
-          });
+          const snapshot = Effect.map(list(threadId), (runs) => ({ runs }));
           return Stream.concat(
             Stream.fromEffect(snapshot),
             Stream.fromSubscription(subscription).pipe(

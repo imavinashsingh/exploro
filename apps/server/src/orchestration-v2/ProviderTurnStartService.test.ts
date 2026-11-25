@@ -53,7 +53,6 @@ import {
 } from "../workspace/restoreMissingWorktree.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { layerRealGit } from "./ProviderTurnStartService.testkit.ts";
-import * as ProjectMemoryAccess from "../memory/ProjectMemoryAccess.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -446,8 +445,6 @@ it.each([
 
 function makeLocalCommandHarness(input: {
   readonly text: string;
-  /** The project memory brief the server would build for this thread's first turn. */
-  readonly memoryBrief?: string;
   readonly manualContinuation?: boolean;
   readonly nativeResumeUnsupported?: boolean;
   readonly steeringRestart?: boolean;
@@ -1378,11 +1375,6 @@ function makeLocalCommandHarness(input: {
         Layer.mock(RuntimePolicy.RuntimePolicyV2)({
           resolve: resolveRuntimePolicy,
         }),
-        input.memoryBrief === undefined
-          ? Layer.empty
-          : Layer.mock(ProjectMemoryAccess.ProjectMemoryAccess)({
-              firstTurnBrief: () => Effect.succeed(input.memoryBrief ?? ""),
-            }),
       ),
     ),
   );
@@ -2163,29 +2155,6 @@ effectIt.effect(
       });
       expect(harness.projection().runs.at(-1)?.status).toBe("running");
       expect(harness.startRootRun).toHaveBeenCalledOnce();
-    }),
-);
-
-effectIt.effect.each([
-  { laterTurn: false, sendsBrief: true },
-  { laterTurn: true, sendsBrief: false },
-])(
-  "sends the project memory brief with a thread's first prompt only: %j",
-  ({ laterTurn, sendsBrief }) =>
-    Effect.gen(function* () {
-      const harness = makeLocalCommandHarness({
-        text: "Test the dashboard",
-        memoryBrief: "MEMORY_BRIEF",
-        previousNativeSession: laterTurn,
-        sideChat: { contextRun: "current" },
-      });
-      // Nothing else to deliver, so only the brief needs the inline context path.
-      harness.setProjection({ ...harness.projection(), contextHandoffs: [] });
-      harness.tryHandlePromptCommand.mockReturnValue(Effect.succeed(false));
-      yield* harness.start;
-      const text = harness.startTurn.mock.calls[0]?.[0].message.text;
-      expect(text?.endsWith("Test the dashboard")).toBe(true);
-      expect(text?.includes("MEMORY_BRIEF")).toBe(sendsBrief);
     }),
 );
 

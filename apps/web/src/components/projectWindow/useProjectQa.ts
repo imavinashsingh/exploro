@@ -49,10 +49,7 @@ export function useProjectQa(
   const batches = (query.data?.batches ?? []).filter((batch) =>
     batch.jobs.some((job) => suiteIds.has(job.suiteId)),
   );
-  const savedSecrets = (query.data?.savedSecrets ?? []).filter(
-    (secret) => secret.projectId === projectId,
-  );
-  return { suites, batches, savedSecrets, error: query.error, isPending: query.isPending };
+  return { suites, batches, error: query.error, isPending: query.isPending };
 }
 
 /** How many of the project's most recently updated threads the Runs tab and map read. */

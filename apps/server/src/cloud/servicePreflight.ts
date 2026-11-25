@@ -5,7 +5,6 @@ import * as Schema from "effect/Schema";
 import packageJson from "../../package.json" with { type: "json" };
 import { BUILD_MIGRATION_HEAD, recordedMigrations } from "../persistence/databaseMigrationHead.ts";
 import { skippedV2Migrations } from "../persistence/Migrations.ts";
-import { reconciledExploroHistory } from "../persistence/reconcileExploroMigrationIds.ts";
 import { reconciledV2PreviewHistory } from "../persistence/reconcileV2PreviewMigration.ts";
 import type * as ProcessRunner from "../processRunner.ts";
 import {
@@ -78,15 +77,10 @@ export function runServicePreflight(input: {
     };
   }
 
-  // Startup reconciles V2 preview and Exploro ids before it checks the history, so check what it will see.
+  // Startup reconciles V2 preview ids before it checks the history, so check what it will see.
   const preview = reconciledV2PreviewHistory(recorded);
-  const reconciled = preview === null ? null : reconciledExploroHistory(preview);
   const incompatible =
-    preview === null
-      ? ["an unexpected V2 preview history"]
-      : reconciled === null
-        ? ["an unexpected Exploro migration history"]
-        : skippedV2Migrations(reconciled);
+    preview === null ? ["an unexpected V2 preview history"] : skippedV2Migrations(preview);
   if (incompatible.length > 0) {
     return {
       status: "blocked",

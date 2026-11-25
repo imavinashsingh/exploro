@@ -1,6 +1,3 @@
-import * as ProjectNavigationMemory from "./memory/ProjectNavigationMemory.ts";
-import * as ProjectMemory from "./memory/ProjectMemory.ts";
-import * as ProjectMemoryControl from "./memory/ProjectMemoryControl.ts";
 import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- A synchronous digest inside the pure provider mapping.
 import * as NodeCrypto from "node:crypto";
@@ -1487,9 +1484,6 @@ export const layerWsRpc = (
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
       const qaRuns = yield* QaRuns.QaRuns;
       const qaSuites = yield* QaSuites.QaSuites;
-      const projectMemory = yield* ProjectMemory.ProjectMemory;
-      const memoryControl = yield* ProjectMemoryControl.ProjectMemoryControl;
-      const navigationMemory = yield* ProjectNavigationMemory.ProjectNavigationMemory;
       const secretRequests = yield* SecretRequests.SecretRequests;
       const guestShares = yield* GuestShareService.GuestShareService;
       const pullRequests = yield* PullRequestService.PullRequestService;
@@ -2336,33 +2330,6 @@ export const layerWsRpc = (
           providerSessionManager.subscribePromptSuggestion(input.threadId),
         [WS_METHODS.scheduledTasksSubscribe]: (_input) =>
           scheduledTasks.subscribeList().pipe(Stream.map(withVisibleWebhookUrls)),
-        [WS_METHODS.projectNavigationSubscribe]: (input) =>
-          navigationMemory.subscribe(input.projectId),
-        [WS_METHODS.projectNavigationOverview]: (input) =>
-          navigationMemory.navigationOverview(input),
-        [WS_METHODS.projectNavigationChildren]: (input) =>
-          navigationMemory.navigationChildren(input),
-        [WS_METHODS.projectNavigationNeighborhood]: (input) =>
-          navigationMemory.navigationNeighborhood(input),
-        [WS_METHODS.projectNavigationSearch]: (input) => navigationMemory.navigationSearch(input),
-        [WS_METHODS.projectNavigationDetails]: (input) => navigationMemory.navigationDetails(input),
-        [WS_METHODS.projectNavigationRoutePreview]: (input) =>
-          navigationMemory.navigationRoutePreview(input),
-        [WS_METHODS.projectNavigationDelete]: (input) =>
-          projectMemory.deleteNavigationRecord(input.projectId, input.id),
-        [WS_METHODS.projectMemoryMap]: (input) => projectMemory.map(input.projectId),
-        [WS_METHODS.projectMemorySaveThread]: (input) => memoryControl.saveThread(input.threadId),
-        [WS_METHODS.projectMemorySetAppVersion]: (input) => memoryControl.setAppVersion(input),
-        [WS_METHODS.projectMemorySnapshot]: (input) => memoryControl.snapshot(input.projectId),
-        [WS_METHODS.projectMemoryDeleteFact]: (input) =>
-          memoryControl.deleteFact(input.projectId, input.factId),
-        [WS_METHODS.projectMemoryItemHistory]: (input) =>
-          memoryControl.itemHistory(input.projectId, input.itemId),
-        [WS_METHODS.projectMemoryUpdateItem]: (input) => memoryControl.updateItem(input),
-        [WS_METHODS.projectMemoryDeleteItem]: (input) =>
-          memoryControl.deleteItem(input.projectId, input.itemId),
-        [WS_METHODS.projectMemoryRetryExtraction]: (input) =>
-          memoryControl.retryExtraction(input.projectId, input.runId),
         [WS_METHODS.qaRunsSubscribe]: (input) =>
           Stream.unwrap(
             Effect.annotateCurrentSpan({ "thread.id": input.threadId }).pipe(
@@ -2383,8 +2350,6 @@ export const layerWsRpc = (
           Effect.annotateCurrentSpan({ "qa_suite.ids": input.suiteIds.join(",") }).pipe(
             Effect.andThen(qaSuites.start(input)),
           ),
-        [WS_METHODS.qaSuitesForgetSecret]: (input) =>
-          qaSuites.forgetSecret(input.secretId).pipe(Effect.as(input)),
         [WS_METHODS.qaSuitesGet]: (input) => qaSuites.get(input.suiteId),
         [WS_METHODS.qaSuitesUpdate]: (input) => qaSuites.update(input),
         [WS_METHODS.qaSuitesAcceptBaseline]: (input) => qaSuites.acceptBaseline(input),
@@ -3670,9 +3635,6 @@ export const layer = Layer.unwrap(
     const peerLinkRequests = yield* PeerLinkRequests.PeerLinkRequests;
     const qaRuns = yield* QaRuns.QaRuns;
     const qaSuites = yield* QaSuites.QaSuites;
-    const projectMemory = yield* ProjectMemory.ProjectMemory;
-    const memoryControl = yield* ProjectMemoryControl.ProjectMemoryControl;
-    const navigation = yield* ProjectNavigationMemory.ProjectNavigationMemory;
     const sql = yield* SqlClient.SqlClient;
     return HttpRouter.add(
       "GET",
@@ -3774,13 +3736,6 @@ export const layer = Layer.unwrap(
               // One run store for every connection and for agents, so changes reach all clients.
               Layer.provide(Layer.succeed(QaRuns.QaRuns, qaRuns)),
               Layer.provide(Layer.succeed(QaSuites.QaSuites, qaSuites)),
-              Layer.provide(Layer.succeed(ProjectMemory.ProjectMemory, projectMemory)),
-              Layer.provide(
-                Layer.succeed(ProjectNavigationMemory.ProjectNavigationMemory, navigation),
-              ),
-              Layer.provide(
-                Layer.succeed(ProjectMemoryControl.ProjectMemoryControl, memoryControl),
-              ),
               Layer.provide(Layer.succeed(PeerLinkRequests.PeerLinkRequests, peerLinkRequests)),
               Layer.provide(
                 SourceControlDiscovery.layer.pipe(

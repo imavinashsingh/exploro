@@ -16,7 +16,6 @@ import {
   type QaRegressionJob,
   type QaReplayStep,
   type QaRun,
-  type QaSavedSecretId,
   type QaSuiteAcceptBaselineInput,
   type QaSuiteCreateInput,
   type QaSuiteCreateResult,
@@ -40,7 +39,6 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as PubSub from "effect/PubSub";
 import * as Schema from "effect/Schema";
@@ -51,7 +49,7 @@ import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import type * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
 import * as PreviewAutomationBroker from "../mcp/PreviewAutomationBroker.ts";
-import { threadProvidedSecretsInOrder } from "../memory/providedSecrets.ts";
+import { threadProvidedSecretsInOrder } from "./providedSecrets.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as PreviewAgentActivity from "../preview/PreviewAgentActivity.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -64,19 +62,16 @@ import {
   buildSuite,
   describeCheck,
   describeStep,
-  fillSavedSecrets,
   editRefusal,
   fillSecrets,
   healPrompt,
   paramNames,
   rebaseUrl,
-  savedSecretIds,
   stepTarget,
   withTarget,
 } from "./qaReplay.ts";
 import { describeVisual } from "./qaReport.ts";
 import * as QaRuns from "./QaRuns.ts";
-import * as QaSavedSecrets from "./QaSavedSecrets.ts";
 import { compareScreenshots } from "./qaVisual.ts";
 
 const STEP_TIMEOUT_MS = 15_000;
@@ -111,7 +106,6 @@ export class QaSuites extends Context.Service<
     readonly delete: (suiteId: QaSuiteId) => Effect.Effect<{ suiteId: QaSuiteId }, QaRunError>;
     /** Queues one replay per suite and data row, and returns at once. */
     readonly start: (input: QaSuiteRunInput) => Effect.Effect<QaSuiteRunStarted, QaRunError>;
-    readonly forgetSecret: (secretId: QaSavedSecretId) => Effect.Effect<void, QaRunError>;
     /** Queues the replays and waits for every one of them. */
     readonly run: (input: QaSuiteRunInput) => Effect.Effect<QaRegressionResult, QaRunError>;
     /** Makes a replay's capture of one scenario the suite's new baseline. */
@@ -186,7 +180,6 @@ const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const random = yield* SecureRandom.SecureRandom;
   const qaRuns = yield* QaRuns.QaRuns;
-  const savedSecrets = yield* QaSavedSecrets.QaSavedSecrets;
   const recorder = yield* QaRecorder.QaRecorder;
   const broker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
   const threads = yield* ThreadManagementService.ThreadManagementService;
@@ -470,20 +463,7 @@ const make = Effect.gen(function* () {
           return yield* new QaRunError({
             message: `The suite types password ${filled.missing} from its thread, which the thread no longer has.`,
           });
-        const saved = new Map<string, string>();
-        for (const secretId of savedSecretIds(filled.text)) {
-          const value =
-            suite.projectId === null
-              ? Option.none<string>()
-              : yield* savedSecrets.read(suite.projectId, secretId);
-          if (Option.isNone(value))
-            return yield* new QaRunError({
-              message:
-                "The suite types a saved password that was removed. Sign in again in a test run, tick Remember on the password card, and save the suite again.",
-            });
-          saved.set(secretId, value.value);
-        }
-        steps.push({ ...step, text: fillSavedSecrets(filled.text, saved) });
+        steps.push({ ...step, text: filled.text });
       } else steps.push(step);
     }
     return { steps, scenarios: withParams.scenarios, unfilled: withParams.steps };
@@ -966,10 +946,9 @@ const make = Effect.gen(function* () {
     return { batchId: batch.batchId };
   });
 
-  const snapshot = Effect.all({
-    suites: lock.withPermit(load()).pipe(Effect.map((suites) => suites.map(summaryOf))),
-    savedSecrets: savedSecrets.list,
-  }).pipe(Effect.map((parts) => ({ ...parts, batches })));
+  const snapshot = lock
+    .withPermit(load())
+    .pipe(Effect.map((suites) => ({ suites: suites.map(summaryOf), batches })));
 
   return QaSuites.of({
     create,
@@ -981,14 +960,11 @@ const make = Effect.gen(function* () {
         const subscription = yield* PubSub.subscribe(changes);
         return Stream.concat(
           Stream.fromEffect(snapshot),
-          Stream.merge(Stream.fromSubscription(subscription), savedSecrets.changes).pipe(
-            Stream.mapEffect(() => snapshot),
-          ),
+          Stream.fromSubscription(subscription).pipe(Stream.mapEffect(() => snapshot)),
         );
       }),
     ),
     delete: deleteSuite,
-    forgetSecret: savedSecrets.forget,
     start: Effect.fn("QaSuites.start")(function* (input) {
       const { batch } = yield* enqueue(input);
       return { batchId: batch.batchId };

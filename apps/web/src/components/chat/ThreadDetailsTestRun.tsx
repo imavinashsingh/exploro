@@ -13,7 +13,6 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import {
-  BrainIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   ClipboardCheckIcon,
@@ -31,7 +30,6 @@ import { useAssetUrlState } from "../../assets/assetUrls";
 import { cn } from "../../lib/utils";
 import { useRightPanelStore } from "../../rightPanelStore";
 import { useEnvironmentQuery } from "../../state/query";
-import { projectEnvironment } from "../../state/projects";
 import { serverEnvironment } from "../../state/server";
 import { readEnvironmentScope } from "../../state/session";
 import { shellEnvironment } from "../../state/shell";
@@ -67,9 +65,6 @@ import {
 interface ThreadDetailsTestRunProps {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
-  readonly scratchProject?: boolean;
-  readonly memoryEnabled?: boolean;
-  readonly contextMaxTokens?: number | null;
 }
 
 const reportFailure = (title: string, error: unknown) =>
@@ -388,43 +383,6 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
   );
   const config = useAtomValue(serverEnvironment.configValueAtom(props.environmentId));
   const canDelete = useAtomValue(serverEnvironment.deleteQaRun.permissionAtom(props.environmentId));
-  const canSaveMemory = useAtomValue(
-    serverEnvironment.saveThreadMemory.permissionAtom(props.environmentId),
-  );
-  const canPromote = useAtomValue(
-    projectEnvironment.createFromThread.permissionAtom(props.environmentId),
-  );
-  const saveMemory = useAtomCommand(serverEnvironment.saveThreadMemory, {
-    label: "save test to memory",
-  });
-  const promote = useAtomCommand(projectEnvironment.createFromThread, {
-    label: "create project for test",
-  });
-  const [savingMemory, setSavingMemory] = useState(false);
-  const saveThread = async () => {
-    setSavingMemory(true);
-    try {
-      const input = { environmentId: props.environmentId, input: { threadId: props.threadId } };
-      if (props.scratchProject) {
-        const promoted = await promote(input);
-        if (promoted._tag === "Failure") {
-          setSavingMemory(false);
-          return;
-        }
-      }
-      const result = await saveMemory(input);
-      if (result._tag !== "Failure") {
-        toastManager.add({
-          type: "success",
-          title: gt("Test saved to memory"),
-          description: gt("Review learning status in the project’s Memory settings."),
-        });
-      }
-    } catch (error) {
-      reportFailure(gt("Could not save the test to memory"), error);
-    }
-    setSavingMemory(false);
-  };
   const deleteRun = useAtomCommand(serverEnvironment.deleteQaRun, { label: "delete QA run" });
   const openInEditor = useAtomCommand(shellEnvironment.openInEditor, { reportFailure: false });
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
@@ -464,22 +422,6 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
 
   const reportPath = run?.reportHtmlPath ?? run?.reportMarkdownPath ?? null;
   const saveAsRegression = useSaveRunAsRegression(props.environmentId, props.threadId, run);
-  const canSaveToMemory =
-    (props.memoryEnabled || props.scratchProject) &&
-    canSaveMemory &&
-    (!props.scratchProject || canPromote);
-  const briefUsage = runsQuery.data?.memoryBriefUsage ?? null;
-  const memoryBrief =
-    briefUsage === null
-      ? null
-      : props.contextMaxTokens && props.contextMaxTokens > 0
-        ? gt("Initial memory brief: ~{tokens} tokens ({share}% of context).", {
-            tokens: briefUsage.estimatedTokens.toLocaleString(),
-            share: ((100 * briefUsage.estimatedTokens) / props.contextMaxTokens).toFixed(1),
-          })
-        : gt("Initial memory brief: ~{tokens} tokens (estimated).", {
-            tokens: briefUsage.estimatedTokens.toLocaleString(),
-          });
 
   return (
     <ThreadDetailsSection
@@ -629,14 +571,6 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
                   <MoreHorizontalIcon aria-hidden />
                 </MenuTrigger>
                 <MenuPopup align="start" side="bottom" sideOffset={4}>
-                  {canSaveToMemory ? (
-                    <MenuItem disabled={savingMemory} onClick={() => void saveThread()}>
-                      <BrainIcon className="size-3.5" />
-                      {props.scratchProject
-                        ? gt("Create project and save to memory")
-                        : gt("Save test to memory")}
-                    </MenuItem>
-                  ) : null}
                   {saveAsRegression === null ? null : (
                     <MenuItem onClick={() => void saveAsRegression()}>
                       <RepeatIcon className="size-3.5" />
@@ -665,11 +599,6 @@ export function ThreadDetailsTestRun(props: ThreadDetailsTestRunProps) {
                       <T>Delete</T>
                     </MenuItem>
                   ) : null}
-                  {memoryBrief === null ? null : (
-                    <p className="m-0 max-w-64 px-2 pt-1.5 pb-1 text-xs text-muted-foreground">
-                      {memoryBrief}
-                    </p>
-                  )}
                 </MenuPopup>
               </Menu>
             </div>

@@ -4,16 +4,14 @@ import { FolderKanbanIcon } from "lucide-react";
 import { useState } from "react";
 
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
-import { ProjectMemoryTab } from "./ProjectMemoryTab";
-import { ProjectPasswordsTab } from "./ProjectPasswordsTab";
 import { ProjectRunsTab } from "./ProjectRunsTab";
 import { ProjectSuitesTab } from "./ProjectSuitesTab";
 import { useProjectQa, useProjectRuns } from "./useProjectQa";
 
-const TABS = ["suites", "runs", "passwords", "memory"] as const;
+const TABS = ["suites", "runs"] as const;
 type ProjectWindowTab = (typeof TABS)[number];
 
-/** Project-level QA tools beside the chat: suites, runs, passwords and memory. */
+/** Project-level QA tools beside the chat: suites and runs. */
 export default function ProjectWindowPanel(props: {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
@@ -49,8 +47,6 @@ export default function ProjectWindowPanel(props: {
         >
           <Toggle value="suites">{countLabel(gt("Suites"), qa.suites.length)}</Toggle>
           <Toggle value="runs">{gt("Runs", { $context: "test runs" })}</Toggle>
-          <Toggle value="passwords">{countLabel(gt("Passwords"), qa.savedSecrets.length)}</Toggle>
-          <Toggle value="memory">{gt("Memory", { $context: "what test runs remember" })}</Toggle>
         </ToggleGroup>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -63,12 +59,8 @@ export default function ProjectWindowPanel(props: {
             qa={qa}
             runs={runs}
           />
-        ) : tab === "runs" ? (
-          <ProjectRunsTab environmentId={props.environmentId} runs={runs} titles={titles} />
-        ) : tab === "passwords" ? (
-          <ProjectPasswordsTab environmentId={props.environmentId} savedSecrets={qa.savedSecrets} />
         ) : (
-          <ProjectMemoryTab environmentId={props.environmentId} projectId={props.projectId} />
+          <ProjectRunsTab environmentId={props.environmentId} runs={runs} titles={titles} />
         )}
       </div>
     </div>

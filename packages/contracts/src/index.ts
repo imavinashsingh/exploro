@@ -67,8 +67,6 @@ export * from "./previewCapture.ts";
 export * from "./usage.ts";
 export * from "./scheduledTask.ts";
 export * from "./qaRuns.ts";
-export * from "./projectMemory.ts";
-export * from "./projectNavigation.ts";
 export * from "./worktreeMcp.ts";
 export * from "./resourceTelemetry.ts";
 export * from "./rpc.ts";

@@ -1578,56 +1578,6 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:scheduled-tasks:live",
       tag: WS_METHODS.scheduledTasksSubscribe,
     }),
-    // Drop inactive navigation requests so closing the explorer or changing search cancels the RPC.
-    navigationLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
-      label: "environment-data:server:navigation:live",
-      idleTtlMs: 0,
-      tag: WS_METHODS.projectNavigationSubscribe,
-    }),
-    navigationOverview: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:server:navigation:overview",
-      idleTtlMs: 0,
-      tag: WS_METHODS.projectNavigationOverview,
-    }),
-    navigationChildren: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:server:navigation:children",
-      idleTtlMs: 0,
-      tag: WS_METHODS.projectNavigationChildren,
-    }),
-    navigationNeighborhood: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:server:navigation:neighborhood",
-      idleTtlMs: 0,
-      tag: WS_METHODS.projectNavigationNeighborhood,
-    }),
-    navigationSearch: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:server:navigation:search",
-      idleTtlMs: 0,
-      tag: WS_METHODS.projectNavigationSearch,
-    }),
-    navigationDetails: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:server:navigation:details",
-      idleTtlMs: 0,
-      tag: WS_METHODS.projectNavigationDetails,
-    }),
-    navigationRoutePreview: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:server:navigation:routepreview",
-      idleTtlMs: 0,
-      tag: WS_METHODS.projectNavigationRoutePreview,
-    }),
-    // Not polled: a project's facts can be large, so the Memory screen refreshes after each change.
-    projectMemorySnapshot: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:server:project-memory:snapshot",
-      tag: WS_METHODS.projectMemorySnapshot,
-    }),
-    // Not polled, like the snapshot: every page carries its facts.
-    projectMemoryMap: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:server:project-memory:map",
-      tag: WS_METHODS.projectMemoryMap,
-    }),
-    projectMemoryItemHistory: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:server:project-memory:item-history",
-      tag: WS_METHODS.projectMemoryItemHistory,
-    }),
     qaRunsLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:server:qa-runs:live",
       tag: WS_METHODS.qaRunsSubscribe,
@@ -1910,34 +1860,6 @@ export function createServerEnvironmentAtoms<R, E>(
       scheduler: configScheduler,
       concurrency: configConcurrency,
     }),
-    deleteNavigationRecord: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:server:navigation:delete",
-      tag: WS_METHODS.projectNavigationDelete,
-    }),
-    deleteMemoryFact: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:server:project-memory:delete-fact",
-      tag: WS_METHODS.projectMemoryDeleteFact,
-    }),
-    updateMemoryItem: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:server:project-memory:update-item",
-      tag: WS_METHODS.projectMemoryUpdateItem,
-    }),
-    deleteMemoryItem: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:server:project-memory:delete-item",
-      tag: WS_METHODS.projectMemoryDeleteItem,
-    }),
-    saveThreadMemory: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:server:project-memory:save-thread",
-      tag: WS_METHODS.projectMemorySaveThread,
-    }),
-    setMemoryAppVersion: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:server:project-memory:app-version",
-      tag: WS_METHODS.projectMemorySetAppVersion,
-    }),
-    retryMemoryExtraction: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:server:project-memory:retry-extraction",
-      tag: WS_METHODS.projectMemoryRetryExtraction,
-    }),
     deleteQaRun: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:qa-run:delete",
       tag: WS_METHODS.qaRunsDelete,
@@ -1953,10 +1875,6 @@ export function createServerEnvironmentAtoms<R, E>(
     runQaSuite: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:qa-suite:run",
       tag: WS_METHODS.qaSuitesRun,
-    }),
-    forgetQaSavedSecret: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:server:qa-suite:forget-secret",
-      tag: WS_METHODS.qaSuitesForgetSecret,
     }),
     // A command, not a query: the settings dialog reads the suite fresh each time it opens.
     getQaSuite: createEnvironmentRpcCommand(runtime, {

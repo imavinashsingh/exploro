@@ -1,12 +1,7 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import {
-  type ChatAttachment,
-  type ModelSelection,
-  ProjectUnderstandingExtraction,
-  TextGenerationError,
-} from "@t3tools/contracts";
+import { type ChatAttachment, type ModelSelection, TextGenerationError } from "@t3tools/contracts";
 import { formatGeneratedBranchName, sanitizeFeatureBranchName } from "@t3tools/shared/git";
 import { extractJsonObject } from "@t3tools/shared/schemaJson";
 
@@ -200,17 +195,6 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
     });
   });
 
-  const generateProjectUnderstanding: ProviderTextGeneration["generateProjectUnderstanding"] =
-    Effect.fn(`${name}.generateProjectUnderstanding`)(function* (input) {
-      return yield* run({
-        operation: "generateProjectUnderstanding",
-        cwd: input.cwd,
-        prompt: input.prompt,
-        outputSchema: ProjectUnderstandingExtraction,
-        modelSelection: input.modelSelection,
-      });
-    });
-
   const generateLocatorHeal: ProviderTextGeneration["generateLocatorHeal"] = Effect.fn(
     `${name}.generateLocatorHeal`,
   )(function* (input) {
@@ -230,7 +214,6 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
     generateThreadTitle,
     generateReviewGuide,
     generateTranscriptionPostProcessing,
-    generateProjectUnderstanding,
     generateLocatorHeal,
   } satisfies ProviderTextGeneration;
 }

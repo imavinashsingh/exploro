@@ -1,13 +1,7 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import {
-  NonNegativeInt,
-  ProjectId,
-  QaSavedSecretId,
-  ThreadId,
-  TrimmedNonEmptyString,
-} from "./baseSchemas.ts";
+import { NonNegativeInt, ProjectId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import { PreviewAutomationAssertion, PreviewAutomationDurableTarget } from "./previewAutomation.ts";
 
@@ -23,14 +17,6 @@ export const QaRunId = TrimmedNonEmptyString.check(
   Schema.isPattern(/^[A-Za-z0-9-]+$/),
 );
 export type QaRunId = typeof QaRunId.Type;
-
-/** A site a QA project tests, stored as its origin (`https://shop.test`). */
-export const QaSiteOrigin = TrimmedNonEmptyString.check(
-  Schema.isMaxLength(2048),
-  Schema.isPattern(/^https?:\/\/[^/?#\s]+$/),
-);
-export const QaSiteOrigins = Schema.Array(QaSiteOrigin).check(Schema.isMaxLength(20));
-export type QaSiteOrigins = typeof QaSiteOrigins.Type;
 
 /** The origin of an http(s) URL, or null for anything else. */
 export function qaSiteOrigin(url: string): string | null {
@@ -81,7 +67,7 @@ export const QaReplayStep = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("type"),
     target: Schema.NullOr(Target),
-    /** `{{secret:N}}` is the Nth password given in the thread; `{{saved:<id>}}` a remembered one. */
+    /** `{{secret:N}}` is the Nth password given in the thread. */
     text: Schema.String,
     clear: Schema.optional(Schema.Boolean),
   }),
@@ -149,7 +135,6 @@ export const QaScenario = Schema.Struct({
   actual: Schema.optional(Schema.String),
   severity: Schema.optional(QaBugSeverity),
   steps: Schema.Array(Schema.String),
-  stateId: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
   pageUrl: Schema.NullOr(Schema.String),
   pageTitle: Schema.NullOr(Schema.String),
   recordedAt: Schema.String,
@@ -216,16 +201,8 @@ export const QaRunsSubscribeInput = Schema.Struct({ threadId: ThreadId });
 export type QaRunsSubscribeInput = typeof QaRunsSubscribeInput.Type;
 
 /** Newest run first. */
-export const MemoryBriefUsage = Schema.Struct({
-  characters: NonNegativeInt,
-  estimatedTokens: NonNegativeInt,
-});
-export type MemoryBriefUsage = typeof MemoryBriefUsage.Type;
 export const QaRunsSnapshot = Schema.Struct({
   runs: Schema.Array(QaRun),
-  memoryBriefUsage: Schema.NullOr(MemoryBriefUsage).pipe(
-    Schema.withDecodingDefault(Effect.succeed(null)),
-  ),
 });
 export type QaRunsSnapshot = typeof QaRunsSnapshot.Type;
 
@@ -317,17 +294,6 @@ export const QaSuiteSummary = Schema.Struct({
 });
 export type QaSuiteSummary = typeof QaSuiteSummary.Type;
 
-/** A password the user chose to remember for a project's suites; the value stays on the server. */
-export const QaSavedSecret = Schema.Struct({
-  secretId: QaSavedSecretId,
-  projectId: ProjectId,
-  label: Schema.String,
-  /** The sign-in page's origin, or null when the card named none. */
-  site: Schema.NullOr(Schema.String),
-  savedAt: Schema.String,
-});
-export type QaSavedSecret = typeof QaSavedSecret.Type;
-
 export const QaVerdictCounts = Schema.Struct({
   pass: NonNegativeInt,
   fail: NonNegativeInt,
@@ -361,7 +327,6 @@ export type QaRegressionBatch = typeof QaRegressionBatch.Type;
 
 export const QaSuitesSnapshot = Schema.Struct({
   suites: Schema.Array(QaSuiteSummary),
-  savedSecrets: Schema.Array(QaSavedSecret).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   /** Recent batches since the server started, newest first. */
   batches: Schema.Array(QaRegressionBatch).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
 });
@@ -392,9 +357,6 @@ export const QaSuiteDeleteInput = Schema.Struct({ suiteId: QaSuiteId });
 export type QaSuiteDeleteInput = typeof QaSuiteDeleteInput.Type;
 export const QaSuiteDeleteResult = Schema.Struct({ suiteId: QaSuiteId });
 export type QaSuiteDeleteResult = typeof QaSuiteDeleteResult.Type;
-
-export const QaSavedSecretForgetInput = Schema.Struct({ secretId: QaSavedSecretId });
-export type QaSavedSecretForgetInput = typeof QaSavedSecretForgetInput.Type;
 
 export const QaSuiteGetInput = Schema.Struct({ suiteId: QaSuiteId });
 export type QaSuiteGetInput = typeof QaSuiteGetInput.Type;

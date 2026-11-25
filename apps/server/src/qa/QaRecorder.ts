@@ -18,14 +18,10 @@ import * as ServerConfig from "../config.ts";
 import type * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
 import * as PreviewAutomationBroker from "../mcp/PreviewAutomationBroker.ts";
 import { claimPreviewRecording } from "../mcp/toolkits/preview/recordingClaim.ts";
-import * as ServerSettings from "../serverSettings.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as PreviewAgentActivity from "../preview/PreviewAgentActivity.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
-import * as UnderstandingExtraction from "../memory/UnderstandingExtraction.ts";
-import { learnedSiteOrigins } from "./qaEvidence.ts";
-import { memoryEnabled } from "../memory/ProjectMemoryAccess.ts";
-import { threadProvidedSecrets, threadProvidedSecretsInOrder } from "../memory/providedSecrets.ts";
+import { threadProvidedSecretsInOrder } from "./providedSecrets.ts";
 import { hideSecrets } from "./qaReplay.ts";
 import * as QaRuns from "./QaRuns.ts";
 
@@ -71,8 +67,6 @@ const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const threads = yield* ThreadManagementService.ThreadManagementService;
   const managedFolders = yield* ManagedProjectFolders.ManagedProjectFolders;
-  const serverSettings = yield* ServerSettings.ServerSettingsService;
-  const extraction = yield* UnderstandingExtraction.UnderstandingExtraction;
   const recordings = new Map<
     ThreadId,
     { readonly scope: McpInvocationContext.McpThreadInvocationScope; readonly tabId: PreviewTabId }
@@ -165,21 +159,6 @@ const make = Effect.gen(function* () {
     Effect.orElseSucceed(() => null),
   );
 
-  const learnSite = Effect.fn("QaRecorder.learnSite")(
-    function* (run: QaRun) {
-      if (run.projectId === null) return;
-      const projectId = run.projectId;
-      const settings = yield* serverSettings.getSettings;
-      const overrides = settings.projectSettingsOverrides[projectId] ?? {};
-      const origins = learnedSiteOrigins(overrides.qaSiteOrigins, run.site);
-      if (origins === null) return;
-      yield* serverSettings.updateSettings({
-        projectSettingsOverrides: { [projectId]: { ...overrides, qaSiteOrigins: origins } },
-      });
-    },
-    Effect.catch((error) => Effect.logWarning("QA project site was not saved", { error })),
-  );
-
   const finish = Effect.fn("QaRecorder.finish")(function* (
     threadId: ThreadId,
     kind: QaRun["kind"] = "exploratory",
@@ -188,34 +167,7 @@ const make = Effect.gen(function* () {
     // An agent's turn ending must not stop a replay's video or close its run.
     if (open !== null && open.kind !== kind) return null;
     yield* stopRecording(threadId);
-    if (kind === "regression") {
-      return yield* qaRuns.finishRun(threadId, {
-        projectId: yield* projectOf(threadId),
-        remember: false,
-        kind,
-      });
-    }
-    const secrets = yield* threadProvidedSecrets(threads, threadId).pipe(
-      Effect.orElseSucceed(() => []),
-    );
-    const projectId = yield* projectOf(threadId);
-    const remember =
-      projectId !== null &&
-      (yield* serverSettings.getSettings.pipe(
-        Effect.map((settings) => memoryEnabled(settings, projectId)),
-        Effect.orElseSucceed(() => true),
-      ));
-    const run = yield* qaRuns.finishRun(threadId, { projectId, secrets, remember });
-    if (run !== null) {
-      yield* learnSite(run);
-      if (!remember) return run;
-      yield* extraction
-        .enqueue(run)
-        .pipe(
-          Effect.catch((error) => Effect.logWarning("Run was not queued for memory", { error })),
-        );
-    }
-    return run;
+    return yield* qaRuns.finishRun(threadId, { projectId: yield* projectOf(threadId), kind });
   });
 
   const turns = yield* activity.changes;

@@ -17,14 +17,8 @@ import * as AgentSessionImporter from "../project/AgentSessionImporter.ts";
 import * as AgentSessionScanner from "../project/AgentSessionScanner.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
-import * as MiniLmEmbedder from "../memory/MiniLmEmbedder.ts";
-import * as ProjectNavigationMemory from "../memory/ProjectNavigationMemory.ts";
-import * as ProjectMemory from "../memory/ProjectMemory.ts";
-import * as ProjectMemoryAccess from "../memory/ProjectMemoryAccess.ts";
-import * as ProjectUnderstanding from "../memory/ProjectUnderstanding.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ScratchThreadPromotion from "../project/ScratchThreadPromotion.ts";
-import * as QaSavedSecrets from "../qa/QaSavedSecrets.ts";
 import * as CheckpointCaptureService from "./CheckpointCaptureService.ts";
 import * as CheckpointService from "./CheckpointService.ts";
 import * as CheckpointRollbackService from "./CheckpointRollbackService.ts";
@@ -100,16 +94,9 @@ const layerLegacyV1ThreadImporterProvided = LegacyV1ThreadImporter.layer.pipe(
   Layer.provide(layerEventSink),
 );
 
-const layerProjectMemoryProvided = ProjectMemory.layer.pipe(
-  Layer.provideMerge(ProjectNavigationMemory.layer),
-  Layer.provideMerge(ProjectUnderstanding.layer),
-  Layer.provide(MiniLmEmbedder.layer),
-);
-
 export const layerProjectService = ProjectService.layer.pipe(
   Layer.provide(
     Layer.mergeAll(
-      layerProjectMemoryProvided,
       ProjectStore.layer,
       ProjectionStore.layer,
       layerEventSink,
@@ -122,16 +109,6 @@ export const layerProjectService = ProjectService.layer.pipe(
 const layerManagedProjectFoldersProvided = ManagedProjectFolders.layer.pipe(
   Layer.provide(layerProjectService),
 );
-/**
- * Agent turns read project memory (the MCP capability and the first-turn brief) when the server
- * provides this; runtimes built without it, as in tests, run without memory.
- */
-export const layerProjectMemoryAccess = ProjectMemoryAccess.layer.pipe(
-  Layer.provide(layerManagedProjectFoldersProvided),
-  Layer.provide(layerProjectMemoryProvided),
-  Layer.provide(QaSavedSecrets.layer),
-);
-
 const layerProviderEventIngestorProvided = ProviderEventIngestor.layer.pipe(
   Layer.provide(
     Layer.mergeAll(

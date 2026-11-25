@@ -6,7 +6,6 @@ import {
   CommandId,
   SecretRef,
   SecretRequestError,
-  qaSiteOrigin,
   type ProjectId,
   type SecretReference,
   type SecretRequestAnswerInput,
@@ -38,16 +37,11 @@ const SECRET_REF_TTL_MS = 24 * 60 * 60 * 1000;
 const STORE_NAME_PATTERN = /^(secret-request-[0-9a-f]{32})\.bin$/;
 const FILE_NAME_PATTERN = /^[0-9a-f]{32}(\.partial)?$/;
 
-/** What the user asked to keep for regression suites when a QA agent types the value. */
-const RememberRequest = Schema.Struct({ label: Schema.String, site: Schema.NullOr(Schema.String) });
-export type RememberRequest = typeof RememberRequest.Type;
-
 const StoredSecret = Schema.fromJsonString(
   Schema.Struct({
     projectId: Schema.String,
     value: Schema.String,
     savedAt: Schema.Number,
-    remember: Schema.optional(RememberRequest),
   }),
 );
 const encodeStored = Schema.encodeEffect(StoredSecret);
@@ -65,14 +59,6 @@ export class SecretRequests extends Context.Service<
       readonly ref: SecretRef;
       readonly projectId: ProjectId;
     }) => Effect.Effect<string, SecretRequestError>;
-    /** `consume`, plus whether the user asked to remember the value for regression suites. */
-    readonly consumeDetailed: (input: {
-      readonly ref: SecretRef;
-      readonly projectId: ProjectId;
-    }) => Effect.Effect<
-      { readonly value: string; readonly remember: RememberRequest | undefined },
-      SecretRequestError
-    >;
     /** Moves a saved `file` request's value to an owner-only file and returns its path. */
     readonly saveToFile: (input: {
       readonly threadId: ThreadId;
@@ -159,15 +145,10 @@ const make = Effect.gen(function* () {
       // Create before recording so racing answers cannot overwrite values or show saved before storage.
       // Existing values on pending cards finish earlier saves whose recording failed.
       if (secret !== undefined) {
-        const remember =
-          input.answer.type === "save" && input.answer.remember === true
-            ? { label: item.label, site: item.url === undefined ? null : qaSiteOrigin(item.url) }
-            : undefined;
         const encoded = yield* encodeStored({
           projectId: records.thread.projectId,
           value: secret,
           savedAt: yield* Clock.currentTimeMillis,
-          ...(remember === undefined ? {} : { remember }),
         }).pipe(Effect.orDie);
         yield* store
           .create(
@@ -246,17 +227,16 @@ const make = Effect.gen(function* () {
 
   // Serialize get/remove so concurrent consumers cannot read the same one-use ref.
   const consumeLock = yield* Semaphore.make(1);
-  const consumeDetailed: SecretRequests["Service"]["consumeDetailed"] = (input) =>
+  const consume: SecretRequests["Service"]["consume"] = (input) =>
     consumeRef(input).pipe(
       consumeLock.withPermits(1),
       Effect.tap(() => Metrics.increment(Metrics.secretRefsConsumedTotal, { result: "used" })),
       Effect.tapError(() =>
         Metrics.increment(Metrics.secretRefsConsumedTotal, { result: "rejected" }),
       ),
+      Effect.map(({ value }) => value),
       Effect.withSpan("SecretRequests.consume"),
     );
-  const consume: SecretRequests["Service"]["consume"] = (input) =>
-    consumeDetailed(input).pipe(Effect.map(({ value }) => value));
 
   /** A live ref's record, left in the store. */
   const readRef = Effect.fn("SecretRequests.readRef")(function* (input: {
@@ -278,7 +258,7 @@ const make = Effect.gen(function* () {
       yield* removeLogged(storeName(input.ref));
       return yield* new SecretRequestError({ reason: "ref_expired" });
     }
-    return { value: decoded.value.value, remember: decoded.value.remember };
+    return { value: decoded.value.value };
   });
 
   const consumeRef = Effect.fn("SecretRequests.consumeRef")(function* (input: {
@@ -414,7 +394,7 @@ const make = Effect.gen(function* () {
     Effect.forkScoped,
   );
 
-  return SecretRequests.of({ answer, savedRef, consume, consumeDetailed, saveToFile, savePasted });
+  return SecretRequests.of({ answer, savedRef, consume, saveToFile, savePasted });
 });
 
 export const layer = Layer.effect(SecretRequests, make);

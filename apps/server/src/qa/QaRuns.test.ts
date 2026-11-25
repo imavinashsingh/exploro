@@ -1,5 +1,3 @@
-import * as ProjectUnderstanding from "../memory/ProjectUnderstanding.ts";
-import * as MemoryEmbedder from "../memory/MemoryEmbedder.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProjectId, ThreadId } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
@@ -10,8 +8,6 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 
 import * as ServerConfig from "../config.ts";
-import * as ProjectMemory from "../memory/ProjectMemory.ts";
-import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { QA_MAX_SCREENSHOT_BYTES } from "./qaEvidence.ts";
 import * as QaRuns from "./QaRuns.ts";
 
@@ -46,14 +42,6 @@ const withQaRuns = <A, E>(
     return yield* body.pipe(
       Effect.provide(
         QaRuns.layer.pipe(
-          Layer.provide(
-            ProjectMemory.layer.pipe(
-              Layer.provide(
-                ProjectUnderstanding.layer.pipe(Layer.provide(MemoryEmbedder.layerUnavailable)),
-              ),
-            ),
-          ),
-          Layer.provide(Layer.fresh(SqlitePersistence.layerMemory)),
           Layer.provide(ServerConfig.layerTest(process.cwd(), baseDir)),
           Layer.provide(
             Layer.succeed(
