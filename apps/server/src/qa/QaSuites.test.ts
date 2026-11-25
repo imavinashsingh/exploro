@@ -5,7 +5,6 @@ import {
   DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
   PREVIEW_AUTOMATION_SERVER_OPERATIONS,
-  ProjectId,
   ThreadId,
   type PreviewAutomationAssertion,
   type PreviewAutomationRequest,
@@ -16,25 +15,18 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import { encode } from "fast-png";
 
-import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as PreviewAutomationBroker from "../mcp/PreviewAutomationBroker.ts";
-import * as MemoryEmbedder from "../memory/MemoryEmbedder.ts";
-import * as ProjectMemory from "../memory/ProjectMemory.ts";
-import * as ProjectUnderstanding from "../memory/ProjectUnderstanding.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
-import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as PreviewAgentActivity from "../preview/PreviewAgentActivity.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import * as QaRecorder from "./QaRecorder.ts";
 import * as QaRuns from "./QaRuns.ts";
-import * as QaSavedSecrets from "./QaSavedSecrets.ts";
 import * as QaSuites from "./QaSuites.ts";
 
 const threadId = ThreadId.make("thread-regress-1");
@@ -156,16 +148,7 @@ const layer = (options: {
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "exploro-qa-suites-" });
-    const qaRuns = QaRuns.layer.pipe(
-      Layer.provide(
-        ProjectMemory.layer.pipe(
-          Layer.provide(
-            ProjectUnderstanding.layer.pipe(Layer.provide(MemoryEmbedder.layerUnavailable)),
-          ),
-        ),
-      ),
-      Layer.provide(Layer.fresh(SqlitePersistence.layerMemory)),
-    );
+    const qaRuns = QaRuns.layer;
     const recorder = Layer.effect(
       QaRecorder.QaRecorder,
       Effect.gen(function* () {
@@ -174,13 +157,11 @@ const layer = (options: {
           browserOpened: () => Effect.void,
           startVideo: () => Effect.void,
           stepPerformed: () => Effect.void,
-          finish: (id, kind = "exploratory") =>
-            runs.finishRun(id, { projectId: null, remember: false, kind }),
+          finish: (id, kind = "exploratory") => runs.finishRun(id, { projectId: null, kind }),
         });
       }),
     );
     return QaSuites.layer.pipe(
-      Layer.provideMerge(QaSavedSecrets.layer.pipe(Layer.provide(ServerSecretStore.layer))),
       Layer.provideMerge(recorder),
       Layer.provideMerge(qaRuns),
       Layer.provideMerge(PreviewAutomationBroker.layer),
@@ -336,56 +317,6 @@ it.layer(NodeServices.layer)("QaSuites", (it) => {
         assert.strictEqual((acted[index + 1]!.input as { settle?: boolean }).settle, true);
       }
       assert.strictEqual(operations.at(-1), "close");
-    }),
-  );
-
-  it.effect("replays a password remembered for the project, and says so once it is removed", () =>
-    Effect.gen(function* () {
-      const browser: Browser = { requests: [], missing: [], absent: [], changedLook: false };
-      yield* Effect.gen(function* () {
-        const qaRuns = yield* QaRuns.QaRuns;
-        const suites = yield* QaSuites.QaSuites;
-        const saved = yield* QaSavedSecrets.QaSavedSecrets;
-        yield* fakeBrowser(browser);
-        const projectId = ProjectId.make("project-shop");
-        const login = { projectId, label: "Shop password", site: "https://shop.test" };
-
-        const secretId = yield* saved.remember({ ...login, value: "old-pass" });
-        // A new value for the same sign-in replaces the old one, so its suites keep working.
-        assert.strictEqual(yield* saved.remember({ ...login, value: "new-pass" }), secretId);
-        assert.deepStrictEqual(yield* saved.read(projectId, secretId), Option.some("new-pass"));
-        assert.isTrue(Option.isNone(yield* saved.read(ProjectId.make("project-other"), secretId)));
-
-        yield* qaRuns.appendStep(threadId, { kind: "navigate", url: "https://shop.test/login" });
-        yield* qaRuns.appendStep(threadId, {
-          kind: "type",
-          target: null,
-          text: `{{saved:${secretId}}}`,
-        });
-        yield* qaRuns.recordEvidence(
-          threadId,
-          { scenario: "Login", verdict: "PASS", note: "seen" },
-          capture("https://shop.test/home"),
-          [{ kind: "textVisible", text: "Welcome" }],
-        );
-        const source = yield* qaRuns.finishRun(threadId, { projectId });
-        const { suite } = yield* suites.create({ threadId, runId: source!.runId });
-
-        const run = (yield* suites.run({ suiteIds: [suite.suiteId] })).runs[0]!;
-        assert.deepStrictEqual(
-          run.scenarios.map((scenario) => scenario.verdict),
-          ["PASS"],
-        );
-        const typed = browser.requests.find((request) => request.operation === "type");
-        assert.strictEqual((typed?.input as { text?: string } | undefined)?.text, "new-pass");
-        assert.notInclude(JSON.stringify(run), "new-pass");
-
-        yield* suites.forgetSecret(secretId);
-        assert.deepStrictEqual(yield* saved.list, []);
-        const failed = yield* suites.run({ suiteIds: [suite.suiteId] });
-        assert.deepStrictEqual(failed.runs, []);
-        assert.include(failed.batch.jobs[0]!.error, "saved password that was removed");
-      }).pipe(Effect.provide(yield* layer({})));
     }),
   );
 

@@ -91,9 +91,8 @@ and never passes a scenario. Accepting updates the step and replays the suite wi
 
 - Passwords are never saved in a suite. A replay uses the passwords you gave in the thread the
   suite came from, so keep that thread.
-- A password entered on a sign-in card is used once and then discarded, so a suite stops at that
-  step. Tick **Remember for this project's regression suites** on the card to keep it for replays.
-  Entering a new password for the same sign-in replaces the old one. Saved passwords are listed
-  under Regression suites in the thread details, where you can remove them.
+- A password entered on a sign-in card is used once and then discarded. Scenarios checked after it
+  is typed are left out of the suite, and a run with no other scenario cannot be saved. To replay a
+  sign-in, give a test account's password in chat instead.
 - A replay cannot start while an agent is working in that thread.
 - Deleting a suite keeps the runs it already made.

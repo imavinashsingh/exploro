@@ -58,7 +58,6 @@ import {
 import { deliverContextHandoffs, withInlineContext } from "./ContextHandoffDelivery.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
-import * as ProjectMemoryAccess from "../memory/ProjectMemoryAccess.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import { unsentManualContinuationSource } from "./manualContinuation.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
@@ -249,7 +248,6 @@ export const layer: Layer.Layer<
     const runtimePolicy = yield* RuntimePolicy.RuntimePolicyV2;
     const restoreMissingWorktree = yield* makeRestoreMissingWorktree;
     const turnItemPositions = yield* TurnItemPositionStore.TurnItemPositionStoreV2;
-    const memoryAccess = yield* Effect.serviceOption(ProjectMemoryAccess.ProjectMemoryAccess);
 
     // Build draining callbacks outside startup scope so they cannot retain full thread history.
     const makeRunControls = (input: {
@@ -931,17 +929,6 @@ export const layer: Layer.Layer<
         restartCancelledWork.length === 0
           ? ""
           : restartCancelledBackgroundWorkNote(restartCancelledWork);
-      // Memory is read once, as a thread starts; later turns have the thread itself.
-      const memoryBrief =
-        Option.isNone(memoryAccess) ||
-        goalCommand ||
-        projection.runs.some((source) => source.ordinal < run.ordinal)
-          ? ""
-          : yield* memoryAccess.value.firstTurnBrief(
-              projection.thread.projectId,
-              userText,
-              projection.thread.id,
-            );
       const tokenCap = yield* handoffTokenCapConfig.pipe(
         Effect.orElseSucceed(() => DEFAULT_HANDOFF_TOKEN_CAP),
       );
@@ -1854,12 +1841,7 @@ export const layer: Layer.Layer<
             sideChatHandoff === undefined || compact || goalCommand
               ? ""
               : sideChatHandoff.summaryText;
-          const context = [
-            delivery.context,
-            sideChatContext,
-            restartNote,
-            compact ? "" : memoryBrief,
-          ]
+          const context = [delivery.context, sideChatContext, restartNote]
             .filter((part) => part !== "")
             .join("\n\n");
           const { restartContinuationOfRunId: _resumedRunId, ...promptedInput } = turnInput;
@@ -1951,7 +1933,6 @@ export const layer: Layer.Layer<
         retryHandoff.attachments.length === 0 &&
         sideChatHandoff === undefined &&
         restartNote === "" &&
-        memoryBrief === "" &&
         !noteContinuation
           ? session
           : makeDeliverySession(session, startWithHandoffs);

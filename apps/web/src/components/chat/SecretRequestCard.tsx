@@ -2,7 +2,6 @@ import { pipe } from "effect/Function";
 import {
   SECRET_REQUEST_DEFAULT_PLACEHOLDER,
   secretRequestAnswerInput,
-  secretRequestCanRemember,
   secretRequestDisplay,
   secretRequestFailureMessage,
   secretRequestLink,
@@ -31,7 +30,6 @@ import { isSecretsFeatureEnabled } from "../../env";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
-import { Checkbox } from "../ui/checkbox";
 import { Input } from "../ui/input";
 import { SecretSourceSelect } from "../settings/SecretSourceInput";
 import { WorkLogRow } from "./WorkLog";
@@ -95,7 +93,6 @@ function PendingSecretRequestForm(props: {
   const [sourceId, setSourceId] = useState<SecretProviderId | null>(null);
   const source = sources.find((candidate) => candidate.id === sourceId) ?? null;
   const [secret, setSecret] = useState("");
-  const [remember, setRemember] = useState(false);
   const [reference, setReference] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -129,7 +126,7 @@ function PendingSecretRequestForm(props: {
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (source === null) {
-      void send({ type: "save", secret, remember });
+      void send({ type: "save", secret });
     } else if (secretRequestReference(source, reference) === undefined) {
       setError(source.invalidReferenceMessage);
     } else {
@@ -239,16 +236,6 @@ function PendingSecretRequestForm(props: {
           <T>Save securely</T>
         </Button>
       </div>
-      {source === null && secretRequestCanRemember(item) ? (
-        <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground has-disabled:cursor-not-allowed">
-          <Checkbox
-            checked={remember}
-            disabled={submitting}
-            onCheckedChange={(checked) => setRemember(checked === true)}
-          />
-          <T>Remember for this project's regression suites</T>
-        </label>
-      ) : null}
       {error !== null ? (
         <p id={errorId} role="alert" className="text-xs text-destructive">
           {error}

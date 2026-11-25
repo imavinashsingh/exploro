@@ -11,9 +11,7 @@
     "voice-cleanup": "node --env-file-if-exists=../.env voice-cleanup/run.ts",
     "test-signal": "node --env-file-if-exists=../.env test-signal/run.ts",
     "typecheck": "effect-tsgo tsrs --noEmit",
-    "test": "vp test run --config ../vite.config.ts --dir .",
-    "project-navigation": "node project-navigation/run.ts",
-    "project-navigation:prepare": "node project-navigation/prepare.ts"
+    "test": "vp test run --config ../vite.config.ts --dir ."
   },
   "dependencies": {
     "@effect/platform-node": "catalog:",

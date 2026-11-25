@@ -122,14 +122,6 @@ vi.mock(import("./ProjectDefaultsSettings"), async (original) => ({
   ...(await original()),
   ProjectDefaultsSettings: (() => null) as never,
 }));
-vi.mock(import("./ProjectSitesSettings"), async (original) => ({
-  ...(await original()),
-  ProjectSitesSettings: (() => null) as never,
-}));
-vi.mock(import("./ProjectMemorySettings"), async (original) => ({
-  ...(await original()),
-  ProjectMemorySettings: (() => null) as never,
-}));
 vi.mock(import("./ProjectActionsSettings"), async (original) => ({
   ...(await original()),
   ProjectActionsSettings: (() => null) as never,

@@ -48,7 +48,6 @@ type TextGenerationOp =
   | "generateThreadTitle"
   | "generateReviewGuide"
   | "generateTranscriptionPostProcessing"
-  | "generateProjectUnderstanding"
   | "generateLocatorHeal";
 
 const resolveInstance = (
@@ -205,17 +204,6 @@ export const make = Effect.gen(function* () {
           service.generateTranscriptionPostProcessing({ ...input, modelSelection }),
       );
     }),
-    generateProjectUnderstanding: Effect.fn("TextGeneration.generateProjectUnderstanding")(
-      function (input) {
-        return generate(
-          "generateProjectUnderstanding",
-          input.modelSelection,
-          input.projectId,
-          (service, modelSelection) =>
-            service.generateProjectUnderstanding({ ...input, modelSelection }),
-        );
-      },
-    ),
     generateLocatorHeal: Effect.fn("TextGeneration.generateLocatorHeal")(function (input) {
       return generate(
         "generateLocatorHeal",

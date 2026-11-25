@@ -1,5 +1,4 @@
 import {
-  qaSiteOrigin,
   type PreviewAutomationActionEvent,
   type PreviewAutomationConsoleEntry,
   type PreviewAutomationNetworkEntry,
@@ -159,14 +158,4 @@ export function scenarioFileStem(index: number, scenario: string): string {
       .slice(0, 48)
       .replace(/-+$/g, "") || "scenario";
   return `${String(index + 1).padStart(2, "0")}-${slug}`;
-}
-
-/** A project learns its first site from its first run; sites the user set are never changed. */
-export function learnedSiteOrigins(
-  current: ReadonlyArray<string> | undefined,
-  site: string | null,
-): ReadonlyArray<string> | null {
-  if (current !== undefined && current.length > 0) return null;
-  const origin = site === null ? null : qaSiteOrigin(site);
-  return origin === null ? null : [origin];
 }

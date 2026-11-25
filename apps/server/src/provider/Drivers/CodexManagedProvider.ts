@@ -291,8 +291,6 @@ export const makeManagedCodexProvider = Effect.fn("makeManagedCodexProvider")(fu
         "generateTranscriptionPostProcessing",
         nativeGeneration.generateTranscriptionPostProcessing(value),
       ),
-    generateProjectUnderstanding: (value) =>
-      protect("generateProjectUnderstanding", nativeGeneration.generateProjectUnderstanding(value)),
     generateLocatorHeal: (value) =>
       protect("generateLocatorHeal", nativeGeneration.generateLocatorHeal(value)),
   };

@@ -325,14 +325,6 @@ const copySourceSlice = Effect.fn("copyDevDbSourceSlice")(function* (sourcePath:
         if (entry.type !== "table") yield* sql.unsafe(entry.sql).unprepared;
       }
       yield* rebuildMessageSearch(sql);
-      if (virtualTables.includes("project_navigation_search")) {
-        // Search rows are keyed by state rowid, which the copy does not keep.
-        yield* sql`INSERT INTO main.project_navigation_search(rowid, text)
-          SELECT d.rowid, f.text FROM src.project_navigation_search f
-          JOIN src.project_navigation_states s ON s.rowid = f.rowid
-          JOIN main.project_navigation_states d
-            ON d.project_id = s.project_id AND d.state_id = s.state_id`;
-      }
     }),
   );
   yield* sql`DETACH DATABASE src`;

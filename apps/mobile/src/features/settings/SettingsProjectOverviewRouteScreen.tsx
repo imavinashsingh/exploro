@@ -37,7 +37,6 @@ import {
 } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsScreen } from "./components/SettingsScreen";
-import { SettingsProjectMemorySection } from "./components/SettingsProjectMemorySection";
 import { SettingsSection } from "./components/SettingsSection";
 import { ListActionRow as SettingsActionRow } from "../../components/ui/ListActionRow";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
@@ -440,12 +439,6 @@ function ProjectOverviewContent(props: {
           );
         })}
       </SettingsSection>
-      {props.members
-        .filter((member) => !member.isScratch)
-        .slice(0, 1)
-        .map((member) => (
-          <SettingsProjectMemorySection key={member.id} project={member} />
-        ))}
       <SettingsSection
         title={gt("Danger", { $context: "section heading for destructive actions" })}
       >

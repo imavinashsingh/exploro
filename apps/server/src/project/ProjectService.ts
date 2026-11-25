@@ -18,7 +18,6 @@ import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
-import * as ProjectMemory from "../memory/ProjectMemory.ts";
 import { withCommandMetrics } from "../observability/Metrics.ts";
 import * as EventSink from "../orchestration-v2/EventSink.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
@@ -184,8 +183,6 @@ export const make = Effect.gen(function* () {
   const legacyImporter = yield* LegacyV1ThreadImporter.LegacyV1ThreadImporter;
   const threadCommands = yield* ThreadCommandExecutor.ThreadCommandExecutor;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
-  // Optional so runtimes built without project memory, as in tests, still delete projects.
-  const projectMemory = yield* Effect.serviceOption(ProjectMemory.ProjectMemory);
   const fileSystem = yield* FileSystem.FileSystem;
   const isManagedWorktreePath = yield* makeIsManagedWorktreePath;
   const isWorktreeContainer = yield* makeIsWorktreeContainer.pipe(
@@ -571,20 +568,6 @@ export const make = Effect.gen(function* () {
       ),
     );
 
-  // Best-effort like the overrides above: memory left behind is unreachable, never shown again.
-  const forgetProjectMemory = (projectId: ProjectId) =>
-    Option.match(projectMemory, {
-      onNone: () => Effect.void,
-      onSome: (memory) =>
-        memory
-          .forgetProject(projectId)
-          .pipe(
-            Effect.catchCause((cause) =>
-              Effect.logWarning(`Failed to delete memory for deleted project ${projectId}.`, cause),
-            ),
-          ),
-    });
-
   const deleteProject: ProjectService["Service"]["delete"] = Effect.fn("ProjectService.delete")(
     function* (input) {
       const { projectId } = input;
@@ -601,7 +584,6 @@ export const make = Effect.gen(function* () {
       yield* commit({ type: "project.delete", commandId: input.commandId, projectId });
       if (isFirstDelete) {
         yield* clearProjectSettingsOverrides(projectId);
-        yield* forgetProjectMemory(projectId);
       }
       yield* projectEnrichment.invalidate([existing.value.workspaceRoot]);
       return yield* readCommitted(projectId);

@@ -4,7 +4,6 @@ import type {
   QaCheck,
   QaReplayStep,
   QaRun,
-  QaSavedSecretId,
   QaSuiteScenario,
   QaSuiteSkippedScenario,
 } from "@t3tools/contracts";
@@ -120,21 +119,6 @@ export function fillSecrets(
   });
   return missing === null ? { text: filled } : { missing };
 }
-
-const SAVED_PLACEHOLDER = /\{\{saved:(qa-secret-[0-9a-f]+)\}\}/g;
-
-/** The placeholder a step types for a password remembered for the project's suites. */
-export const savedSecretPlaceholder = (secretId: QaSavedSecretId) => `{{saved:${secretId}}}`;
-
-export const savedSecretIds = (text: string): ReadonlyArray<QaSavedSecretId> => [
-  ...new Set(Array.from(text.matchAll(SAVED_PLACEHOLDER), (match) => match[1] as QaSavedSecretId)),
-];
-
-export const fillSavedSecrets = (text: string, values: ReadonlyMap<string, string>) =>
-  text.replace(
-    SAVED_PLACEHOLDER,
-    (placeholder, secretId: string) => values.get(secretId) ?? placeholder,
-  );
 
 /** The live-page assertion that re-checks a saved check. */
 export function assertionFor(check: QaCheck): PreviewAutomationAssertion {

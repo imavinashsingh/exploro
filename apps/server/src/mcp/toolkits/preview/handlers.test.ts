@@ -5,7 +5,6 @@ import {
   EnvironmentId,
   PreviewTabId,
   ProviderInstanceId,
-  QaSavedSecretId,
   SecretRef,
   SecretRequestError,
   ThreadId,
@@ -16,7 +15,6 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Stream from "effect/Stream";
 
@@ -30,7 +28,6 @@ import * as McpToolAccess from "../../McpToolAccess.ts";
 import { liveThreadsLayer } from "../../McpToolAccess.testkit.ts";
 import * as PreviewAutomationBroker from "../../PreviewAutomationBroker.ts";
 import * as QaRecorder from "../../../qa/QaRecorder.ts";
-import * as QaSavedSecrets from "../../../qa/QaSavedSecrets.ts";
 import * as SecretRequests from "../../../secrets/SecretRequests.ts";
 import { layerStandard } from "./handlers.ts";
 import { claimPreviewRecording } from "./recordingClaim.ts";
@@ -136,31 +133,24 @@ it.effect("preview_open navigates the opened tab to a dev server in one tool cal
           stepPerformed: (_threadId, step) => Effect.sync(() => void loggedSteps.push(step)),
         }),
         Layer.mock(SecretRequests.SecretRequests)({}),
-        Layer.mock(QaSavedSecrets.QaSavedSecrets)({}),
       ).pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
     ),
   ),
 );
 
 const ref = SecretRef.make(`secret-ref:${"a".repeat(32)}`);
-const rememberedRef = SecretRef.make(`secret-ref:${"b".repeat(32)}`);
 const passwordField = { selector: 'internal:label="Password"i', display: "getByLabel('Password')" };
-const remembered: Array<{ readonly label: string; readonly value: string }> = [];
-
-/** One-use secrets; the second asks to be remembered for suites. */
+/** A one-use secret. */
 const secretRequestsLayer = () => {
-  const refs = new Map<SecretRef, { value: string; remember?: SecretRequests.RememberRequest }>([
-    [ref, { value: "hunter2!" }],
-    [rememberedRef, { value: "s3cret!", remember: { label: "Shop password", site: null } }],
-  ]);
+  const refs = new Map<SecretRef, string>([[ref, "hunter2!"]]);
   return Layer.mock(SecretRequests.SecretRequests)({
-    consumeDetailed: (input) =>
+    consume: (input) =>
       Effect.suspend(() => {
-        const stored = refs.get(input.ref);
-        if (stored === undefined)
+        const value = refs.get(input.ref);
+        if (value === undefined)
           return Effect.fail(new SecretRequestError({ reason: "ref_unavailable" }));
         refs.delete(input.ref);
-        return Effect.succeed({ value: stored.value, remember: stored.remember });
+        return Effect.succeed(value);
       }),
   });
 };
@@ -210,39 +200,6 @@ it.effect("preview_act types a secretRef's value unseen and consumes it once", (
     const both = yield* Effect.flip(act({ secretRef: ref, text: "x" }));
     expect(both.message).toContain("Pass one of");
     expect(requests.filter((request) => request.operation === "type")).toHaveLength(1);
-
-    remembered.length = 0;
-    yield* act({ secretRef: rememberedRef });
-    expect(remembered).toEqual([{ label: "Shop password", value: "s3cret!" }]);
-    expect(loggedSteps.at(-1)).toEqual({
-      kind: "type",
-      target: passwordField,
-      text: "{{saved:qa-secret-0a}}",
-    });
-
-    // A saved password is reusable in later threads, and its step stays replayable.
-    const savedId = QaSavedSecretId.make("qa-secret-0a");
-    for (const _ of [1, 2]) {
-      const typedSaved = yield* act({ savedSecretId: savedId });
-      expect(JSON.stringify(typedSaved.at(-1)?.result)).not.toContain("s3cret!");
-      expect(loggedSteps.at(-1)).toEqual({
-        kind: "type",
-        target: passwordField,
-        text: "{{saved:qa-secret-0a}}",
-      });
-    }
-    expect(
-      requests.filter((request) => request.operation === "type").map(({ input }) => input),
-    ).toEqual([
-      { locator: "aria-ref=e7", text: "hunter2!" },
-      { locator: "aria-ref=e7", text: "s3cret!" },
-      { locator: "aria-ref=e7", text: "s3cret!" },
-      { locator: "aria-ref=e7", text: "s3cret!" },
-    ]);
-    const unknown = yield* Effect.flip(
-      act({ savedSecretId: QaSavedSecretId.make("qa-secret-ff") }),
-    );
-    expect(unknown.message).toContain("No saved password");
   }).pipe(
     Effect.provideService(McpInvocationContext.McpInvocationContext, {
       environmentId: EnvironmentId.make("environment-1"),
@@ -264,15 +221,6 @@ it.effect("preview_act types a secretRef's value unseen and consumes it once", (
           stepPerformed: (_threadId, step) => Effect.sync(() => void loggedSteps.push(step)),
         }),
         secretRequestsLayer(),
-        Layer.mock(QaSavedSecrets.QaSavedSecrets)({
-          remember: (input) =>
-            Effect.sync(() => {
-              remembered.push({ label: input.label, value: input.value });
-              return QaSavedSecretId.make("qa-secret-0a");
-            }),
-          read: (_projectId, secretId) =>
-            Effect.succeed(secretId === "qa-secret-0a" ? Option.some("s3cret!") : Option.none()),
-        }),
       ).pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
     ),
   ),

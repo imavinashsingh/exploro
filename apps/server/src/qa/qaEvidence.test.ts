@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
-  learnedSiteOrigins,
   redactText,
   redactUrl,
   resolveVerdict,
@@ -103,17 +102,5 @@ describe("summarizeLogs", () => {
     expect(summary.consoleErrors).toEqual(["this scenario"]);
     expect(summary.failedRequests.map((request) => request.url)).toEqual(["https://a.test/new"]);
     expect(summarizeLogs(consoleEntries, networkEntries, null).consoleErrorCount).toBe(2);
-  });
-});
-
-describe("learnedSiteOrigins", () => {
-  it.each([
-    [undefined, "https://shop.test/login?next=/", ["https://shop.test"]],
-    [[], "http://localhost:3000/a", ["http://localhost:3000"]],
-    [["https://shop.test"], "https://other.test/", null],
-    [undefined, null, null],
-    [undefined, "about:blank", null],
-  ] as const)("%j + %s", (current, site, expected) => {
-    expect(learnedSiteOrigins(current, site)).toEqual(expected);
   });
 });

@@ -54,8 +54,6 @@ import {
   ProjectFaviconPickerDialog,
 } from "./ProjectFaviconPickerDialog";
 import { ProjectActionsSettings } from "./ProjectActionsSettings";
-import { ProjectMemorySettings } from "./ProjectMemorySettings";
-import { ProjectSitesSettings } from "./ProjectSitesSettings";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
 import {
   defaultProjectIcon,
@@ -694,14 +692,6 @@ function ProjectDetail({
           ) : null}
         </SettingsSection>
         <ProjectDefaultsSettings category="project" />
-        {group.memberProjects.every((member) => member.isScratch) ? null : (
-          <>
-            <ProjectSitesSettings />
-            <ProjectMemorySettings
-              members={group.memberProjects.filter((member) => !member.isScratch)}
-            />
-          </>
-        )}
         {/* Exploro: QA projects do not offer development scripts. */}
         {EXPLORO_SHOW_DEVELOPER_SETTINGS ? <ProjectActionsSettings /> : null}
         {checkoutChoices}

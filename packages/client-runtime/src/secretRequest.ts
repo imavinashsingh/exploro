@@ -212,12 +212,8 @@ export function secretRequestReference(
     : undefined;
 }
 
-/** A sign-in a QA agent types in the browser; only then can a regression suite reuse it. */
-export const secretRequestCanRemember = (item: Pick<SecretRequestItem, "delivery" | "url">) =>
-  item.delivery !== "file" && item.url !== undefined;
-
 export type SecretRequestReply =
-  | { readonly type: "save"; readonly secret: string; readonly remember?: boolean }
+  | { readonly type: "save"; readonly secret: string }
   | { readonly type: "reference"; readonly source: SecretRequestSource; readonly reference: string }
   | { readonly type: "decline" };
 
@@ -239,7 +235,7 @@ export function secretRequestAnswerInput(
   return {
     threadId: item.threadId,
     turnItemId: item.id,
-    answer: { type: "save", secret, ...(answer.remember === true ? { remember: true } : {}) },
+    answer: { type: "save", secret },
   };
 }
 
