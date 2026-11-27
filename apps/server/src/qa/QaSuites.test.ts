@@ -4,6 +4,7 @@ import { assert, it } from "@effect/vitest";
 import {
   DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
+  ProjectId,
   PREVIEW_AUTOMATION_SERVER_OPERATIONS,
   ThreadId,
   type PreviewAutomationAssertion,
@@ -15,6 +16,7 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 import * as Stream from "effect/Stream";
 import { encode } from "fast-png";
 
@@ -25,6 +27,7 @@ import * as ThreadManagementService from "../orchestration-v2/ThreadManagementSe
 import * as PreviewAgentActivity from "../preview/PreviewAgentActivity.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
+import * as QaFolders from "./QaFolders.ts";
 import * as QaRecorder from "./QaRecorder.ts";
 import * as QaRuns from "./QaRuns.ts";
 import * as QaSuites from "./QaSuites.ts";
@@ -144,10 +147,21 @@ const fakeBrowser = (browser: Browser) =>
 const layer = (options: {
   readonly parallelRuns?: number;
   readonly healRequests?: Array<string>;
+  /** A second server start over the same data. */
+  readonly baseDir?: string;
+  /** Every thread's runs and suites belong to this project folder. */
+  readonly projectRoot?: string;
+  /** The project the threads report; differs from the folder's for a foreign thread. */
+  readonly threadProject?: () => string;
 }) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "exploro-qa-suites-" });
+    const baseDir =
+      options.baseDir ?? (yield* fs.makeTempDirectoryScoped({ prefix: "exploro-qa-suites-" }));
+    const project =
+      options.projectRoot === undefined
+        ? null
+        : { projectId: ProjectId.make("shop"), root: options.projectRoot };
     const qaRuns = QaRuns.layer;
     const recorder = Layer.effect(
       QaRecorder.QaRecorder,
@@ -161,9 +175,19 @@ const layer = (options: {
         });
       }),
     );
+    const folders = Layer.succeed(
+      QaFolders.QaFolders,
+      QaFolders.QaFolders.of({
+        forThread: () =>
+          Effect.succeed(project === null ? null : { ...project, threadTitle: "Shop" }),
+        forProject: () => Effect.succeed(project),
+        projects: Effect.succeed(project === null ? [] : [project]),
+      }),
+    );
     return QaSuites.layer.pipe(
       Layer.provideMerge(recorder),
       Layer.provideMerge(qaRuns),
+      Layer.provide(folders),
       Layer.provideMerge(PreviewAutomationBroker.layer),
       Layer.provide(PreviewAgentActivity.layer),
       Layer.provide(
@@ -192,6 +216,7 @@ const layer = (options: {
           getThreadShell: (id) =>
             Effect.succeed({
               threadId: id,
+              projectId: options.threadProject?.() ?? "shop",
               modelSelection: { instanceId: "claudeAgent", model: "claude-haiku-5-5" },
             } as never),
           getThreadRecords: () =>
@@ -210,6 +235,7 @@ const saveSuite = (
     | { readonly step: Parameters<QaRuns.QaRuns["Service"]["appendStep"]>[1] }
     | { readonly scenario: string; readonly checks: ReadonlyArray<QaCheck> }
   >,
+  projectId: ProjectId | null = null,
 ) =>
   Effect.gen(function* () {
     const qaRuns = yield* QaRuns.QaRuns;
@@ -224,7 +250,7 @@ const saveSuite = (
           entry.checks,
         );
     }
-    const source = yield* qaRuns.finishRun(thread, { projectId: null });
+    const source = yield* qaRuns.finishRun(thread, { projectId });
     return yield* suites.create({ threadId: thread, runId: source!.runId });
   });
 
@@ -540,6 +566,59 @@ it.layer(NodeServices.layer)("QaSuites", (it) => {
         assert.deepStrictEqual(verdicts(rerun.runs[0]!), [["Checkout", "PASS"]]);
         assert.strictEqual(healRequests.length, 1);
       }).pipe(Effect.provide(yield* layer({ healRequests })));
+    }),
+  );
+
+  it.effect("moves a suite into its project, and never fills it from another project", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "exploro-qa-suites-data-" });
+      const projectRoot = yield* fs.makeTempDirectoryScoped({ prefix: "exploro-qa-suites-app-" });
+      const dataSuites = path.join(baseDir, "userdata", "qa-suites");
+
+      // The project folder is missing, so the run and its suite land in the data folder.
+      const suiteId = yield* Effect.gen(function* () {
+        const { suite } = yield* saveSuite(
+          threadId,
+          [
+            { step: { kind: "type", target: null, text: "{{secret:1}}" } },
+            { scenario: "Login", checks: [{ kind: "textVisible", text: "Welcome" }] },
+          ],
+          ProjectId.make("shop"),
+        );
+        return suite.suiteId;
+      }).pipe(
+        Effect.provide(yield* layer({ baseDir, projectRoot: path.join(projectRoot, "missing") })),
+      );
+      assert.isTrue(yield* fs.exists(path.join(dataSuites, `${suiteId}.json`)));
+
+      let threadProject = "elsewhere";
+      yield* Effect.gen(function* () {
+        const suites = yield* QaSuites.QaSuites;
+        yield* fakeBrowser({ requests: [], missing: [], absent: [], changedLook: false });
+        assert.deepStrictEqual(
+          (yield* suites.list).map((suite) => suite.suiteId),
+          [suiteId],
+        );
+        assert.isTrue(
+          yield* fs.exists(path.join(projectRoot, "qa-runs", "suites", `${suiteId}.json`)),
+        );
+        assert.isFalse(yield* fs.exists(path.join(dataSuites, `${suiteId}.json`)));
+
+        const refused = yield* suites.run({ suiteIds: [suiteId] });
+        assert.include(refused.batch.jobs[0]!.error ?? "", "another project");
+        threadProject = "shop";
+        const replayed = yield* suites.run({ suiteIds: [suiteId] });
+        assert.deepStrictEqual(verdicts(replayed.runs[0]!), [["Login", "PASS"]]);
+        assert.isTrue(
+          yield* fs.exists(
+            path.join(projectRoot, "qa-runs", "suites", "baselines", suiteId, "0.png"),
+          ),
+        );
+      }).pipe(
+        Effect.provide(yield* layer({ baseDir, projectRoot, threadProject: () => threadProject })),
+      );
     }),
   );
 });

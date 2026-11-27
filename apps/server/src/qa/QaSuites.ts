@@ -5,6 +5,7 @@ import {
   QaRunError,
   QaSuite,
   qaSiteOrigin,
+  type ProjectId,
   type PreviewAutomationCheckResult,
   type PreviewAutomationDurableTarget,
   type PreviewAutomationSnapshot,
@@ -55,6 +56,7 @@ import * as PreviewAgentActivity from "../preview/PreviewAgentActivity.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import { capturePage } from "./qaCapture.ts";
+import * as QaFolders from "./QaFolders.ts";
 import * as QaRecorder from "./QaRecorder.ts";
 import {
   applyParams,
@@ -180,6 +182,7 @@ const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const random = yield* SecureRandom.SecureRandom;
   const qaRuns = yield* QaRuns.QaRuns;
+  const folders = yield* QaFolders.QaFolders;
   const recorder = yield* QaRecorder.QaRecorder;
   const broker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
   const threads = yield* ThreadManagementService.ThreadManagementService;
@@ -191,11 +194,38 @@ const make = Effect.gen(function* () {
   const changes = yield* PubSub.unbounded<void>();
   const lock = yield* Semaphore.make(1);
   const queueLock = yield* Semaphore.make(1);
-  const suitesDir = path.join(config.stateDir, "qa-suites");
-  const suitePath = (suiteId: QaSuiteId) => path.join(suitesDir, `${suiteId}.json`);
-  const baselineDir = (suiteId: QaSuiteId) => path.join(suitesDir, "baselines", suiteId);
+  /** Where suites live; `base` is the folder no link may lead out of. */
+  interface SuiteStore {
+    readonly dir: string;
+    readonly base: string;
+    readonly projectId: ProjectId | null;
+  }
+  // Suites of threads without a project, and any a project could not take.
+  const dataStore: SuiteStore = {
+    dir: path.join(config.stateDir, "qa-suites"),
+    base: config.stateDir,
+    projectId: null,
+  };
+  const projectStore = (project: QaFolders.QaProject): SuiteStore => ({
+    dir: path.join(project.root, QaFolders.QA_PROJECT_DIR, QaFolders.QA_SUITES_DIR),
+    base: project.root,
+    projectId: project.projectId,
+  });
+  /** The store each loaded suite was found in. */
+  const stores = new Map<QaSuiteId, SuiteStore>();
+  const storeOf = (suiteId: QaSuiteId) => stores.get(suiteId) ?? dataStore;
+  const suiteFile = (store: SuiteStore, suiteId: QaSuiteId) =>
+    path.join(store.dir, `${suiteId}.json`);
+  const baselineDir = (store: SuiteStore, suiteId: QaSuiteId) =>
+    path.join(store.dir, "baselines", suiteId);
   const baselinePath = (suiteId: QaSuiteId, scenarioIndex: number) =>
-    path.join(baselineDir(suiteId), `${scenarioIndex}.png`);
+    path.join(baselineDir(storeOf(suiteId), suiteId), `${scenarioIndex}.png`);
+  const platform = <A, E>(effect: Effect.Effect<A, E, FileSystem.FileSystem | Path.Path>) =>
+    effect.pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, path),
+    );
+  const guard = (base: string, target: string) => platform(QaFolders.checkInside(base, target));
   let cache: ReadonlyArray<QaSuite> | null = null;
   // Batches are a view of this server's queue; the runs they link to are what persists.
   let batches: Array<QaRegressionBatch> = [];
@@ -208,29 +238,113 @@ const make = Effect.gen(function* () {
     random.uuidV4().pipe(Effect.map((uuid) => `${prefix}-${uuid.slice(0, 13)}`));
   const publish = PubSub.publish(changes, undefined);
 
+  const readStore = Effect.fnUntraced(function* (store: SuiteStore) {
+    const names = yield* fileSystem.readDirectory(store.dir).pipe(
+      Effect.catchIf(
+        (error) => error.reason._tag === "NotFound",
+        () => Effect.succeed([] as Array<string>),
+      ),
+    );
+    const found: Array<{ readonly suite: QaSuite; readonly text: string }> = [];
+    for (const name of names.filter((entry) => entry.endsWith(".json"))) {
+      const file = path.join(store.dir, name);
+      const text = yield* guard(store.base, file).pipe(
+        Effect.andThen(fileSystem.readFileString(file)),
+        Effect.orElseSucceed(() => ""),
+      );
+      const suite = decodeSuite(text);
+      // The id names the baseline folder, so it has to be the file's own name.
+      if (suite._tag === "Some" && name === `${suite.value.suiteId}.json`)
+        found.push({
+          suite: { ...suite.value, projectId: store.projectId ?? suite.value.projectId },
+          text,
+        });
+      else yield* Effect.logWarning("Skipped an unreadable regression suite", { file });
+    }
+    return found;
+  });
+
   const load = Effect.fn("QaSuites.load")(
     function* () {
       if (cache !== null) return cache;
-      const names = yield* fileSystem.readDirectory(suitesDir).pipe(
-        Effect.catchIf(
-          (error) => error.reason._tag === "NotFound",
-          () => Effect.succeed([] as Array<string>),
-        ),
-      );
-      const suites: Array<QaSuite> = [];
-      for (const name of names.filter((entry) => entry.endsWith(".json"))) {
-        const text = yield* fileSystem
-          .readFileString(path.join(suitesDir, name))
-          .pipe(Effect.orElseSucceed(() => ""));
-        const suite = decodeSuite(text);
-        if (suite._tag === "Some") suites.push(suite.value);
+      const suites = new Map<QaSuiteId, QaSuite>();
+      const searched = [dataStore, ...(yield* folders.projects).map(projectStore)];
+      // A project's copy wins over one still in the data folder.
+      for (const store of searched) {
+        for (const { suite } of yield* readStore(store)) {
+          suites.set(suite.suiteId, suite);
+          stores.set(suite.suiteId, store);
+        }
       }
-      suites.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-      cache = suites;
-      return suites;
+      cache = [...suites.values()].sort((left, right) =>
+        right.createdAt.localeCompare(left.createdAt),
+      );
+      return cache;
     },
     Effect.mapError(failure("Could not read the regression suites.")),
   );
+
+  /** The store a new suite goes in, ready to write. */
+  const newStore = Effect.fnUntraced(function* (projectId: ProjectId | null) {
+    if (projectId === null) return dataStore;
+    return yield* Effect.gen(function* () {
+      const project = yield* folders.forProject(projectId);
+      if (project === null) return dataStore;
+      yield* platform(QaFolders.ensureQaRoot(project.root));
+      return projectStore(project);
+    }).pipe(
+      Effect.catch((error) =>
+        Effect.logWarning("QA suite saved outside its project", { error }).pipe(
+          Effect.as(dataStore),
+        ),
+      ),
+    );
+  });
+
+  const writeSuite = Effect.fnUntraced(function* (store: SuiteStore, id: QaSuiteId, text: string) {
+    const file = suiteFile(store, id);
+    yield* guard(store.base, file);
+    yield* fileSystem.makeDirectory(store.dir, { recursive: true });
+    yield* platform(writeFileStringAtomically({ filePath: file, contents: text }));
+  });
+
+  /** Moves one suite out of the data folder into its project; the source goes last. */
+  const moveSuite = Effect.fnUntraced(function* (suite: QaSuite, text: string) {
+    if (suite.projectId === null) return;
+    const project = yield* folders.forProject(suite.projectId);
+    if (project === null) return;
+    yield* platform(QaFolders.ensureQaRoot(project.root));
+    const store = projectStore(project);
+    const file = suiteFile(store, suite.suiteId);
+    if ((yield* fileSystem.exists(file)) && (yield* fileSystem.readFileString(file)) !== text)
+      return yield* Effect.logWarning("QA suite not moved; its project already has one", { file });
+    const from = baselineDir(dataStore, suite.suiteId);
+    const to = baselineDir(store, suite.suiteId);
+    const hasBaselines = yield* fileSystem.exists(from);
+    if (hasBaselines) {
+      yield* guard(store.base, to);
+      if (!(yield* fileSystem.exists(to))) {
+        yield* fileSystem.makeDirectory(path.dirname(to), { recursive: true });
+        yield* platform(QaFolders.copyFolder(from, to));
+      } else if (!(yield* platform(QaFolders.isCopyOf(from, to))))
+        return yield* Effect.logWarning("QA suite not moved; its baselines differ", { to });
+    }
+    yield* writeSuite(store, suite.suiteId, text);
+    yield* fileSystem.remove(suiteFile(dataStore, suite.suiteId));
+    if (hasBaselines) yield* fileSystem.remove(from, { recursive: true });
+  });
+
+  const migrate = Effect.gen(function* () {
+    for (const { suite, text } of yield* readStore(dataStore)) {
+      yield* moveSuite(suite, text).pipe(
+        Effect.catch((error) =>
+          Effect.logWarning("QA suite not moved", { error, suiteId: suite.suiteId }),
+        ),
+      );
+    }
+  }).pipe(Effect.catch((error) => Effect.logWarning("QA suites not moved", { error })));
+  // Holds the lock from the start, so nothing reads the suites mid-move; startup does not wait.
+  yield* lock.withPermit(migrate).pipe(Effect.forkScoped({ startImmediately: true }));
 
   const find = Effect.fn("QaSuites.find")(function* (suiteId: QaSuiteId) {
     const suite = (yield* lock.withPermit(load())).find((entry) => entry.suiteId === suiteId);
@@ -244,14 +358,9 @@ const make = Effect.gen(function* () {
     yield* lock.withPermit(
       Effect.gen(function* () {
         const existing = yield* load();
-        yield* fileSystem.makeDirectory(suitesDir, { recursive: true });
-        yield* writeFileStringAtomically({
-          filePath: suitePath(suite.suiteId),
-          contents: `${yield* encodeSuite(suite)}\n`,
-        }).pipe(
-          Effect.provideService(FileSystem.FileSystem, fileSystem),
-          Effect.provideService(Path.Path, path),
-        );
+        const store = stores.get(suite.suiteId) ?? (yield* newStore(suite.projectId));
+        yield* writeSuite(store, suite.suiteId, `${yield* encodeSuite(suite)}\n`);
+        stores.set(suite.suiteId, store);
         const others = existing.filter((entry) => entry.suiteId !== suite.suiteId);
         cache =
           existing.length === others.length
@@ -331,14 +440,22 @@ const make = Effect.gen(function* () {
 
   const deleteSuite = Effect.fn("QaSuites.delete")(function* (suiteId: QaSuiteId) {
     yield* find(suiteId);
+    const store = storeOf(suiteId);
+    const file = suiteFile(store, suiteId);
+    const baselines = baselineDir(store, suiteId);
     yield* lock.withPermit(
-      fileSystem.remove(suitePath(suiteId)).pipe(
+      guard(store.base, file).pipe(
+        Effect.andThen(fileSystem.remove(file)),
         Effect.andThen(
-          fileSystem.remove(baselineDir(suiteId), { recursive: true }).pipe(Effect.ignore),
+          guard(store.base, baselines).pipe(
+            Effect.andThen(fileSystem.remove(baselines, { recursive: true })),
+            Effect.ignore,
+          ),
         ),
         Effect.tap(() =>
           Effect.sync(() => {
             cache = cache?.filter((suite) => suite.suiteId !== suiteId) ?? null;
+            stores.delete(suiteId);
           }),
         ),
         Effect.mapError(failure("Could not delete the regression suite.")),
@@ -449,6 +566,16 @@ const make = Effect.gen(function* () {
             ? `The suite uses {{param:${withParams.missing}}}. Add a data set with that column first.`
             : `Data row ${dataRow.index + 1} has no value for {{param:${withParams.missing}}}.`,
       });
+    // The suite file is editable, so its passwords must come from its own project's thread.
+    if (suite.projectId !== null) {
+      const source = yield* threads
+        .getThreadShell(suite.sourceThreadId)
+        .pipe(Effect.mapError(failure("Could not read the suite's thread.")));
+      if (source !== null && source.projectId !== suite.projectId)
+        return yield* new QaRunError({
+          message: "This suite names a thread from another project, so it cannot be replayed.",
+        });
+    }
     const secrets = yield* threadProvidedSecretsInOrder(threads, suite.sourceThreadId).pipe(
       Effect.mapError(failure("Could not read the suite's thread.")),
     );
@@ -470,15 +597,19 @@ const make = Effect.gen(function* () {
   });
 
   const readBaseline = (suiteId: QaSuiteId, index: number) =>
-    fileSystem.readFile(baselinePath(suiteId, index)).pipe(Effect.orElseSucceed(() => null));
+    guard(storeOf(suiteId).base, baselinePath(suiteId, index)).pipe(
+      Effect.andThen(fileSystem.readFile(baselinePath(suiteId, index))),
+      Effect.orElseSucceed(() => null),
+    );
 
   const writeBaseline = (suiteId: QaSuiteId, index: number, png: Uint8Array) =>
-    fileSystem
-      .makeDirectory(baselineDir(suiteId), { recursive: true })
-      .pipe(
-        Effect.andThen(fileSystem.writeFile(baselinePath(suiteId, index), png)),
-        Effect.mapError(failure("Could not save the baseline screenshot.")),
-      );
+    guard(storeOf(suiteId).base, baselinePath(suiteId, index)).pipe(
+      Effect.andThen(
+        fileSystem.makeDirectory(path.dirname(baselinePath(suiteId, index)), { recursive: true }),
+      ),
+      Effect.andThen(fileSystem.writeFile(baselinePath(suiteId, index), png)),
+      Effect.mapError(failure("Could not save the baseline screenshot.")),
+    );
 
   const replay = Effect.fn("QaSuites.replay")(function* (
     suite: QaSuite,
@@ -915,9 +1046,10 @@ const make = Effect.gen(function* () {
     const visual = run?.scenarios[input.scenarioIndex]?.visual;
     if (run === undefined || run.suiteId !== suite.suiteId || visual == null)
       return yield* new QaRunError({ message: "That replay has no capture to use as a baseline." });
-    const capture = yield* fileSystem
-      .readFile(visual.capturePath)
-      .pipe(Effect.mapError(failure("The replay's capture is gone.")));
+    const capture = yield* guard(QaFolders.baseOf(path, run.dir), visual.capturePath).pipe(
+      Effect.andThen(fileSystem.readFile(visual.capturePath)),
+      Effect.mapError(failure("The replay's capture is gone.")),
+    );
     yield* writeBaseline(suite.suiteId, input.scenarioIndex, capture);
   });
 

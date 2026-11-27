@@ -1,3 +1,7 @@
+// Effect's FileSystem cannot make a junction.
+// @effect-diagnostics-next-line nodeBuiltinImport:off
+import * as NodeFS from "node:fs";
+
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProjectId, ThreadId } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
@@ -9,6 +13,7 @@ import * as Path from "effect/Path";
 
 import * as ServerConfig from "../config.ts";
 import { QA_MAX_SCREENSHOT_BYTES } from "./qaEvidence.ts";
+import * as QaFolders from "./QaFolders.ts";
 import * as QaRuns from "./QaRuns.ts";
 
 const threadId = ThreadId.make("thread-qa-1");
@@ -32,27 +37,59 @@ const page = (overrides: Partial<QaRuns.QaPageCapture> = {}): QaRuns.QaPageCaptu
   ...overrides,
 });
 
+/** Every thread belongs to a project at `root`; with no root, to none. */
+const foldersAt = (root: string | null) => {
+  const project = root === null ? null : { projectId: ProjectId.make("shop"), root };
+  return Layer.succeed(
+    QaFolders.QaFolders,
+    QaFolders.QaFolders.of({
+      forThread: () =>
+        Effect.succeed(project === null ? null : { ...project, threadTitle: "Login check" }),
+      forProject: () => Effect.succeed(project),
+      projects: Effect.succeed(project === null ? [] : [project]),
+    }),
+  );
+};
+
 let randomSeed = 0;
-const withQaRuns = <A, E>(
+/** One server start over `baseDir`. */
+const startServer = <A, E>(
+  baseDir: string,
+  projectRoot: string | null,
   body: Effect.Effect<A, E, QaRuns.QaRuns | FileSystem.FileSystem | Path.Path>,
 ) =>
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "exploro-qa-runs-" });
-    return yield* body.pipe(
-      Effect.provide(
-        QaRuns.layer.pipe(
-          Layer.provide(ServerConfig.layerTest(process.cwd(), baseDir)),
-          Layer.provide(
-            Layer.succeed(
-              SecureRandom.SecureRandom,
-              SecureRandom.make((size) => new Uint8Array(size).fill((randomSeed += 1))),
-            ),
+  body.pipe(
+    Effect.provide(
+      QaRuns.layer.pipe(
+        Layer.provide(foldersAt(projectRoot)),
+        Layer.provide(ServerConfig.layerTest(process.cwd(), baseDir)),
+        Layer.provide(
+          Layer.succeed(
+            SecureRandom.SecureRandom,
+            SecureRandom.make((size) => new Uint8Array(size).fill((randomSeed += 1))),
           ),
         ),
       ),
-    );
-  });
+    ),
+  );
+
+const tempDir = (name: string) =>
+  Effect.flatMap(FileSystem.FileSystem, (fs) =>
+    fs.makeTempDirectoryScoped({ prefix: `exploro-qa-${name}-` }),
+  );
+
+const withQaRuns = <A, E>(
+  body: Effect.Effect<A, E, QaRuns.QaRuns | FileSystem.FileSystem | Path.Path>,
+) => Effect.flatMap(tempDir("runs"), (baseDir) => startServer(baseDir, null, body));
+
+const loginPasses = { scenario: "Login", verdict: "PASS", note: "ok" } as const;
+const recordAndFinish = Effect.gen(function* () {
+  const qaRuns = yield* QaRuns.QaRuns;
+  yield* qaRuns.appendStep(threadId, { kind: "press", key: "Enter" });
+  yield* qaRuns.recordEvidence(threadId, loginPasses, page());
+  return (yield* qaRuns.finishRun(threadId, { projectId: ProjectId.make("shop") }))!;
+});
+const listRuns = Effect.flatMap(QaRuns.QaRuns, (qaRuns) => qaRuns.list(threadId));
 
 it.layer(NodeServices.layer)("QaRuns", (it) => {
   it.effect("writes the manifest, evidence and self-contained reports", () =>
@@ -204,5 +241,89 @@ it.layer(NodeServices.layer)("QaRuns", (it) => {
         assert.deepStrictEqual(yield* qaRuns.readSteps(finished!), []);
       }),
     ),
+  );
+  it.effect("keeps a project's run in its folder and trusts that folder over run.json", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* tempDir("data");
+      const repository = yield* tempDir("project");
+      const project = path.join(repository, "app");
+      const outside = yield* tempDir("outside");
+      yield* fs.makeDirectory(project);
+      yield* fs.makeDirectory(path.join(repository, ".git"));
+      const keep = path.join(outside, "keep.png");
+      yield* fs.writeFile(keep, PNG);
+
+      const run = yield* startServer(baseDir, project, recordAndFinish);
+      assert.strictEqual(path.dirname(run.dir), path.join(project, "qa-runs"));
+      assert.match(path.basename(run.dir), /^\d{4}-\d\d-\d\d_\d{4}_login-check$/);
+      for (const file of ["run.json", "steps.jsonl", "report.html", "report.md"])
+        assert.isTrue(yield* fs.exists(path.join(run.dir, file)), file);
+      assert.strictEqual(
+        yield* fs.readFileString(path.join(project, "qa-runs", ".gitignore")),
+        "*\n",
+      );
+
+      // The agent can edit run.json: its paths must not reach outside the run's folder.
+      const manifestPath = path.join(run.dir, "run.json");
+      const manifest = JSON.parse(yield* fs.readFileString(manifestPath));
+      manifest.dir = outside;
+      manifest.scenarios[0].screenshotPath = keep;
+      yield* fs.writeFileString(manifestPath, JSON.stringify(manifest));
+      yield* startServer(
+        baseDir,
+        project,
+        Effect.gen(function* () {
+          const [loaded] = yield* listRuns;
+          assert.strictEqual(loaded!.dir, run.dir);
+          assert.strictEqual(
+            loaded!.scenarios[0]!.screenshotPath,
+            path.join(run.dir, "evidence", "keep.png"),
+          );
+          yield* (yield* QaRuns.QaRuns).deleteRun({ threadId, runId: run.runId });
+        }),
+      );
+      assert.isFalse(yield* fs.exists(run.dir));
+      assert.isTrue(yield* fs.exists(keep));
+    }),
+  );
+
+  it.effect("saves outside a project whose qa-runs folder is a link leading out", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* tempDir("data");
+      const project = yield* tempDir("project");
+      const outside = yield* tempDir("outside");
+      // A junction needs no elevation on Windows; elsewhere the type is ignored.
+      NodeFS.symlinkSync(outside, path.join(project, "qa-runs"), "junction");
+
+      const run = yield* startServer(baseDir, project, recordAndFinish);
+      assert.isTrue(run.dir.startsWith(baseDir));
+      assert.deepStrictEqual(yield* fs.readDirectory(outside), []);
+    }),
+  );
+
+  it.effect("moves an earlier run into its project once, and keeps it when it cannot", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* tempDir("data");
+      const project = yield* tempDir("project");
+      const old = yield* startServer(baseDir, null, recordAndFinish);
+
+      const [stayed] = yield* startServer(baseDir, path.join(project, "missing"), listRuns);
+      assert.strictEqual(stayed!.dir, old.dir);
+      assert.isTrue(yield* fs.exists(path.join(old.dir, "evidence")));
+
+      for (let start = 0; start < 2; start++) {
+        const runs = yield* startServer(baseDir, project, listRuns);
+        assert.strictEqual(runs.length, 1);
+        assert.strictEqual(path.dirname(runs[0]!.dir), path.join(project, "qa-runs"));
+        assert.deepStrictEqual(yield* fs.readFile(runs[0]!.scenarios[0]!.screenshotPath!), PNG);
+        assert.isFalse(yield* fs.exists(old.dir));
+      }
+    }),
   );
 });

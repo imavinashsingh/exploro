@@ -43,6 +43,7 @@ import {
   stepsFor,
   summarizeLogs,
 } from "./qaEvidence.ts";
+import * as QaFolders from "./QaFolders.ts";
 import { QA_VIDEO_FILE, renderHtmlReport, renderMarkdownReport } from "./qaReport.ts";
 
 /** A replay's comparison with the scenario's baseline, saved beside its other evidence. */
@@ -145,11 +146,47 @@ const encodeLogJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))
 
 const failure = (message: string) => (cause: unknown) => new QaRunError({ message, cause });
 
+/**
+ * A stored run as found in `dir`. Every file path is rebuilt from that folder, so a moved folder
+ * keeps working and an edited `run.json` cannot point anywhere else.
+ */
+function locateRun(path: Path.Path, run: QaRun, dir: string, projectId: ProjectId | null): QaRun {
+  const evidence = (stored: string) => {
+    const name = stored.split(/[\\/]/).at(-1) ?? "";
+    return path.join(dir, "evidence", name === ".." || name === "." ? "" : name);
+  };
+  const optional = (stored: string | null) => (stored === null ? null : evidence(stored));
+  return {
+    ...run,
+    projectId: projectId ?? run.projectId,
+    dir,
+    video: run.video === null ? null : { ...run.video, path: evidence(run.video.path) },
+    reportMarkdownPath: run.reportMarkdownPath === null ? null : path.join(dir, "report.md"),
+    reportHtmlPath: run.reportHtmlPath === null ? null : path.join(dir, "report.html"),
+    scenarios: run.scenarios.map((scenario) => ({
+      ...scenario,
+      screenshotPath: optional(scenario.screenshotPath),
+      consolePath: optional(scenario.consolePath),
+      networkPath: optional(scenario.networkPath),
+      visual:
+        scenario.visual === null
+          ? null
+          : {
+              ...scenario.visual,
+              baselinePath: evidence(scenario.visual.baselinePath),
+              capturePath: evidence(scenario.visual.capturePath),
+              diffPath: optional(scenario.visual.diffPath),
+            },
+    })),
+  };
+}
+
 const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const random = yield* SecureRandom.SecureRandom;
+  const folders = yield* QaFolders.QaFolders;
   const changes = yield* PubSub.unbounded<ThreadId>();
   const lock = yield* Semaphore.make(1);
   const cache = new Map<ThreadId, ReadonlyArray<QaRun>>();
@@ -168,25 +205,55 @@ const make = Effect.gen(function* () {
       Effect.provideService(Path.Path, path),
     );
 
+  /** Refuses a run file that a link would send outside the run's project or data folder. */
+  const guard = (run: Pick<QaRun, "dir">, target: string) =>
+    platform(QaFolders.checkInside(QaFolders.baseOf(path, run.dir), target));
+
+  /** The thread's runs stored in `parent`'s subfolders. */
+  const readRuns = Effect.fnUntraced(function* (
+    parent: string,
+    threadId: ThreadId,
+    projectId: ProjectId | null,
+  ) {
+    const names = yield* fileSystem.readDirectory(parent).pipe(
+      Effect.catchIf(
+        (error) => error.reason._tag === "NotFound",
+        () => Effect.succeed([] as Array<string>),
+      ),
+    );
+    const runs: Array<QaRun> = [];
+    // `.partial` is a move still copying.
+    for (const name of names.filter((entry) => !entry.endsWith(".partial"))) {
+      const dir = path.join(parent, name);
+      const manifest = path.join(dir, "run.json");
+      const text = yield* guard({ dir }, manifest).pipe(
+        Effect.andThen(fileSystem.readFileString(manifest)),
+        Effect.orElseSucceed(() => ""),
+      );
+      const run = decodeRunJson(text);
+      if (run._tag === "Some" && run.value.threadId === threadId)
+        runs.push(locateRun(path, run.value, dir, projectId));
+    }
+    return runs;
+  });
+
   const load = Effect.fn("QaRuns.load")(
     function* (threadId: ThreadId) {
       const cached = cache.get(threadId);
       if (cached !== undefined) return cached;
-      const dir = threadDir(threadId);
-      const names = yield* fileSystem.readDirectory(dir).pipe(
-        Effect.catchIf(
-          (error) => error.reason._tag === "NotFound",
-          () => Effect.succeed([] as Array<string>),
-        ),
-      );
-      const runs: Array<QaRun> = [];
-      for (const name of names) {
-        const text = yield* fileSystem
-          .readFileString(path.join(dir, name, "run.json"))
-          .pipe(Effect.orElseSucceed(() => ""));
-        const run = decodeRunJson(text);
-        if (run._tag === "Some" && run.value.threadId === threadId) runs.push(run.value);
-      }
+      const project = yield* folders.forThread(threadId);
+      const found = [
+        ...(project === null
+          ? []
+          : yield* readRuns(
+              path.join(project.root, QaFolders.QA_PROJECT_DIR),
+              threadId,
+              project.projectId,
+            )),
+        ...(yield* readRuns(threadDir(threadId), threadId, null)),
+      ];
+      // A folder copied by hand, or a move cut short, must not list one run twice.
+      const runs = [...new Map(found.toReversed().map((run) => [run.runId, run])).values()];
       runs.sort((left, right) => right.startedAt.localeCompare(left.startedAt));
       cache.set(threadId, runs);
       return runs;
@@ -194,8 +261,57 @@ const make = Effect.gen(function* () {
     Effect.mapError(failure("Could not read the thread's QA runs.")),
   );
 
+  /** Moves one run out of the data folder into its project; the source goes last. */
+  const moveRun = Effect.fnUntraced(function* (source: string) {
+    const text = yield* fileSystem
+      .readFileString(path.join(source, "run.json"))
+      .pipe(Effect.orElseSucceed(() => ""));
+    const decoded = decodeRunJson(text);
+    if (decoded._tag === "None") return;
+    const run = decoded.value;
+    const ofThread = yield* folders.forThread(run.threadId);
+    const project =
+      ofThread ?? (run.projectId === null ? null : yield* folders.forProject(run.projectId));
+    if (project === null) return;
+    const qaRoot = yield* platform(QaFolders.ensureQaRoot(project.root));
+    const moved = (yield* readRuns(qaRoot, run.threadId, project.projectId)).find(
+      (candidate) => candidate.runId === run.runId,
+    );
+    if (moved !== undefined) {
+      // An earlier move copied it and stopped before removing the source.
+      if (yield* platform(QaFolders.isCopyOf(source, moved.dir)))
+        return yield* fileSystem.remove(source, { recursive: true });
+      return yield* Effect.logWarning("QA run not moved; its project has another copy", { source });
+    }
+    const name = QaFolders.runFolderName(Date.parse(run.startedAt), ofThread?.threadTitle ?? "");
+    const taken = yield* fileSystem.exists(path.join(qaRoot, name));
+    const target = path.join(qaRoot, taken ? `${name}_${run.runId.slice(-6)}` : name);
+    yield* guard({ dir: target }, target);
+    if (yield* fileSystem.exists(target))
+      return yield* Effect.logWarning("QA run not moved; the folder is taken", { target });
+    yield* platform(QaFolders.copyFolder(source, target));
+    yield* fileSystem.remove(source, { recursive: true });
+  });
+
+  const migrate = Effect.gen(function* () {
+    if (!(yield* fileSystem.exists(qaRunsDir))) return;
+    for (const thread of yield* fileSystem.readDirectory(qaRunsDir)) {
+      const parent = path.join(qaRunsDir, thread);
+      for (const name of yield* fileSystem.readDirectory(parent)) {
+        const source = path.join(parent, name);
+        yield* moveRun(source).pipe(
+          Effect.catch((error) => Effect.logWarning("QA run not moved", { error, source })),
+        );
+      }
+    }
+  }).pipe(Effect.catch((error) => Effect.logWarning("QA runs not moved", { error })));
+  // Holds the lock from the start, so nothing reads the runs mid-move; startup does not wait.
+  yield* lock.withPermit(migrate).pipe(Effect.forkScoped({ startImmediately: true }));
+
   const save = Effect.fn("QaRuns.save")(
     function* (run: QaRun) {
+      yield* guard(run, path.join(run.dir, "run.json"));
+      yield* guard(run, path.join(run.dir, "evidence"));
       yield* fileSystem.makeDirectory(path.join(run.dir, "evidence"), { recursive: true });
       yield* platform(
         writeFileStringAtomically({
@@ -234,6 +350,35 @@ const make = Effect.gen(function* () {
     });
   });
 
+  /** A folder of its own for a new run, in the thread's project when it has one. */
+  const claimRunDir = Effect.fnUntraced(function* (
+    threadId: ThreadId,
+    runId: string,
+    startedAtMillis: number,
+  ) {
+    const inProject = Effect.gen(function* () {
+      const project = yield* folders.forThread(threadId);
+      if (project === null) return null;
+      const qaRoot = yield* platform(QaFolders.ensureQaRoot(project.root));
+      const name = QaFolders.runFolderName(startedAtMillis, project.threadTitle);
+      const taken = yield* fileSystem.exists(path.join(qaRoot, name));
+      const dir = path.join(qaRoot, taken ? `${name}_${runId.slice(-6)}` : name);
+      yield* fileSystem.makeDirectory(dir);
+      return dir;
+    }).pipe(
+      Effect.catch((error) =>
+        Effect.logWarning("QA run saved outside its project", { error }).pipe(Effect.as(null)),
+      ),
+    );
+    const dir = yield* inProject;
+    if (dir !== null) return dir;
+    const fallback = path.join(threadDir(threadId), runId);
+    yield* fileSystem
+      .makeDirectory(fallback, { recursive: true })
+      .pipe(Effect.mapError(failure("Could not create the QA run folder.")));
+    return fallback;
+  });
+
   const createRunUnlocked = Effect.fnUntraced(function* (
     threadId: ThreadId,
     site: string | null,
@@ -250,7 +395,7 @@ const make = Effect.gen(function* () {
       site,
       startedAt,
       finishedAt: null,
-      dir: path.join(threadDir(threadId), runId),
+      dir: yield* claimRunDir(threadId, runId, Date.parse(startedAt)),
       scenarios: [],
       recordingStartedAt: null,
       video: null,
@@ -280,6 +425,7 @@ const make = Effect.gen(function* () {
 
   const readStepsOf = Effect.fnUntraced(
     function* (run: Pick<QaRun, "dir">) {
+      yield* platform(QaFolders.checkInside(QaFolders.baseOf(path, run.dir), stepsPath(run)));
       const text = yield* fileSystem.readFileString(stepsPath(run)).pipe(
         Effect.catchIf(
           (error) => error.reason._tag === "NotFound",
@@ -308,6 +454,7 @@ const make = Effect.gen(function* () {
       if (open?.kind === "regression") return;
       const run = open ?? (yield* ensureRunUnlocked(threadId, null));
       const count = yield* stepCountOf(run);
+      yield* guard(run, stepsPath(run));
       yield* fileSystem.makeDirectory(run.dir, { recursive: true });
       yield* fileSystem.writeFileString(stepsPath(run), `${yield* encodeStepLine(step)}\n`, {
         flag: "a",
@@ -358,6 +505,16 @@ const make = Effect.gen(function* () {
             diffPath: replayVisual.diffPng === null ? null : visualFile("diff"),
           };
     yield* Effect.gen(function* () {
+      for (const target of [
+        screenshotPath,
+        visual?.baselinePath,
+        visual?.capturePath,
+        visual?.diffPath,
+        consolePath,
+        networkPath,
+      ]) {
+        if (target !== null && target !== undefined) yield* guard(run, target);
+      }
       yield* fileSystem.makeDirectory(evidenceDir, { recursive: true });
       if (screenshotPath !== null && png !== null) yield* fileSystem.writeFile(screenshotPath, png);
       if (replayVisual !== undefined && visual !== null) {
@@ -414,6 +571,7 @@ const make = Effect.gen(function* () {
         return;
       }
       const target = path.join(open.dir, "evidence", QA_VIDEO_FILE);
+      yield* guard(open, target);
       yield* fileSystem.makeDirectory(path.dirname(target), { recursive: true });
       // A rename fails across devices, so fall back to copying.
       yield* fileSystem
@@ -466,11 +624,18 @@ const make = Effect.gen(function* () {
       ];
       for (const image of images) {
         if (image === null || image === undefined) continue;
-        const bytes = yield* fileSystem.readFile(image).pipe(Effect.orElseSucceed(() => null));
+        const bytes = yield* guard(finished, image).pipe(
+          Effect.andThen(fileSystem.readFile(image)),
+          Effect.orElseSucceed(() => null),
+        );
         if (bytes !== null) screenshots.set(image, Buffer.from(bytes).toString("base64"));
       }
     }
-    yield* fileSystem.writeFileString(reportMarkdownPath, renderMarkdownReport(finished)).pipe(
+    yield* guard(finished, reportMarkdownPath).pipe(
+      Effect.andThen(guard(finished, reportHtmlPath)),
+      Effect.andThen(
+        fileSystem.writeFileString(reportMarkdownPath, renderMarkdownReport(finished)),
+      ),
       Effect.andThen(
         fileSystem.writeFileString(
           reportHtmlPath,
@@ -486,9 +651,10 @@ const make = Effect.gen(function* () {
     const runs = yield* load(input.threadId);
     const run = runs.find((candidate) => candidate.runId === input.runId);
     if (!run) return yield* new QaRunError({ message: "That QA run no longer exists." });
-    yield* fileSystem
-      .remove(path.join(threadDir(input.threadId), input.runId), { recursive: true })
-      .pipe(Effect.mapError(failure("Could not delete the QA run.")));
+    yield* guard(run, run.dir).pipe(
+      Effect.andThen(fileSystem.remove(run.dir, { recursive: true, force: true })),
+      Effect.mapError(failure("Could not delete the QA run.")),
+    );
     cache.set(
       input.threadId,
       runs.filter((candidate) => candidate.runId !== input.runId),

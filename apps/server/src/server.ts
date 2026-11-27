@@ -105,6 +105,7 @@ import * as PreviewAgentActivity from "./preview/PreviewAgentActivity.ts";
 import * as QaSuites from "./qa/QaSuites.ts";
 import * as QaRecorder from "./qa/QaRecorder.ts";
 import * as QaRuns from "./qa/QaRuns.ts";
+import * as QaFolders from "./qa/QaFolders.ts";
 import * as DesktopBrowserChannel from "./preview/DesktopBrowserChannel.ts";
 import * as ServerBrowserStream from "./preview/ServerBrowserStream.ts";
 import * as PreviewBrowser from "./preview/PreviewBrowser.ts";
@@ -898,6 +899,7 @@ const layerMakeRoutes = Layer.mergeAll(
           Layer.provide(PreviewAgentActivity.layer),
         ),
       ),
+      Layer.provide(QaFolders.layer),
     ),
   ),
   // Links to other environments, shared by Settings (WebSocket) and agents (/mcp).

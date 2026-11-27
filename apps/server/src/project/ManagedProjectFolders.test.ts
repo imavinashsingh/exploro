@@ -9,16 +9,13 @@ import {
   VcsProcessTimeoutError,
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
-import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
-import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
-import { ChildProcessSpawner } from "effect/process";
 import * as Scope from "effect/Scope";
 
 import * as ServerConfig from "../config.ts";
@@ -421,10 +418,7 @@ const TEST_IDENTITY = {
   GIT_COMMITTER_EMAIL: "test@test.com",
 };
 
-const gitOutput = (cwd: string, args: ReadonlyArray<string>) =>
-  git(cwd, args).pipe(Effect.map((result) => result.stdout.trim()));
-
-it.effect("starts a named project as a committed repository, and suffixes a taken name", () =>
+it.effect("starts a named project as a plain folder, and suffixes a taken name", () =>
   withScratch(({ baseDir }) =>
     withGitEnv(
       TEST_IDENTITY,
@@ -435,19 +429,11 @@ it.effect("starts a named project as a committed repository, and suffixes a take
         const path = yield* Path.Path;
         const root = path.resolve(baseDir, "projects");
         assert.equal(folders.namedProjectsRoot, root);
-        const attributes = path.join(baseDir, "crlf.gitattributes");
-        const crlfConfig = path.join(baseDir, "crlf.gitconfig");
-        yield* fileSystem.writeFileString(attributes, "* text=auto eol=crlf\n");
-        yield* git(baseDir, ["config", "--file", crlfConfig, "core.safecrlf", "true"]);
-        yield* git(baseDir, ["config", "--file", crlfConfig, "core.attributesFile", attributes]);
-        (yield* HostProcess.Environment).GIT_CONFIG_GLOBAL = crlfConfig;
-
         const first = yield* folders.createNamedProject({ name: "Pinball Stats" });
         const second = yield* folders.createNamedProject({ name: "pinball stats" });
 
         assert.equal(first.workspaceRoot, path.join(root, "pinball-stats"));
         assert.equal(second.workspaceRoot, path.join(root, "pinball-stats-2"));
-        assert.isUndefined(first.commitError);
         const project = Option.getOrThrow(yield* projects.getById(first.projectId));
         assert.equal(project.title, "Pinball Stats");
         assert.equal(project.workspaceRoot, first.workspaceRoot);
@@ -461,15 +447,7 @@ it.effect("starts a named project as a committed repository, and suffixes a take
           path.join(first.workspaceRoot, "assets", "icon.svg"),
         );
         assert.include(icon, ">PS</text>");
-        assert.equal(
-          yield* gitOutput(first.workspaceRoot, ["log", "--format=%s"]),
-          "Initial commit",
-        );
-        assert.equal(
-          yield* gitOutput(first.workspaceRoot, ["rev-parse", "--abbrev-ref", "HEAD"]),
-          "main",
-        );
-        assert.equal(yield* gitOutput(first.workspaceRoot, ["status", "--porcelain"]), "");
+        assert.isFalse(yield* fileSystem.exists(path.join(first.workspaceRoot, ".git")));
       }),
     ),
   ),
@@ -497,70 +475,6 @@ it.effect("gives concurrent named projects with the same name distinct folders",
         }
       }),
     ),
-  ),
-);
-
-it.effect("keeps a named project and reports why when Git cannot commit", () =>
-  withScratch(({ baseDir }) =>
-    withGitEnv(
-      {},
-      Effect.gen(function* () {
-        const folders = yield* ManagedProjectFolders.ManagedProjectFolders;
-        const projects = yield* ProjectService.ProjectService;
-        const fileSystem = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
-        yield* fileSystem.writeFileString(
-          path.join(baseDir, "no-identity.gitconfig"),
-          "[user]\n\tuseConfigOnly = true\n",
-        );
-        (yield* HostProcess.Environment).GIT_CONFIG_GLOBAL = path.join(
-          baseDir,
-          "no-identity.gitconfig",
-        );
-
-        const result = yield* folders.createNamedProject({ name: "No Identity" });
-
-        assert.include(result.commitError ?? "", "no name or email");
-        assert.isTrue(Option.isSome(yield* projects.getById(result.projectId)));
-        assert.isTrue(yield* fileSystem.exists(path.join(result.workspaceRoot, "README.md")));
-        assert.isTrue(yield* fileSystem.exists(path.join(result.workspaceRoot, ".git")));
-      }),
-    ),
-  ),
-);
-
-it.effect("says Git is not installed when a named project cannot start Git", () =>
-  withScratch(
-    () =>
-      Effect.gen(function* () {
-        const folders = yield* ManagedProjectFolders.ManagedProjectFolders;
-
-        const failure = yield* Effect.flip(folders.createNamedProject({ name: "T3Code Test" }));
-
-        assert.strictEqual(
-          failure.message,
-          "Git isn't installed on this machine. Install Git to create a project.",
-        );
-      }),
-    {
-      git: GitVcsDriver.layer.pipe(
-        Layer.provide(
-          Layer.succeed(
-            ChildProcessSpawner.ChildProcessSpawner,
-            ChildProcessSpawner.make(() =>
-              Effect.fail(
-                PlatformError.systemError({
-                  _tag: "NotFound",
-                  module: "ChildProcess",
-                  method: "spawn",
-                  syscall: "spawn git",
-                }),
-              ),
-            ),
-          ),
-        ),
-      ),
-    },
   ),
 );
 
@@ -629,38 +543,4 @@ it.effect("removes the folder when the project create is rejected for another re
         }),
     },
   ),
-);
-
-it.effect("removes the folder when the create is cancelled before the project exists", () =>
-  Effect.gen(function* () {
-    const scaffolding = yield* Deferred.make<void>();
-    yield* withScratch(
-      ({ baseDir }) =>
-        Effect.gen(function* () {
-          const folders = yield* ManagedProjectFolders.ManagedProjectFolders;
-          const projects = yield* ProjectService.ProjectService;
-          const fileSystem = yield* FileSystem.FileSystem;
-          const path = yield* Path.Path;
-
-          const fiber = yield* folders
-            .createNamedProject({ name: "Cancelled" })
-            .pipe(Effect.forkChild);
-          yield* Deferred.await(scaffolding);
-          assert.deepEqual(yield* fileSystem.readDirectory(path.resolve(baseDir, "projects")), [
-            "cancelled",
-          ]);
-          yield* Fiber.interrupt(fiber);
-
-          assert.deepEqual(yield* fileSystem.readDirectory(path.resolve(baseDir, "projects")), []);
-          assert.deepEqual((yield* projects.snapshot).projects, []);
-        }),
-      {
-        git: Layer.mock(GitVcsDriver.GitVcsDriver)({
-          readConfigValue: () => Effect.succeed(null),
-          execute: () =>
-            Deferred.succeed(scaffolding, undefined).pipe(Effect.andThen(Effect.never)),
-        }),
-      },
-    );
-  }),
 );
