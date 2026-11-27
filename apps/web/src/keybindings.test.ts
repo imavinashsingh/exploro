@@ -444,8 +444,6 @@ describe("chat/editor shortcuts", () => {
       "terminal.splitVertical",
       "terminal.close",
       "diff.toggle",
-      "filePicker.toggle",
-      "projectSearch.toggle",
       "pullRequest.copyNumber",
       "chat.newLocal",
       "composer.host",

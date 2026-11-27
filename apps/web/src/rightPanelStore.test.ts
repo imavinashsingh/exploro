@@ -41,14 +41,13 @@ async function reloadRightPanelStore() {
 }
 
 describe("rightPanelStore", () => {
-  it("shows QA surfaces while hiding developer tabs, including restored workspace files", () => {
-    for (const kind of ["terminal", "diff", "files", "file", "pull-request", "pull-requests"]) {
+  it("shows QA surfaces while hiding developer tabs, keeping workspace files", () => {
+    for (const kind of ["terminal", "diff", "pull-request", "pull-requests"]) {
       expect(isExploroPanelSurfaceVisible({ kind })).toBe(false);
     }
-    for (const kind of ["preview", "device", "issue", "side-chat"]) {
+    for (const kind of ["preview", "device", "issue", "side-chat", "files", "file"]) {
       expect(isExploroPanelSurfaceVisible({ kind })).toBe(true);
     }
-    expect(isExploroPanelSurfaceVisible({ kind: "file", attachment: {} })).toBe(true);
   });
 
   it("opens a hosted side chat's panel actions in its parent's panel until unhosted", () => {

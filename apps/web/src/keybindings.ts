@@ -388,8 +388,6 @@ const EXPLORO_HIDDEN_COMMANDS: ReadonlySet<string> = new Set([
   "terminal.splitVertical",
   "terminal.close",
   "diff.toggle",
-  "filePicker.toggle",
-  "projectSearch.toggle",
   "pullRequest.copyNumber",
   "chat.newLocal",
   "composer.host",

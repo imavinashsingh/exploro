@@ -608,11 +608,10 @@ it("a shortcut conditioned on rightPanelOpen sees the thread's open right panel"
   const toggle = page.getByRole("button", { name: "Toggle right panel", exact: true });
   await expect.element(toggle).toHaveAttribute("aria-pressed", "false");
   await toggle.click();
-  // Exploro: Files is hidden, so the panel opens on Project window.
-  await page.getByRole("button", { name: /^Project window/ }).click();
+  await page.getByRole("button", { name: /^Files/ }).click();
   await composer.click();
   await userEvent.keyboard("{Control>}t{/Control}");
-  await expect.element(page.getByRole("menuitem", { name: /Project window/ })).toBeVisible();
+  await expect.element(page.getByRole("menuitem", { name: /Files/ })).toBeVisible();
   await expect.element(toggle).toHaveAttribute("aria-pressed", "true");
 });
 

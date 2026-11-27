@@ -73,7 +73,6 @@ describe("searchSettings", () => {
       "project-actions",
       "worktree-fast-checkout",
       "keybinding-terminal.toggle",
-      "keybinding-filePicker.toggle",
       "keybinding-composer.host",
       "auto-settle-merged-threads",
       "keep-threads-with-pull-requests",
