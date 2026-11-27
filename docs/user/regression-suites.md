@@ -96,3 +96,12 @@ and never passes a scenario. Accepting updates the step and replays the suite wi
   sign-in, give a test account's password in chat instead.
 - A replay cannot start while an agent is working in that thread.
 - Deleting a suite keeps the runs it already made.
+
+## Where results are saved
+
+A project keeps everything in its `qa-runs` folder: one folder per run with the reports,
+screenshots, video and logs, and the suites and their baseline images under `qa-runs/suites`.
+Open **Files** to browse them. Anyone who can edit the project, including an agent, can change
+these files. Threads without a project save in Exploro's data directory instead.
+
+Runs and suites saved by earlier versions move into their project the next time Exploro starts.

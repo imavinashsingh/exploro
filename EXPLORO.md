@@ -22,10 +22,17 @@ still describes the T3 codebase and applies here; this file only adds what is di
   branches, pull requests, dev servers), Exploro shows the QA workflow instead. Hide those
   features in the UI, together with their keybindings and command palette entries; do not delete
   upstream code, so T3 merges stay easy.
-- **Evidence is server-owned.** Each QA run writes `<home>/userdata/qa-runs/<thread>/<run>/`
-  (`run.json`, `report.md`, a self-contained `report.html`, `evidence/`). Runs are kept until
-  the user deletes them. A verdict without a screenshot is stored as INCONCLUSIVE, whatever the
-  agent asked for.
+- **QA data lives in the project.** `<project>/qa-runs/` holds one folder per run (`run.json`,
+  `report.md`, a self-contained `report.html`, `evidence/`) and the regression suites with their
+  baselines, so there is one place to check. Only threads without a project use
+  `<home>/userdata/`. Runs are kept until the user deletes them. A verdict without a screenshot is
+  recorded as INCONCLUSIVE, whatever the agent asked for. The trade-off is deliberate: the agent can
+  edit project files, so stored results are not tamper-proof. The server therefore takes file
+  locations from the folder it read, never from paths written in a file, refuses links that leave
+  the project, and only fills a suite's passwords from a thread of that project.
+- **Projects don't use Git.** New projects are plain folders, so reverting a turn rewinds the chat,
+  not files. Older projects keep their `.git`; there `qa-runs/` is ignored so videos stay out of
+  checkpoints.
 
 ## Develop
 
